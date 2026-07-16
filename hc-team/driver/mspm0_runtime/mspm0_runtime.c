@@ -1,9 +1,9 @@
 /**
  * @file    mspm0_runtime.c
- * @brief   Board-specific MSPM0G3519 runtime: shared GPIO IRQ, UART/DMA
- *          dispatch, board-role UART DMA TX send, and hardware QEI readout.
+ * @brief   Board-specific MSPM0G3519 runtime: shared GPIO IRQ, UART/DMA IRQ
+ *          dispatch, and hardware QEI readout.
  *
- * Owns GROUP1 (keys), DMA, and the three board UART IRQ symbols.
+ * Owns GROUP1 (keys), DMA, and the fixed board UART IRQ symbols.
  * Encoder counting moved from GROUP1 software edge-counting (G3507) to the
  * two hardware QEI timers (G3519: QEI_LEFT=TIMG8, QEI_RIGHT=TIMG9).
  * SysTick is now owned by driver/clock.
@@ -19,10 +19,7 @@
 #include <ti/driverlib/dl_timerg.h>
 #include <ti/driverlib/dl_uart.h>
 
-/* Delay and DMA constants. SysTick is owned by driver/clock. */
-#define MSPM0_RUNTIME_DMA_TX_BUFFER_SIZE    512u
-
-/* SysConfig DMA channel IDs for the three board UART roles. */
+/* SysConfig DMA channel IDs for the three fixed DMA RX/TX roles. */
 #define RT_DMA_STEPMOTOR_RX DMA_CH0_CHAN_ID
 #define RT_DMA_STEPMOTOR_TX DMA_CH3_CHAN_ID
 #define RT_DMA_VOFA_TX      DMA_CH1_CHAN_ID
@@ -41,21 +38,15 @@ static int32_t s_left_encoder_count = 0;
 static int32_t s_right_encoder_count = 0;
 static volatile uint8_t s_key_irq_edges = 0u;
 
-static Mspm0Runtime_UartRxCallback s_stepmotor_rx_cb = NULL;
-static Mspm0Runtime_UartRxCallback s_vofa_rx_cb = NULL;
-static Mspm0Runtime_UartRxCallback s_vision_rx_cb = NULL;
-static Mspm0Runtime_UartTxCallback s_stepmotor_tx_cb = NULL;
-
 static uint8_t s_dma_rx_byte_stepmotor;
 static uint8_t s_dma_rx_byte_vofa;
 static uint8_t s_dma_rx_byte_vision;
 
-static uint8_t s_dma_tx_buf_stepmotor[MSPM0_RUNTIME_DMA_TX_BUFFER_SIZE];
-static uint8_t s_dma_tx_buf_vofa[MSPM0_RUNTIME_DMA_TX_BUFFER_SIZE];
-
-static volatile bool s_tx_busy_stepmotor = false;
-static volatile bool s_tx_busy_vofa = false;
-static volatile bool s_tx_busy_vision = false;
+void StepmotorUart_IsrPushByte(uint8_t data);
+void StepmotorUart_IsrTxDone(void);
+void VofaUart_IsrPushByte(uint8_t data);
+void VofaUart_IsrTxDone(void);
+void VisionUart_IsrPushByte(uint8_t data);
 
 static uint32_t runtime_dma_irq_mask(uint8_t dma_ch_num)
 {
@@ -79,19 +70,16 @@ static uint32_t runtime_dma_irq_mask(uint8_t dma_ch_num)
     }
 }
 
-static void runtime_dispatch_rx(Mspm0Runtime_UartRxCallback cb, uint8_t data)
-{
-    if (cb != NULL) {
-        cb(data);
-    }
-}
-
-static void runtime_drain_uart_rx(UART_Regs *uart, Mspm0Runtime_UartRxCallback cb)
+static void runtime_drain_uart_rx(UART_Regs *uart, void (*push_byte)(uint8_t))
 {
     uint8_t data = 0u;
 
+    if ((uart == NULL) || (push_byte == NULL)) {
+        return;
+    }
+
     while (DL_UART_receiveDataCheck(uart, &data)) {
-        runtime_dispatch_rx(cb, data);
+        push_byte(data);
     }
 }
 
@@ -105,56 +93,6 @@ static void runtime_start_dma_rx(uint8_t dma_ch,
     DL_DMA_setDestAddr(DMA, dma_ch, (uint32_t)(uintptr_t)byte_buf);
     DL_DMA_setTransferSize(DMA, dma_ch, 1u);
     DL_DMA_enableChannel(DMA, dma_ch);
-}
-
-static bool runtime_dma_channel_busy(uint8_t dma_ch)
-{
-    return (DL_DMA_getTransferSize(DMA, dma_ch) != 0u);
-}
-
-static bool runtime_uart_send_dma(UART_Regs *uart,
-                                  uint8_t dma_ch,
-                                  volatile bool *busy_flag,
-                                  uint8_t *tx_buf,
-                                  const uint8_t *data,
-                                  uint32_t length)
-{
-    uint32_t i;
-
-    if ((uart == NULL) || (busy_flag == NULL) || (tx_buf == NULL) ||
-        (data == NULL) || (length == 0u)) {
-        return false;
-    }
-
-    if ((*busy_flag != false) || (runtime_dma_channel_busy(dma_ch) != false)) {
-        return false;
-    }
-
-    if (length <= MSPM0_RUNTIME_DMA_TX_BUFFER_SIZE) {
-        (void)memcpy(tx_buf, data, length);
-        *busy_flag = true;
-        DL_UART_clearInterruptStatus(uart, DL_UART_INTERRUPT_DMA_DONE_TX);
-        DL_DMA_disableChannel(DMA, dma_ch);
-        DL_DMA_setSrcAddr(DMA, dma_ch, (uint32_t)(uintptr_t)tx_buf);
-        DL_DMA_setDestAddr(DMA, dma_ch, (uint32_t)(uintptr_t)&uart->TXDATA);
-        DL_DMA_setTransferSize(DMA, dma_ch, (uint16_t)length);
-        DL_DMA_enableChannel(DMA, dma_ch);
-        return true;
-    }
-
-    for (i = 0u; i < length; i++) {
-        DL_UART_transmitDataBlocking(uart, data[i]);
-    }
-    return true;
-}
-
-static bool runtime_uart_send_byte(UART_Regs *uart, uint8_t data)
-{
-    if (uart == NULL) {
-        return false;
-    }
-    DL_UART_transmitDataBlocking(uart, data);
-    return true;
 }
 
 /**
@@ -229,9 +167,9 @@ static void runtime_handle_key_irqs(uint32_t pending_a, uint32_t pending_b)
     s_key_irq_edges |= key_edges;
 }
 
-static void runtime_handle_uart_irq(UART_Regs *uart, Mspm0Runtime_UartRxCallback cb)
+static void runtime_handle_uart_irq(UART_Regs *uart, void (*push_byte)(uint8_t))
 {
-    uint32_t irq_status;
+    uint32_t irq_status = 0u;
 
     irq_status = DL_UART_getEnabledInterruptStatus(
         uart,
@@ -239,7 +177,7 @@ static void runtime_handle_uart_irq(UART_Regs *uart, Mspm0Runtime_UartRxCallback
             DL_UART_INTERRUPT_DMA_DONE_TX);
 
     if ((irq_status & DL_UART_INTERRUPT_RX) != 0u) {
-        runtime_drain_uart_rx(uart, cb);
+        runtime_drain_uart_rx(uart, push_byte);
         DL_UART_clearInterruptStatus(uart, DL_UART_INTERRUPT_RX);
     }
 
@@ -262,10 +200,10 @@ void Mspm0Runtime_InitUartDma(void)
         RT_DMA_VISION_RX,
         RT_DMA_VISION_TX,
     };
-    uint32_t i;
+    uint32_t index = 0u;
 
-    for (i = 0u; i < (sizeof(dma_channels) / sizeof(dma_channels[0])); i++) {
-        uint32_t irq_mask = runtime_dma_irq_mask(dma_channels[i]);
+    for (index = 0u; index < (sizeof(dma_channels) / sizeof(dma_channels[0])); index++) {
+        uint32_t irq_mask = runtime_dma_irq_mask(dma_channels[index]);
         if (irq_mask != 0u) {
             DL_DMA_clearInterruptStatus(DMA, irq_mask);
             DL_DMA_enableInterrupt(DMA, irq_mask);
@@ -291,8 +229,8 @@ void Mspm0Runtime_InitUartDma(void)
 
 void Mspm0Runtime_DelayMs(uint32_t delay_ms)
 {
-    uint32_t start_ms;
-    uint32_t now_ms;
+    uint32_t start_ms = 0u;
+    uint32_t now_ms = 0u;
 
     if (delay_ms == 0u) {
         return;
@@ -304,61 +242,10 @@ void Mspm0Runtime_DelayMs(uint32_t delay_ms)
     } while ((now_ms - start_ms) < delay_ms);
 }
 
-void Mspm0Runtime_SetStepmotorRxCallback(Mspm0Runtime_UartRxCallback callback)
-{
-    s_stepmotor_rx_cb = callback;
-}
-
-void Mspm0Runtime_SetVofaRxCallback(Mspm0Runtime_UartRxCallback callback)
-{
-    s_vofa_rx_cb = callback;
-}
-
-void Mspm0Runtime_SetVisionRxCallback(Mspm0Runtime_UartRxCallback callback)
-{
-    s_vision_rx_cb = callback;
-}
-
-void Mspm0Runtime_SetStepmotorTxCallback(Mspm0Runtime_UartTxCallback callback)
-{
-    s_stepmotor_tx_cb = callback;
-}
-
-bool Mspm0Runtime_IsStepmotorTxBusy(void)
-{
-    return (s_tx_busy_stepmotor != false) ||
-           runtime_dma_channel_busy(RT_DMA_STEPMOTOR_TX);
-}
-
-bool Mspm0Runtime_SendStepmotor(const uint8_t *data, uint32_t length)
-{
-    return runtime_uart_send_dma(UART_STEPPER_BUS_INST,
-                                 RT_DMA_STEPMOTOR_TX,
-                                 &s_tx_busy_stepmotor,
-                                 s_dma_tx_buf_stepmotor,
-                                 data,
-                                 length);
-}
-
-bool Mspm0Runtime_SendVofa(const uint8_t *data, uint32_t length)
-{
-    return runtime_uart_send_dma(UART_HOST_LINK_INST,
-                                 RT_DMA_VOFA_TX,
-                                 &s_tx_busy_vofa,
-                                 s_dma_tx_buf_vofa,
-                                 data,
-                                 length);
-}
-
-bool Mspm0Runtime_SendStepmotorByte(uint8_t data)
-{
-    return runtime_uart_send_byte(UART_STEPPER_BUS_INST, data);
-}
-
 void Mspm0Runtime_GetEncoderCounts(int32_t *left, int32_t *right)
 {
-    int32_t local_left;
-    int32_t local_right;
+    int32_t local_left = 0;
+    int32_t local_right = 0;
     uint32_t primask = __get_PRIMASK();
 
     __disable_irq();
@@ -368,7 +255,7 @@ void Mspm0Runtime_GetEncoderCounts(int32_t *left, int32_t *right)
     runtime_qei_accumulate((uint16_t)DL_TimerG_getTimerCount(QEI_RIGHT_INST),
                            &s_qei_last_right,
                            &s_right_encoder_count);
-    local_left  = s_left_encoder_count;
+    local_left = s_left_encoder_count;
     local_right = s_right_encoder_count;
     __set_PRIMASK(primask);
 
@@ -382,7 +269,7 @@ void Mspm0Runtime_GetEncoderCounts(int32_t *left, int32_t *right)
 
 uint8_t Mspm0Runtime_ConsumeKeyIrqEdges(void)
 {
-    uint8_t key_edges;
+    uint8_t key_edges = 0u;
     uint32_t primask = __get_PRIMASK();
 
     __disable_irq();
@@ -395,8 +282,8 @@ uint8_t Mspm0Runtime_ConsumeKeyIrqEdges(void)
 
 void GROUP1_IRQHandler(void)
 {
-    uint32_t pending_a;
-    uint32_t pending_b;
+    uint32_t pending_a = 0u;
+    uint32_t pending_b = 0u;
 
     pending_a = DL_GPIO_getEnabledInterruptStatus(GPIOA, 0xFFFFFFFFu);
     pending_b = DL_GPIO_getEnabledInterruptStatus(GPIOB, 0xFFFFFFFFu);
@@ -414,7 +301,6 @@ void GROUP1_IRQHandler(void)
 void DMA_IRQHandler(void)
 {
     uint32_t pending_irq = DL_DMA_getEnabledInterruptStatus(DMA, 0xFFFFFFFFu);
-    Mspm0Runtime_UartTxCallback tx_cb;
 
     if (pending_irq == 0u) {
         return;
@@ -422,8 +308,8 @@ void DMA_IRQHandler(void)
 
     if ((pending_irq & runtime_dma_irq_mask(RT_DMA_STEPMOTOR_RX)) != 0u) {
         DL_DMA_clearInterruptStatus(DMA, runtime_dma_irq_mask(RT_DMA_STEPMOTOR_RX));
-        runtime_dispatch_rx(s_stepmotor_rx_cb, s_dma_rx_byte_stepmotor);
-        runtime_drain_uart_rx(UART_STEPPER_BUS_INST, s_stepmotor_rx_cb);
+        StepmotorUart_IsrPushByte(s_dma_rx_byte_stepmotor);
+        runtime_drain_uart_rx(UART_STEPPER_BUS_INST, StepmotorUart_IsrPushByte);
         runtime_start_dma_rx(RT_DMA_STEPMOTOR_RX,
                              UART_STEPPER_BUS_INST,
                              &s_dma_rx_byte_stepmotor);
@@ -431,15 +317,15 @@ void DMA_IRQHandler(void)
 
     if ((pending_irq & runtime_dma_irq_mask(RT_DMA_VOFA_RX)) != 0u) {
         DL_DMA_clearInterruptStatus(DMA, runtime_dma_irq_mask(RT_DMA_VOFA_RX));
-        runtime_dispatch_rx(s_vofa_rx_cb, s_dma_rx_byte_vofa);
-        runtime_drain_uart_rx(UART_HOST_LINK_INST, s_vofa_rx_cb);
+        VofaUart_IsrPushByte(s_dma_rx_byte_vofa);
+        runtime_drain_uart_rx(UART_HOST_LINK_INST, VofaUart_IsrPushByte);
         runtime_start_dma_rx(RT_DMA_VOFA_RX, UART_HOST_LINK_INST, &s_dma_rx_byte_vofa);
     }
 
     if ((pending_irq & runtime_dma_irq_mask(RT_DMA_VISION_RX)) != 0u) {
         DL_DMA_clearInterruptStatus(DMA, runtime_dma_irq_mask(RT_DMA_VISION_RX));
-        runtime_dispatch_rx(s_vision_rx_cb, s_dma_rx_byte_vision);
-        runtime_drain_uart_rx(UART_VISION_INST, s_vision_rx_cb);
+        VisionUart_IsrPushByte(s_dma_rx_byte_vision);
+        runtime_drain_uart_rx(UART_VISION_INST, VisionUart_IsrPushByte);
         runtime_start_dma_rx(RT_DMA_VISION_RX,
                              UART_VISION_INST,
                              &s_dma_rx_byte_vision);
@@ -449,37 +335,32 @@ void DMA_IRQHandler(void)
         DL_DMA_clearInterruptStatus(DMA, runtime_dma_irq_mask(RT_DMA_STEPMOTOR_TX));
         DL_UART_clearInterruptStatus(UART_STEPPER_BUS_INST,
                                      DL_UART_INTERRUPT_DMA_DONE_TX);
-        s_tx_busy_stepmotor = false;
-        tx_cb = s_stepmotor_tx_cb;
-        if (tx_cb != NULL) {
-            tx_cb();
-        }
+        StepmotorUart_IsrTxDone();
     }
 
     if ((pending_irq & runtime_dma_irq_mask(RT_DMA_VOFA_TX)) != 0u) {
         DL_DMA_clearInterruptStatus(DMA, runtime_dma_irq_mask(RT_DMA_VOFA_TX));
         DL_UART_clearInterruptStatus(UART_HOST_LINK_INST, DL_UART_INTERRUPT_DMA_DONE_TX);
-        s_tx_busy_vofa = false;
+        VofaUart_IsrTxDone();
     }
 
     if ((pending_irq & runtime_dma_irq_mask(RT_DMA_VISION_TX)) != 0u) {
         DL_DMA_clearInterruptStatus(DMA, runtime_dma_irq_mask(RT_DMA_VISION_TX));
         DL_UART_clearInterruptStatus(UART_VISION_INST, DL_UART_INTERRUPT_DMA_DONE_TX);
-        s_tx_busy_vision = false;
     }
 }
 
 void UART_STEPPER_BUS_INST_IRQHandler(void)
 {
-    runtime_handle_uart_irq(UART_STEPPER_BUS_INST, s_stepmotor_rx_cb);
+    runtime_handle_uart_irq(UART_STEPPER_BUS_INST, StepmotorUart_IsrPushByte);
 }
 
 void UART_HOST_LINK_INST_IRQHandler(void)
 {
-    runtime_handle_uart_irq(UART_HOST_LINK_INST, s_vofa_rx_cb);
+    runtime_handle_uart_irq(UART_HOST_LINK_INST, VofaUart_IsrPushByte);
 }
 
 void UART_VISION_INST_IRQHandler(void)
 {
-    runtime_handle_uart_irq(UART_VISION_INST, s_vision_rx_cb);
+    runtime_handle_uart_irq(UART_VISION_INST, VisionUart_IsrPushByte);
 }

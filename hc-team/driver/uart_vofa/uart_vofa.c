@@ -6,7 +6,7 @@
  * @author      eternal_fu, 中性粒
  *******************************************************************************/
 #include "uart_vofa.h"
-#include "driver/mspm0_runtime/mspm0_runtime.h"
+#include "driver/board_uart/vofa_uart.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -54,6 +54,9 @@ static vofa_recv_param_t g_recv_table[VOFA_RX_PARAM_MAX]; /* 接收命令绑定�
 static uint8_t g_recv_count = 0;                          /* 已绑定的命令数量 */
 static uint8_t g_rx_parse_buf[64];                        /* 接收解析缓冲区 */
 static uint8_t g_rx_parse_idx = 0;                        /* 接收缓冲区索引 */
+static uint32_t g_rx_frame_parse_count = 0u;
+static uint32_t g_rx_drop_count = 0u;
+static bool g_rx_drop_for_run = false;
 
 /***************************************************************************************************************
  *                                           前向声明 (Forward Declarations)
@@ -80,6 +83,7 @@ static int vofa_cmd_equals_ignore_case(const char *lhs, const char *rhs);
 static char *vofa_trim_inplace(char *str);
 static void vofa_rx_reset_buffer(void);
 static void vofa_clear_profile_internal(void);
+static void vofa_process_rx_byte(uint8_t byte);
 
 /* 应用层发送函数 */
 static void vofa_send_data(void);
@@ -101,6 +105,7 @@ int vofa_init(void)
 {
     /* 1. 清空缓冲区 */
     memset(g_tx_buf, 0, sizeof(g_tx_buf));
+    VofaUart_Init();
     vofa_clear_profile_internal();
     
     /* 2. 根据宏定义选择协议策略 */
@@ -209,6 +214,18 @@ int vofa_bind_cmd(const char *cmd, volatile float *val_ptr)
  */
 void vofa_run(void)
 {
+    uint8_t rx_buf[32];
+    uint32_t read_len = 0u;
+    uint32_t index = 0u;
+
+    g_rx_drop_for_run = false;
+    do {
+        read_len = VofaUart_Read(rx_buf, sizeof(rx_buf));
+        for (index = 0u; index < read_len; index++) {
+            vofa_process_rx_byte(rx_buf[index]);
+        }
+    } while (read_len > 0u);
+
     vofa_send_data();
 }
 
@@ -516,7 +533,7 @@ void vofa_driver_hal_send(uint8_t *puc_data, uint16_t us_len)
         return;
     }
 
-    (void)Mspm0Runtime_SendVofa(puc_data, (uint32_t)us_len);
+    (void)VofaUart_TryWrite(puc_data, (uint32_t)us_len);
 }
 
 static char *vofa_trim_inplace(char *str)
@@ -558,20 +575,18 @@ static void vofa_clear_profile_internal(void)
     g_recv_count = 0;
     memset(g_recv_table, 0, sizeof(g_recv_table));
 
+    g_rx_frame_parse_count = 0u;
+    g_rx_drop_count = 0u;
+    g_rx_drop_for_run = false;
     vofa_rx_reset_buffer();
 }
 
-/* ============================================ 接收接口 ============================================ */
-
-/**
- * @brief   【驱动层接口】串口接收中断处理
- * @param   byte 接收到的字节
- * @note    负责字节接收和帧边界检测
- *          检测到完整帧后调用协议层解析
- *          在UART中断回调中调用此函数
- */
-void vofa_rx_isr(uint8_t byte)
+static void vofa_process_rx_byte(uint8_t byte)
 {
+    if (g_rx_drop_for_run != false) {
+        return;
+    }
+
     if ((byte == (uint8_t)'\r') ||
         (byte == (uint8_t)'\n') ||
         (byte == (uint8_t)';')) {
@@ -580,19 +595,31 @@ void vofa_rx_isr(uint8_t byte)
         }
 
         g_rx_parse_buf[g_rx_parse_idx] = '\0';
+        g_rx_frame_parse_count++;
         vofa_parse_rx_frame((const char *)g_rx_parse_buf);
         vofa_rx_reset_buffer();
         return;
     }
 
-    /* 防止缓冲区溢出 */
     if (g_rx_parse_idx >= sizeof(g_rx_parse_buf) - 1) {
+        g_rx_drop_count++;
+        g_rx_drop_for_run = true;
         vofa_rx_reset_buffer();
         return;
     }
-    
-    /* 累积接收字节 */
+
     g_rx_parse_buf[g_rx_parse_idx++] = byte;
-    
 }
+
+#if defined(HOST_TEST)
+uint32_t Vofa_TestGetFrameParseCount(void)
+{
+    return g_rx_frame_parse_count;
+}
+
+uint32_t Vofa_TestGetRxDropCount(void)
+{
+    return g_rx_drop_count;
+}
+#endif
 

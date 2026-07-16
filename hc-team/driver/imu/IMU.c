@@ -1,4 +1,5 @@
 #include "IMU.h"
+#include "driver/board_uart/imu_uart.h"
 #include "driver/clock/clock.h"
 #include "driver/mspm0_runtime/mspm0_runtime.h"
 #include "ti_msp_dl_config.h"
@@ -549,8 +550,7 @@ int IMU_UART_WaitCalibration(uint8_t function, uint32_t timeout_ms)
 
 void Send_IMU_Data(uint8_t Data)
 {
-    /* Board role: historical UART id 0 was the stepmotor UART. */
-    (void)Mspm0Runtime_SendStepmotorByte(Data);
+    (void)ImuUart_TryWrite(&Data, 1u);
 }
 
 void Send_IMU_Array(uint8_t *pData, uint8_t Length)
@@ -559,8 +559,7 @@ void Send_IMU_Array(uint8_t *pData, uint8_t Length)
         return;
     }
 
-    /* Board role: historical UART id 0 was the stepmotor UART. */
-    (void)Mspm0Runtime_SendStepmotor(pData, (uint32_t)Length);
+    (void)ImuUart_TryWrite(pData, (uint32_t)Length);
 }
 
 void IMU_Update_Yaw_Integration(float dt_sec)

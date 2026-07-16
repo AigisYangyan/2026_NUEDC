@@ -3,7 +3,7 @@
 # User-specified clean: cmd.exe /D /C "if exist ... del /Q /F".
 
 CC = gcc
-CFLAGS = -std=c99 -Wall -Wextra -ffunction-sections -fdata-sections -I../../hc-team -I../..
+CFLAGS = -std=c99 -Wall -Wextra -ffunction-sections -fdata-sections -DHOST_TEST -I../../hc-team -I../..
 GC_LDFLAGS = -Wl,--gc-sections
 
 DRIVER_SRC = ../../hc-team/driver/encoder/encoder.c
@@ -16,8 +16,16 @@ MOTOR_TEST_SRC = test_motor.c
 MOTOR_DRIVER_SRC = ../../hc-team/driver/motor/motor.c
 MOTOR_FAKE_SRC = fake_motor_hw.c
 KEY_TEST_SRC = test_key.c
+FAKE_UART_PORT_SRC = fake_uart_port.c
+BOARD_UART_VISION_SRC = ../../hc-team/driver/board_uart/vision_uart.c
+BOARD_UART_VOFA_SRC = ../../hc-team/driver/board_uart/vofa_uart.c
+BOARD_UART_STEPMOTOR_SRC = ../../hc-team/driver/board_uart/stepmotor_uart.c
+VOFA_DRIVER_SRC = ../../hc-team/driver/uart_vofa/uart_vofa.c
+UART_FIFO_TEST_SRC = test_uart_fifo.c
+VOFA_RX_TEST_SRC = test_vofa_rx.c
+STEPMOTOR_UART_TEST_SRC = test_stepmotor_uart.c
 
-all: test_encoder run test_pid run_pid test_motor run_motor test_key run_key
+all: test_encoder run test_pid run_pid test_motor run_motor test_key run_key test_uart_fifo run_uart_fifo test_vofa_rx run_vofa_rx test_stepmotor_uart run_stepmotor_uart
 
 test_encoder: $(DRIVER_SRC) $(ENCODER_OWNER_SRC) $(FAKE_SRC) $(MOTOR_DRIVER_SRC) $(MOTOR_FAKE_SRC) $(TEST_SRC)
 	$(CC) $(CFLAGS) -o $@ $(DRIVER_SRC) $(ENCODER_OWNER_SRC) $(FAKE_SRC) $(MOTOR_DRIVER_SRC) $(MOTOR_FAKE_SRC) $(TEST_SRC) $(GC_LDFLAGS) -lm
@@ -43,6 +51,24 @@ test_key: ../../hc-team/driver/key/key.c ../../hc-team/driver/key/key.h ../../hc
 run_key: test_key
 	./test_key
 
+test_uart_fifo: $(BOARD_UART_VISION_SRC) $(BOARD_UART_VOFA_SRC) $(BOARD_UART_STEPMOTOR_SRC) $(FAKE_UART_PORT_SRC) $(UART_FIFO_TEST_SRC)
+	$(CC) $(CFLAGS) -o $@ $(BOARD_UART_VISION_SRC) $(BOARD_UART_VOFA_SRC) $(BOARD_UART_STEPMOTOR_SRC) $(FAKE_UART_PORT_SRC) $(UART_FIFO_TEST_SRC) $(GC_LDFLAGS) -lm
+
+run_uart_fifo: test_uart_fifo
+	./test_uart_fifo
+
+test_vofa_rx: $(BOARD_UART_VISION_SRC) $(BOARD_UART_VOFA_SRC) $(BOARD_UART_STEPMOTOR_SRC) $(VOFA_DRIVER_SRC) $(FAKE_UART_PORT_SRC) $(VOFA_RX_TEST_SRC)
+	$(CC) $(CFLAGS) -o $@ $(BOARD_UART_VISION_SRC) $(BOARD_UART_VOFA_SRC) $(BOARD_UART_STEPMOTOR_SRC) $(VOFA_DRIVER_SRC) $(FAKE_UART_PORT_SRC) $(VOFA_RX_TEST_SRC) $(GC_LDFLAGS) -lm
+
+run_vofa_rx: test_vofa_rx
+	./test_vofa_rx
+
+test_stepmotor_uart: $(BOARD_UART_VISION_SRC) $(BOARD_UART_VOFA_SRC) $(BOARD_UART_STEPMOTOR_SRC) $(FAKE_UART_PORT_SRC) $(STEPMOTOR_UART_TEST_SRC)
+	$(CC) $(CFLAGS) -o $@ $(BOARD_UART_VISION_SRC) $(BOARD_UART_VOFA_SRC) $(BOARD_UART_STEPMOTOR_SRC) $(FAKE_UART_PORT_SRC) $(STEPMOTOR_UART_TEST_SRC) $(GC_LDFLAGS) -lm
+
+run_stepmotor_uart: test_stepmotor_uart
+	./test_stepmotor_uart
+
 ifeq ($(OS),Windows_NT)
 clean:
 	cmd.exe /D /C "if exist test_encoder.exe del /Q /F test_encoder.exe"
@@ -53,9 +79,15 @@ clean:
 	cmd.exe /D /C "if exist test_motor del /Q /F test_motor"
 	cmd.exe /D /C "if exist test_key.exe del /Q /F test_key.exe"
 	cmd.exe /D /C "if exist test_key del /Q /F test_key"
+	cmd.exe /D /C "if exist test_uart_fifo.exe del /Q /F test_uart_fifo.exe"
+	cmd.exe /D /C "if exist test_uart_fifo del /Q /F test_uart_fifo"
+	cmd.exe /D /C "if exist test_vofa_rx.exe del /Q /F test_vofa_rx.exe"
+	cmd.exe /D /C "if exist test_vofa_rx del /Q /F test_vofa_rx"
+	cmd.exe /D /C "if exist test_stepmotor_uart.exe del /Q /F test_stepmotor_uart.exe"
+	cmd.exe /D /C "if exist test_stepmotor_uart del /Q /F test_stepmotor_uart"
 else
 clean:
-	rm -f test_encoder test_encoder.exe test_pid test_pid.exe test_motor test_motor.exe test_key test_key.exe
+	rm -f test_encoder test_encoder.exe test_pid test_pid.exe test_motor test_motor.exe test_key test_key.exe test_uart_fifo test_uart_fifo.exe test_vofa_rx test_vofa_rx.exe test_stepmotor_uart test_stepmotor_uart.exe
 endif
 
-.PHONY: all run run_pid run_motor run_key clean
+.PHONY: all run run_pid run_motor run_key run_uart_fifo run_vofa_rx run_stepmotor_uart clean

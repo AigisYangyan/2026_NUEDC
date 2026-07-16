@@ -11,3 +11,9 @@ tests/host/test_motor
 tests/host/test_motor.exe
 tests/host/test_key
 tests/host/test_key.exe
+tests/host/test_uart_fifo
+tests/host/test_uart_fifo.exe
+tests/host/test_vofa_rx
+tests/host/test_vofa_rx.exe
+tests/host/test_stepmotor_uart
+tests/host/test_stepmotor_uart.exe

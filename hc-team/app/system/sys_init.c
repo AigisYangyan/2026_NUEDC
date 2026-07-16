@@ -6,8 +6,8 @@
  *
  * 功能范围：
  * - 调用 SysConfig 根初始化与本地 MSPM0 runtime
- * - 初始化电机、编码器、菜单、VOFA、视觉和调试任务模块
- * - 注册各 UART 接收回调并开启 NVIC/全局中断
+ * - 初始化 board_uart 角色驱动、电机、编码器、菜单、VOFA、视觉和调试任务模块
+ * - 在所有模块 ready 后开启 NVIC/全局中断
  *
  * 不负责的内容：
  * - 主循环调度与任务时间片推进
@@ -17,7 +17,7 @@
  * 实现说明：
  * 1. 初始化顺序按“SysConfig/runtime -> 驱动层 -> 中间件 -> app 层任务”展开
  * 2. 所有运行态 profile 和任务组只在这里做一次性初始化，不在 Enter 时重复做模块初始化
- * 3. UART 接收回调在初始化完成后统一挂接，确保运行态切换只改业务 profile，不改底层总线框架
+ * 3. UART 角色归属在 driver/board_uart 固化；运行态切换不再改底层 ISR 归属
  */
 
 #include "app/scheduler/task_scheduler.h"
@@ -30,6 +30,10 @@
 #include "app/tasks/uart_test/uart_test.h"
 #include "app/tasks/uart_stress/uart_stress.h"
 #include "app/tasks/platform_2d/2DPlatform_LaserStrike.h"
+#include "driver/board_uart/imu_uart.h"
+#include "driver/board_uart/stepmotor_uart.h"
+#include "driver/board_uart/vision_uart.h"
+#include "driver/board_uart/vofa_uart.h"
 #include "driver/mspm0_runtime/mspm0_runtime.h"
 #include "middleware/pid/pid.h"
 #include "driver/encoder/encoder.h"
@@ -57,6 +61,10 @@ void SysInit(void)
     Board_Init();
     Clock_Init();
     Mspm0Runtime_InitUartDma();
+    VisionUart_Init();
+    VofaUart_Init();
+    StepmotorUart_Init();
+    ImuUart_Init();
 
     OLED_Init();
     Key_Init();
@@ -78,9 +86,6 @@ void SysInit(void)
     UartTest_Init();
     UartStress_Init();
     GrayTest_Init();
-    Mspm0Runtime_SetStepmotorRxCallback(StepmotorBus_RxISR);
-    Mspm0Runtime_SetVofaRxCallback(vofa_rx_isr);
-    Mspm0Runtime_SetVisionRxCallback(VisionBus_RxISR);
     SpeedLoop_Init();
     VisionHdl_Init();
     Task1_Init();

@@ -1,6 +1,6 @@
 # NUEDC API 平台架构拓扑图（2026_Diansai · MSPM0G3519）
 
-最后复核：2026-07-16（G3507→G3519 迁移后本地适配复核）  
+最后复核：2026-07-16（P5 UART 角色驱动施工复核）  
 适用工程：`2026_Diansai`（MSPM0G3519，LQFP-100，SDK 2.11.00.07；由旧工程 `NUEDC`/G3507 移植，见 `docs/MIGRATION_G3507_TO_G3519.md`）  
 事实来源：当前工作区 `hc-team/**/*.c`、`hc-team/**/*.h`、仓库根 `board.syscfg`  
 状态：当前实现拓扑，不是目标架构示意图  
@@ -53,16 +53,39 @@ class Runtime_API {
   <<driver:mspm0_runtime>>
   +Mspm0Runtime_InitUartDma()
   +Mspm0Runtime_DelayMs()
-  +Mspm0Runtime_SetStepmotorRxCallback()
-  +Mspm0Runtime_SetVofaRxCallback()
-  +Mspm0Runtime_SetVisionRxCallback()
-  +Mspm0Runtime_SetStepmotorTxCallback()
-  +Mspm0Runtime_IsStepmotorTxBusy()
-  +Mspm0Runtime_SendStepmotor()
-  +Mspm0Runtime_SendVofa()
-  +Mspm0Runtime_SendStepmotorByte()
   +Mspm0Runtime_GetEncoderCounts()
   +Mspm0Runtime_ConsumeKeyIrqEdges()
+}
+
+class VisionUart_API {
+  <<driver:board_uart>>
+  +VisionUart_Init()
+  +VisionUart_Read()
+  +VisionUart_GetRxOverflowCount()
+}
+
+class VofaUart_API {
+  <<driver:board_uart>>
+  +VofaUart_Init()
+  +VofaUart_Read()
+  +VofaUart_TryWrite()
+  +VofaUart_GetRxOverflowCount()
+}
+
+class StepmotorUart_API {
+  <<driver:board_uart>>
+  +StepmotorUart_Init()
+  +StepmotorUart_Read()
+  +StepmotorUart_TryWrite()
+  +StepmotorUart_IsTxIdle()
+  +StepmotorUart_ConsumeTxDone()
+  +StepmotorUart_GetRxOverflowCount()
+}
+
+class ImuUart_API {
+  <<driver:board_uart>>
+  +ImuUart_Init()
+  +ImuUart_TryWrite()
 }
 
 class Motor_API {
@@ -133,17 +156,14 @@ class EEPROM_API {
 
 class Emm42_API {
   <<driver:step_motor>>
-  +Emm42_SendEnableCommand()
-  +Emm42_SendSpeedCommand()
-  +Emm42_SendPositionCommand()
-  +Emm42_MoveRelative()
-  +Emm42_MoveAbsolute()
-  +Emm42_EnableAll_DisableAll()
-  +Emm42_SetAllAxesZero()
-  +Emm42_SetZeroPosition()
-  +Emm42_StartHoming_ExitHoming()
-  +Emm42_SendPidConfigCommand()
-  +Emm42_SendReadSpeedCommand()
+  +Emm42_BuildEnableFrame()
+  +Emm42_BuildReadSpeedFrame()
+  +Emm42_BuildSpeedFrame()
+  +Emm42_BuildPositionFrame()
+  +Emm42_BuildSetZeroFrame()
+  +Emm42_BuildStartHomingFrame()
+  +Emm42_BuildExitHomingFrame()
+  +Emm42_BuildPidConfigFrame()
   +Emm42_RunCommandTask()
 }
 
@@ -154,7 +174,6 @@ class VofaDriver_API {
   +vofa_register_float()
   +vofa_register_int()
   +vofa_bind_cmd()
-  +vofa_rx_isr()
   +vofa_run()
 }
 
@@ -164,34 +183,29 @@ class PID_API {
   +pid_closeloop_motor(left_target_mps, right_target_mps, left_feedback_mps, right_feedback_mps, p_left_out, p_right_out)
 }
 
-class Scheduler_API {
-  <<app:scheduler>>
-  +TaskTimeSliceManage()
-}
-
-class StepMotorBus_API {
-  <<app:task>>
-  +Emm42_TransportSendMgmtFrame()
-  +Emm42_TransportSubmitControlFrame()
-}
-
 Clock_API --> DL_HAL : SysTick
 Board_API --> DL_HAL : SysConfig NVIC global IRQ
 BoardGpio_API --> Runtime_API : transitional raw counts and key edge bitmap
 Runtime_API --> Clock_API : bounded millisecond delay
 Runtime_API --> DL_HAL : GPIO UART DMA
+Runtime_API --> VisionUart_API : fixed UART RX dispatch
+Runtime_API --> VofaUart_API : fixed RX DMA completion
+Runtime_API --> StepmotorUart_API : fixed RX TX DMA dispatch
 Motor_API --> DL_HAL : GPIO and PWM via motor_hw.c
 Encoder_API --> BoardGpio_API : raw snapshot
 Key_API --> BoardGpio_API : pull raw key bitmap
 OLED_API --> Clock_API : time
 OLED_API --> DL_HAL : I2C
-IMU_API --> Runtime_API : shared UART send
+VisionUart_API --> DL_HAL : UART_VISION RX
+VofaUart_API --> DL_HAL : UART_HOST_LINK RX DMA TX DMA
+StepmotorUart_API --> DL_HAL : UART_STEPPER_BUS RX DMA TX DMA
+ImuUart_API --> DL_HAL : UART_IMU polling TX
+IMU_API --> ImuUart_API : dedicated IMU TX
 IMU_API --> Clock_API : time
 IMU_API --> DL_HAL : exposed TI header
 EEPROM_API --> Runtime_API : delay
 EEPROM_API --> DL_HAL : I2C
-VofaDriver_API --> Runtime_API : UART transport
-Emm42_API ..> StepMotorBus_API : VIOLATION extern App transport
+VofaDriver_API --> VofaUart_API : UART transport
 ```
 
 ## 3. Middleware 与 App API 类图
@@ -336,7 +350,6 @@ class UartStress_API {
 class VisionBus_API {
   <<app:task>>
   +VisionBus_Init()
-  +VisionBus_RxISR()
   +VisionBus_Service5ms()
 }
 
@@ -353,14 +366,17 @@ class VisionCoord_API {
 class StepMotorBus_API {
   <<app:task>>
   +StepmotorBus_Init()
-  +StepmotorBus_RxISR()
   +StepmotorBus_Service5ms()
+  +StepmotorBus_RequestBypass()
   +StepmotorBus_SetBypass()
   +StepmotorBus_SetControlGate()
   +StepmotorBus_ResetDiagCounters()
-  +StepmotorBus_GetDiagAndSpeed()
+  +StepmotorBus_GetControlErrorCount()
+  +StepmotorBus_GetLastReturnCode()
   +StepmotorBus_ClearControlFrames()
   +StepmotorBus_IsControlPathIdle()
+  +StepmotorBus_GetLastSpeedRpm()
+  +StepmotorBus_GetLastSpeedRaw()
 }
 
 class Platform2D_API {
@@ -377,12 +393,16 @@ class Platform2D_API {
 }
 
 class Runtime_API { <<driver>> }
+class VisionUart_API { <<driver>> }
+class VofaUart_API { <<driver>> }
+class StepmotorUart_API { <<driver>> }
 class Motor_API { <<driver>> }
 class Encoder_API { <<driver>> }
 class Key_API { <<driver>> }
 class OLED_API { <<driver>> }
 class Emm42_API { <<driver>> }
 class VofaDriver_API { <<driver>> }
+class ImuUart_API { <<driver>> }
 class DL_HAL { <<external>> }
 
 System_API --> Scheduler_API : starts scheduler
@@ -447,23 +467,22 @@ GrayTest_API --> VofaRegister_API
 GrayTest_API --> VofaDriver_API
 UartTest_API --> VofaRegister_API
 UartTest_API --> VofaDriver_API
-UartStress_API --> Runtime_API : replaces UART callback
-UartStress_API --> StepMotorBus_API : bypass
-UartStress_API ..> DL_HAL : VIOLATION App uses IRQ and GPIO
+UartStress_API --> StepMotorBus_API : exclusive pause and resume
+UartStress_API ..> StepmotorUart_API : VIOLATION Task calls Driver
 
 VisionBus_API --> Clock_API : time
 VisionBus_API --> VisionCoord_API : parsed frames
-VisionBus_API ..> DL_HAL : VIOLATION App uses UART config
+VisionBus_API --> VisionUart_API : pull buffered bytes
 Platform2D_API --> VisionCoord_API : coordinates
 Platform2D_API --> StepMotorBus_API : transport state
 Platform2D_API --> Emm42_API : commands
 Platform2D_API --> PID_API : axis control
 Platform2D_API --> VofaRegister_API
 Platform2D_API --> VofaDriver_API
-StepMotorBus_API --> Runtime_API : UART DMA
+StepMotorBus_API --> StepmotorUart_API : shared UART queue and ack
+StepMotorBus_API --> Runtime_API : bounded wait helper
 StepMotorBus_API --> Clock_API : time
-StepMotorBus_API --> Emm42_API : protocol relationship
-StepMotorBus_API ..> DL_HAL : VIOLATION App uses IRQ primitives
+StepMotorBus_API --> Emm42_API : frame packing
 TrackFollow_API ..> DL_HAL : VIOLATION App reads GPIO
 VisionCoord_API --> Clock_API : state update time
 
@@ -480,8 +499,8 @@ flowchart TD
   Main[main.c main] --> SysInit[sys_init.c SysInit]
   SysInit --> BoardInit[Board_Init]
   SysInit --> ClockInit[Clock_Init]
-  SysInit --> RuntimeInit[Runtime UART DMA callbacks]
-  SysInit --> DriverInit[OLED Key Motor Encoder VOFA]
+  SysInit --> RuntimeInit[Runtime UART DMA fixed dispatch]
+  SysInit --> DriverInit[OLED Key Motor Encoder VOFA BoardUart]
   SysInit --> MiddlewareInit[PID init]
   SysInit --> AppInit[Menu Run profiles Tasks Vision StepMotor]
   SysInit --> BoardIRQ[Board_EnableInterrupts]
@@ -496,15 +515,15 @@ flowchart TD
   TaskFlags --> UIGroup[UI group]
   TaskFlags --> FeatureGroups[Speed Gray UART Vision Task1 groups]
 
-  RuntimeInit --> CallbackTable[RX and TX callback table]
-  DMAIRQ[DMA and UART IRQ] --> CallbackTable
-  CallbackTable --> AppISR[StepMotorBus VisionBus VOFA App callbacks]
+  RuntimeInit --> FixedDispatch[Runtime fixed IRQ DMA fanout]
+  DMAIRQ[DMA and UART IRQ] --> FixedDispatch
+  FixedDispatch --> RoleDrivers[VisionUart VofaUart StepmotorUart]
 
   classDef violation fill:#ffd6d6,stroke:#b00020,color:#700018
-  class CallbackTable,AppISR violation
+  class FixedDispatch violation
 ```
 
-当前交叉点：App 直接调用 DL HAL 初始化/NVIC；Runtime ISR 通过回调进入 App/VOFA 解析。
+当前交叉点：App 仍有局部任务直接调用 Driver 或 DL HAL；Runtime ISR 已不再通过回调进入 App/VOFA 解析，但仍是过渡期固定分发层。
 
 ## 5. 关键数据流逻辑图
 
@@ -531,20 +550,23 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-  VisionUART[Vision UART IRQ DMA] --> RuntimeCB[Runtime Vision RX callback]
-  RuntimeCB --> VisionBus[VisionBus_RxISR and FIFO]
+  VisionUART[Vision UART IRQ DMA] --> RuntimeVision[Runtime fixed IRQ dispatch]
+  RuntimeVision --> VisionFifo[VisionUart private FIFO]
+  VisionFifo --> VisionBus[VisionBus task-context parser]
   VisionBus --> VisionCoord[VisionCoord frame and state]
   VisionCoord --> Platform2D[VisionHdl control]
   Platform2D --> PIDAxis[PID axis output]
   PIDAxis --> Emm42[Emm42 command packing]
-  Emm42 -->|extern App transport| StepBus[StepMotorBus queue]
-  StepBus --> RuntimeTX[Runtime StepMotor UART DMA]
-  RuntimeTX --> Stepper[EMM42 hardware]
-  Stepper --> RuntimeRX[Runtime StepMotor RX callback]
-  RuntimeRX --> StepBus
+  Emm42 --> StepBus[StepMotorBus queue]
+  StepBus --> StepTx[StepmotorUart private TX]
+  StepTx --> RuntimeStep[Runtime fixed RX TX DMA dispatch]
+  RuntimeStep --> Stepper[EMM42 hardware]
+  Stepper --> RuntimeStep
+  RuntimeStep --> StepRx[StepmotorUart private FIFO]
+  StepRx --> StepBus
 
   classDef violation fill:#ffd6d6,stroke:#b00020,color:#700018
-  class RuntimeCB,RuntimeRX,Emm42,StepBus violation
+  class StepBus violation
 ```
 
 ### 5.3 按键、菜单、OLED 与 VOFA
@@ -561,13 +583,14 @@ flowchart LR
   Scheduler --> Task[Active task]
   Task --> VofaCtx[VofaRegister profile context]
   VofaCtx --> VofaDriver[vofa register and run]
-  VofaDriver --> RuntimeUART[Runtime VOFA UART]
-  RuntimeUART --> PC[VOFA PC]
-  PC --> RuntimeRx[Runtime VOFA RX callback]
-  RuntimeRx --> VofaParse[vofa_rx_isr parse and write bound value]
+  VofaDriver --> VofaUart[VofaUart FIFO and TX]
+  VofaUart --> PC[VOFA PC]
+  PC --> RuntimeRx[Runtime fixed VOFA RX dispatch]
+  RuntimeRx --> VofaUart
+  VofaUart --> VofaParse[vofa_run task-context parse and bind write]
 
   classDef violation fill:#ffd6d6,stroke:#b00020,color:#700018
-  class RuntimeRx,VofaParse violation
+  class VofaParse violation
 ```
 
 ## 6. 交叉依赖与风险登记
@@ -575,14 +598,14 @@ flowchart LR
 | ID | 当前交叉/风险 | 证据位置 | 违反规则 | 计划归属 |
 |---|---|---|---|---|
 | V01 | ~~Runtime SysTick 调用 App Scheduler~~ **closed 2026-07-13** | `driver/clock/clock.c` 拥有 SysTick；`task_scheduler.c` 主循环按 elapsed 推进 | Driver 不得反向调用 App | Phase 2 P1 |
-| V02 | Runtime 保存并调用上层 UART RX/TX callback | `mspm0_runtime.h/.c`、`sys_init.c` | Driver 不得调用上层注册回调 | Phase 2 P1 |
-| V03 | App 直接调用 SysConfig、NVIC、DL HAL **partially closed 2026-07-13** | `sys_init.c` 已改为调用 `Board_Init()`/`Board_EnableInterrupts()`；`tasks/platform_2d/vision_bus.c`、`tasks/platform_2d/stepmotor_bus.c`、`tasks/track_follow/track_follow.c` 仍直接调用 `__enable_irq` 或包含 `ti/driverlib` | App 不得包含 DL HAL | Phase 2 P1 及后续模块 |
+| V02 | **closed 2026-07-16（P5 R02/R06）**：Runtime UART callback 表与 `Set*Callback`/`Send*`/`Busy` 接口已删除，IRQ/DMA 改为固定分发到 `board_uart` 角色 Driver | `mspm0_runtime.h/.c`、`sys_init.c`、`driver/board_uart/*`；R02 零命中，R06 clean 构建与 map 复核 | Driver 不得调用上层注册回调 | Phase 2 P5 |
+| V03 | App 直接调用 SysConfig、NVIC、DL HAL **partially closed 2026-07-16（P5 R03）** | `sys_init.c` 已改为调用 `Board_Init()`/`Board_EnableInterrupts()`；`tasks/platform_2d/vision_bus.c`、`tasks/platform_2d/stepmotor_bus.c`、`tasks/uart_stress/uart_stress.c` 已清零；`tasks/track_follow/track_follow.c` 仍直接调用 `__enable_irq` 或包含 `ti/driverlib` | App 不得包含 DL HAL | Phase 2 P1 及后续模块 |
 | V04 | **closed 2026-07-16（P3.T2 E04/E05）**：Motor 头不再包含 pid.h，`Motor_T`/`p_pid`/`g_tMotors` 已删除 | 依赖扫描零命中；`motor.h` 仅标准类型与自有枚举 | Driver 不应暴露 Middleware 内部对象 | Phase 2 P3 |
 | V05 | **closed 2026-07-16（P2F E04/E05）**：Encoder 不再写 `g_tMotors`，deprecated API 与公开参数表已删除 | `Encoder_Update()`/`Encoder_GetSnapshot()`；依赖扫描零命中 | 模块不得修改其他模块全局 | Phase 2 P2-FIX |
 | V06 | **closed 2026-07-16（P3.T2 E04）**：`encoder_sign` 随 `Motor_T` 删除；Runtime 正交判向 + Encoder `s_direction_sign` 单点修正 | 依赖扫描零命中 | 同一数据处理必须只有一个所有者 | Phase 2 P2-FIX/P3 |
 | V07 | TaskGroups/SpeedLoop/Task1 直接编排 Driver 与 PID | 对应 App task 文件 | Task 应只调 Service | Driver 完成后迁入 Service |
-| V08 | Emm42 Driver 用 `extern` 调 App StepMotorBus transport | `emm42.c`、`stepmotor_bus.c` | Driver 不得依赖 App 符号 | StepMotor Driver 计划 |
-| V09 | VOFA RX 可在 ISR 链中解析并写绑定变量 | `uart_vofa.c` 和 Runtime callback | ISR 只允许最小搬运/置位 | Phase 2 P1 |
+| V08 | **closed 2026-07-16（P5 R04）**：Emm42 Driver 改为纯协议组包，`extern` App transport 已删除 | `emm42.c`、`stepmotor_bus.c`；R04 零命中 | Driver 不得依赖 App 符号 | Phase 2 P5 |
+| V09 | **closed 2026-07-16（P5 R02）**：VOFA RX 仅在 `vofa_run()` 任务上下文解析，ISR 链只搬运到 `VofaUart` FIFO | `uart_vofa.c`、`driver/board_uart/vofa_uart.c`；R02 零命中且 `vofa_rx_isr` 删除 | ISR 只允许最小搬运/置位 | Phase 2 P5 |
 | V10 | Service 目录当前没有有效源 API | `hc-team/app/service/` | 缺少 Driver 与 Middleware 的业务桥 | Driver API 稳定后补齐 |
 | V11 | **closed 2026-07-16（P3.T3 E09）**：左右 PWM 统一为 80 MHz/period 7999（10 kHz），compare 按同一 period 换算，比例一致 | `board.syscfg` 单源 + 生成配置 `CLK_FREQ=80000000`/`period=7999` ×2 + `motor_hw.c` 单一常量 | 电机硬件安全与单位口径不一致 | Phase 2 P3.T3 |
 | V12 | **closed 2026-07-16（P3.T1/T2 E01）**：`Motor_Update` 状态机实现 slew 限速、换向过零+5ms 死区、100ms 命令超时归零，主机 7 项测试覆盖 | `motor.c` 状态机 + `tests/host/test_motor.c` | 电机保护缺失 | Phase 2 P3 |
@@ -602,6 +625,7 @@ flowchart LR
 | Driver | Board | `driver/board/board.c/.h` |
 | Driver | Board GPIO | `driver/board_gpio/board_gpio.c/.h` |
 | Driver | Runtime | `driver/mspm0_runtime/mspm0_runtime.c/.h` |
+| Driver | Board UART Roles | `driver/board_uart/vision_uart.c/.h`、`driver/board_uart/vofa_uart.c/.h`、`driver/board_uart/stepmotor_uart.c/.h`、`driver/board_uart/imu_uart.c/.h` |
 | Driver | Motor | `driver/motor/motor.c/.h`（纯状态机，无 TI 头）、`motor_hw.c/.h`（唯一 TI 头位置） |
 | Driver | Encoder | `driver/encoder/encoder.c/.h` |
 | Driver | Key | `driver/key/key.c/.h` |
@@ -668,6 +692,7 @@ flowchart LR
 | 2026-07-16 | P4.T1：Key Driver 改为 `BoardGpio` 拉取边沿/电平位图，`key.c` 去除 TI 头依赖，新增主机按键测试 | `BoardGpio_API` 新增 `ConsumeKeyIrqEdges/GetKeyRawLevels`；`Key_API` 删除 `Key_NotifyIrq`；删除 `Runtime_API ..> Key_API` 与 `Key_API --> DL_HAL`，新增 `Key_API --> BoardGpio_API`；5.3 数据流改为 `GROUP1 IRQ -> BoardGpio -> Key_Scan` | E01 Key 6 项主机测试通过且 `hc-team/driver/key` 对 TI 头扫描零命中；E02 Host 全套 32 项通过，无 Encoder/PID/Motor 回归 |
 | 2026-07-16 | P3.T3 验收 `CODEX_ACCEPTED`：syscfg 单源统一左右驱动 PWM 为 10 kHz（80 MHz/8000），`motor_hw.c` 收敛为单一 period 常量；P3 整体 done | V11 closed（生成配置双通道 `CLK_FREQ=80000000`、`period=7999` 为证据） | Codex 复核生成值与 diff；构建退出 0、0 警告 |
 | 2026-07-16 | P4.T1/T2 验收 `CODEX_ACCEPTED`：`Key_NotifyIrq` 符号全仓零命中（T2 目标随 T1 完成）；runtime GROUP1 ISR 只置私有边沿位图，原子读清经 `BoardGpio` 拉取；Codex 将 `Mspm0Runtime_ConsumeKeyIrqEdges` 的裸 `extern` 声明归位到 `mspm0_runtime.h`；P4 整体 done | `Runtime_API` 新增 `+Mspm0Runtime_ConsumeKeyIrqEdges()`（经 BoardGpio 消费）；其余同上行 | Codex 复跑：E03/E04 扫描零命中、Host 32 项全绿、固件构建 0 警告退出 0 |
+| 2026-07-16 | P5 统一施工（Vision→VOFA→StepMotor/EMM42/UartStress/IMU）：新增 `board_uart` 四角色 Driver，Runtime 删除全部 UART 回调/Send/Busy 接口，Vision/VOFA/StepMotor RX 全部改为任务态 drain-and-parse，IMU 改走 `UART_IMU` 最小 TX 角色 | 顶部复核日期改为 P5；Driver/App 类图新增 `VisionUart_API`/`VofaUart_API`/`StepmotorUart_API`/`ImuUart_API`，删除 Runtime callback/VOFA ISR/Emm42 extern 依赖；5.2/5.3/启动图改为固定分发 + 私有 FIFO；V02/V08/V09 closed，V03 partially closed | 以 R01-R06 为准：Host 全套通过、负面扫描零命中、clean 固件构建退出 0 且 map 含四个新角色符号 |
 | 2026-07-16 | plan5 修订 4：P5.T3 的 IMU 处置改为迁移到最小 `imu_uart` TX 角色（`ImuUart_Init/TryWrite`，UART_IMU 无 DMA）；"UART2 归属确认"前置作废；Codex 核实 IMU 模块零外部调用者（休眠代码），禁止推测性 RX FIFO（归 P7） | 已复核，无代码 API 拓扑变化（imu_uart 为批准的未来接口，不提前画入） | `rg -c 'IMU_UART_\|IMU_Update_Yaw\|IMU_Get_Reset\|IMU_Calibrate' hc-team --glob '!hc-team/driver/imu/*'` 零命中；P5.T1–T3 全部可派工 |
 | 2026-07-16 | G3507→G3519 迁移后拓扑本地适配（仅文档同步，未改代码）：工程移入 `2026_Diansai`（MSPM0G3519/LQFP-100，SDK 2.11.00.07，配置源为仓库根 `board.syscfg`）；编码器改 TIMG8/TIMG9 硬件 QEI（PA7/PA6、PA3/PA2），GROUP1 仅服务按键；步进总线物理实例 UART2→UART7（PB15/PB16 不变）；MPU6050/I2C_IMU 已移除（提交 `37ff7fc`）；灰度 8 路升级 12 路（提交 `c60f4eb`，`TRACK_SENSOR_COUNT=12`） | 删除 MPU6050_API 类、System/Task1→MPU6050 边与覆盖清单行；5.1 数据流改为 QEI 硬件计数；事实来源路径改为根 `board.syscfg`；登记 V16（`tests/host` 未迁入） | 对照 `hc-team` 源码与 `docs/MIGRATION_G3507_TO_G3519.md` 复核：`rg 'MPU6050' hc-team` 仅余 task1.c 一条移除说明注释；公共 API（Encoder/BoardGpio/Runtime）与依赖边未变 |
 | 2026-07-16 | 计划目录整理（仅文档，未改代码）：phase2 已验收计划（P1/P1F/P2/P2F/P3/P4/FIX-BAUD 共 7 份）移入 `done/`，作废的 GROUP1 判向基线移入 `obsolete/`；新建 `agent/README.md`（目录导航 + 项目脉络）与 HT.T1 派工契约 `plan_host_tests_restore.md`（tests/host 迁入恢复 32 项基线，P5 前置） | 已复核，无代码 API 拓扑变化；V16 计划归属更新为 HT.T1 | 工作区 `git status` 中 `hc-team` 零改动；phase2 顶层只余索引与两份待派工计划 |
