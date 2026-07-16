@@ -39,12 +39,16 @@ agent/
 1. ~~**HT.T1**~~ done（`CODEX_ACCEPTED` 2026-07-16）：`tests/host` 已迁入，32 项全绿，V16 closed。主机测试入口：`make.bat -C tests/host all`（或直接 CCS gmake）。
 2. ~~**P5**~~ done（`CODEX_ACCEPTED` 2026-07-16，提交 `b24a456`）：`board_uart` 四角色落地，V02/V08/V09 closed、V03 partially closed。E14–E16 硬件行随硬件验收取消而作废，**板上实测由用户自理**（三路 230400 实测、overflow 计数可见性、压测进出各 10 次）。
 3. ~~**P6**~~ done（`CODEX_ACCEPTED` 2026-07-16）：EEPROM 器件删除、OLED 公共头收口为 6 个显示能力接口、I2C 等待上限改按 400 kHz/80 MHz 算式推导。I2C_AUX 由 `driver/oled` 独占，**未建 I2C 总线抽象层**（单器件独占不需要仲裁）；V17 登记并同批次关闭。主机测试 76 项。
-4. **引脚表 v2 迁移**（`plan_pin_table_v2_migration.md`）——**`BLOCKED`**：硬件组新表与工程/表自身存在冲突，Q1–Q4 待裁定（封装 LQFP-64 vs 100、IMU 串口两 sheet 打架、VOFA 无处安放、编码器⇄灰度原子对调且 timer↔轮 归属翻转）。不阻塞 P6。
-5. **P7**（待编写）：其余 Driver 拆分。
-6. **Service 层承接**（待规划）：关闭 V07/V10/V13/V14/V15（Task 直接编排 Driver/PID、Service 空缺、可写全局、UI 直调 Driver、VOFA 跨层注册）。
+4. ~~**调试串口迁移**~~ done（`CODEX_ACCEPTED` 2026-07-16，`plan_debug_uart_remap.md`，**流程例外：Codex 自施工自验收**）：`UART_HOST_LINK`(VOFA) 迁 **UART5/PA1/PA0/230400/DMA**；PA10/PA11 收归 **`UART_BSL_ENTRY`=UART0/9600/无 DMA**，专供无线 BSL。仅改 `board.syscfg`，**驱动零改动**（R05 证实）。PA0/PA1 在 LQFP-64/100 下均存在，**绕开引脚表 Q1**。⚠ 两个未闭环项见 §3.1。
+5. **引脚表 v2 迁移**（`plan_pin_table_v2_migration.md`）——**`BLOCKED`**：硬件组新表与工程/表自身存在冲突，Q1–Q4 待裁定（封装 LQFP-64 vs 100、IMU 串口两 sheet 打架、VOFA 无处安放、编码器⇄灰度原子对调且 timer↔轮 归属翻转）。**与调试串口迁移同改 `board.syscfg`，须排在其后或合并施工**。Q2/Q3 已被用户 2026-07-16 裁定推翻（IMU 定在 PA25/PA26、VOFA 定在 UART5/PA1/PA0），须随 Q1/Q4 一并回告硬件组。
+6. **P7**（待编写）：其余 Driver 拆分。
+7. **Service 层承接**（待规划）：关闭 V07/V10/V13/V14/V15（Task 直接编排 Driver/PID、Service 空缺、可写全局、UI 直调 Driver、VOFA 跨层注册）。
 
 ## 3.1 待办（有裁定但未立计划）
 
+- **BSL ENTRY 监听器未实现**（调试串口迁移遗留，需立计划）：`UART_BSL_ENTRY`(UART0/9600) 已配好但**无消费者**——上位机 ENTRY 字节 `0x22` 的监听与软件跳 BSL 尚未落地。在此之前，**软件跳 BSL 不可用**，只能用硬件 BSL invoke 引脚 + 复位。参考实现：SDK `bsl_software_invoke_app_demo_uart/main.c:197`（判 0x22）+ `invokeBSLAsm()`（擦 SRAM + `DL_SYSCTL_RESET_BOOTLOADER_ENTRY`，含 BSL_ERR_01 勘误绕行）。
+- **PA0/PA1 待硬件组引出**（调试串口迁移遗留）：用户 2026-07-16 明示板上尚无这两个脚，将要求硬件组新画。**在引出前 VOFA 在实物上不可用**（固件已就绪）。
+- **BSL 波特率提升到 230400（可选，高风险）**：需自定义 UART BSL flash 插件（`BSL_UART_DEFAULT_BAUD` 改 230400）。代价：动 NONMAIN + linker + BCR 写保护，插件默认落 0x2000 与 app 撞车（建议挪 flash 顶部），配错要 SWD 工厂复位。不做则 BSL 恒为 9600（ROM 固定）。
 - **旧引脚表删除待确认**（P6 验收时发现）：新表 `docs/主控板引脚表(2).xlsx` 与可读导出 `docs/pin_table_v2/` 已入库，Q1–Q4 依据可复核。但 `docs/主控板引脚表_G3519.xlsx` 在工作树中处于已删除状态且未提交——需用户确认是否为本人操作。详见 `plan6_i2c_display.md` §10。
 - **Encoder 极性/左右轮标定**：AB 相接反是预期内硬件事故（用户 2026-07-16 裁定）。全链路唯一修正点为 `encoder.c:41` `s_direction_sign[] = {-1, 1}`，**禁止新增第二个反转开关**（两处反转互相抵消）。待办是让它成为板级可配置 + 主机测试覆盖两种极性。若引脚表 v2 迁移执行（左右轮 timer 归属翻转），此常量**必须重新标定**，否则左右轮静默对调。
 

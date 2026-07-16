@@ -29,6 +29,7 @@ const UART1  = UART.addInstance();
 const UART2  = UART.addInstance();
 const UART3  = UART.addInstance();
 const UART4  = UART.addInstance();
+const UART5  = UART.addInstance();
 
 /**
  * Write custom configuration values to the imported modules.
@@ -251,15 +252,19 @@ UART1.DMA_CHANNEL_TX.$name              = "DMA_CH3";
 UART1.DMA_CHANNEL_TX.peripheral.$assign = "DMA_CH3";
 scripting.suppress("Destination Increment is controlled by the Destination Address Direction configurable\\.", UART1.DMA_CHANNEL_RX, "dstIncDec");
 
+/* UART_HOST_LINK = VOFA 上下位机实时调参链路（脚本变量 UART2 → 物理外设 UART5）。
+ * 2026-07-16 由 UART0/PA10/PA11 迁出：PA10/PA11 交还 BSL 烧录专用（见下方 UART5 块）。
+ * $name 与两个 DMA 通道 $name 必须保持不变——driver 全部引用生成宏
+ * UART_HOST_LINK_INST / DMA_CH1_CHAN_ID，改名即需改代码。 */
 UART2.enableFIFO                        = true;
 UART2.enabledDMATXTriggers              = "DL_UART_DMA_INTERRUPT_TX";
 UART2.enabledDMARXTriggers              = "DL_UART_DMA_INTERRUPT_RX";
 UART2.enabledInterrupts                 = ["DMA_DONE_RX","DMA_DONE_TX"];
 UART2.targetBaudRate                    = 230400;
 UART2.$name                             = "UART_HOST_LINK";
-UART2.peripheral.$assign                = "UART0";
-UART2.peripheral.rxPin.$assign          = "PA11";
-UART2.peripheral.txPin.$assign          = "PA10";
+UART2.peripheral.$assign                = "UART5";
+UART2.peripheral.rxPin.$assign          = "PA0";
+UART2.peripheral.txPin.$assign          = "PA1";
 UART2.txPinConfig.direction             = scripting.forceWrite("OUTPUT");
 UART2.txPinConfig.hideOutputInversion   = scripting.forceWrite(false);
 UART2.txPinConfig.onlyInternalResistor  = scripting.forceWrite(false);
@@ -334,3 +339,28 @@ UART4.rxPinConfig.hideOutputInversion  = scripting.forceWrite(false);
 UART4.rxPinConfig.onlyInternalResistor = scripting.forceWrite(false);
 UART4.rxPinConfig.passedPeripheralType = scripting.forceWrite("Digital");
 UART4.rxPinConfig.$name                = "ti_driverlib_gpio_GPIOPinGeneric13";
+
+/* UART_BSL_ENTRY = 无线 BSL 烧录口（脚本变量 UART5 → 物理外设 UART0）。
+ * 波特率 9600 是 ROM BSL 的固定值，非可调项：SDK bsl_uart_flash_interface
+ * 定义 BSL_UART_DEFAULT_BAUD=9600，且 TI 的 BSL GUI 把 baudrate=9600 写死。
+ * PA10/PA11 亦为 ROM BSL 固定引脚。
+ *
+ * 无 DMA、无中断：本口运行期只需接收上位机的 ENTRY 字节 0x22 触发软件跳
+ * BSL（参考 SDK bsl_software_invoke_app_demo_uart），单字节事件不值得占用
+ * DMA 通道。中断待 ENTRY 监听器落地时再开——现在开了却没有 IRQ handler，
+ * 首个到达字节就会落进 startup 的默认处理程序死循环。 */
+UART5.$name                            = "UART_BSL_ENTRY";
+UART5.targetBaudRate                   = 9600;
+UART5.enableFIFO                       = true;
+UART5.peripheral.$assign               = "UART0";
+UART5.peripheral.rxPin.$assign         = "PA11";
+UART5.peripheral.txPin.$assign         = "PA10";
+UART5.txPinConfig.direction            = scripting.forceWrite("OUTPUT");
+UART5.txPinConfig.hideOutputInversion  = scripting.forceWrite(false);
+UART5.txPinConfig.onlyInternalResistor = scripting.forceWrite(false);
+UART5.txPinConfig.passedPeripheralType = scripting.forceWrite("Digital");
+UART5.txPinConfig.$name                = "ti_driverlib_gpio_GPIOPinGeneric18";
+UART5.rxPinConfig.hideOutputInversion  = scripting.forceWrite(false);
+UART5.rxPinConfig.onlyInternalResistor = scripting.forceWrite(false);
+UART5.rxPinConfig.passedPeripheralType = scripting.forceWrite("Digital");
+UART5.rxPinConfig.$name                = "ti_driverlib_gpio_GPIOPinGeneric19";
