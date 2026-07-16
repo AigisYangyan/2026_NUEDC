@@ -1,0 +1,10 @@
+﻿序号,类型,位置/对象,变更内容,原因/说明
+1,改线,U33左轮编码器,U33.3→PB7，U33.4→PB9,G3519使用TIMG9硬件QEI；G3507在同一引脚做软件QEI
+2,改线,U34右轮编码器,U34.3→PB10，U34.4→PB11,两颗芯片均使用TIMG8硬件QEI
+3,改线,12路灰度IN4/5/10/11,PB7/PB9/PB10/PB11→PA7/PB20/PB14/PB0,给两路编码器让出QEI引脚，12路灰度功能保持完整
+4,接口重定义,陀螺仪4P座,改为PA28(TX→IMU RX)/PA31(RX←IMU TX),保留PA25/PA26调试串口；原I2C线原位切换为UART0
+5,使用限制,无线串口0座,PA10/PA11仅用于启动阶段BSL烧录,运行阶段UART0由PA28/PA31陀螺仪使用，不能同时作为VOFA串口
+6,封装兼容,MSPM0G3507/G3519,统一采用LQFP-64(PM)物理脚号,两芯片64脚GPIO位置一致，外设复用和数量存在差异
+7,固件区分,第二路编码器PB7/PB9,G3519=TIMG9硬件QEI；G3507=GPIO中断软件QEI,硬件不换线，按芯片型号选择驱动
+8,固件区分,步进电机PB15/PB16,G3519使用UART7；G3507使用UART2,网络和PCB保持不变，仅初始化实例不同
+9,资料来源,TI官方数据手册,G3507: https://www.ti.com/lit/ds/symlink/mspm0g3507.pdf,G3519: https://www.ti.com/lit/ds/symlink/mspm0g3519.pdf
