@@ -9,7 +9,7 @@
  * 核心数据流：
  *   采样层 (10ms):
  *     - Encoder_GetSnapshot()         : 读取 TaskGroups 唯一采样所有者更新的电机速度 (m/s)
- *     - Track_UpdateSample()          : 8 路灰度位图
+ *     - Track_UpdateSample()          : 12 路灰度位图
  *     - s_gyro_gz_dps                 : Gz (°/s)，由新陀螺仪驱动接入后更新
  *
  *   控制层 (10ms):
@@ -75,7 +75,10 @@ static double s_gyro_gz_dps = 0.0;
 #define TASK1_TURN_GATE_MS             150u       /* 转弯起步前的 gyro 稳定时间 */
 
 /* -------- 角点识别 (STRAIGHT → BEFORE_ANGLE) -------- */
-/* 低 4 位 = 车头左侧 4 个传感器；高 4 位 = 右侧 4 个 */
+/* 低半区 = 车头左侧传感器；高半区 = 右侧。12 路时为低 6 位 / 高 6 位。 */
+#define TASK1_HALF_COUNT               (TRACK_SENSOR_COUNT / 2u)
+#define TASK1_LEFT_HALF_MASK           ((1u << TASK1_HALF_COUNT) - 1u)
+#define TASK1_RIGHT_HALF_MASK          (TASK1_LEFT_HALF_MASK << TASK1_HALF_COUNT)
 #define TASK1_CORNER_LEFT_MIN_CNT      3u         /* 左半至少亮几路才算“左有线” */
 #define TASK1_CORNER_RIGHT_MAX_CNT     0u         /* 右半最多亮几路才算“右无线” */
 #define TASK1_CORNER_DEBOUNCE_N        3u         /* 连续 N 次满足才触发 (10ms×3=30ms) */
@@ -138,10 +141,10 @@ static void task1_brake_all(void)
     task1_reset_pid_runtime(&g_tRightMotorPID);
 }
 
-static uint8_t task1_popcount8(uint32_t bits)
+static uint8_t task1_popcount(uint32_t bits)
 {
     uint8_t c = 0u;
-    for (uint8_t i = 0u; i < 8u; i++) {
+    for (uint8_t i = 0u; i < (uint8_t)TRACK_SENSOR_COUNT; i++) {
         if ((bits & (1u << i)) != 0u) {
             c++;
         }
@@ -154,14 +157,14 @@ static uint8_t task1_popcount8(uint32_t bits)
  * @return 1=命中；0=不命中
  *
  * 角点触发条件：
- *   - 低 4 位(左半) 亮起路数 >= TASK1_CORNER_LEFT_MIN_CNT
- *   - 高 4 位(右半) 亮起路数 <= TASK1_CORNER_RIGHT_MAX_CNT
+ *   - 低半区(左半) 亮起路数 >= TASK1_CORNER_LEFT_MIN_CNT
+ *   - 高半区(右半) 亮起路数 <= TASK1_CORNER_RIGHT_MAX_CNT
  *   - 连续 TASK1_CORNER_DEBOUNCE_N 次满足才返回 1 (去抖)
  */
 static uint8_t task1_corner_hit(uint32_t bitmap)
 {
-    uint8_t left_cnt  = task1_popcount8(bitmap & 0x0Fu);
-    uint8_t right_cnt = task1_popcount8(bitmap & 0xF0u);
+    uint8_t left_cnt  = task1_popcount(bitmap & TASK1_LEFT_HALF_MASK);
+    uint8_t right_cnt = task1_popcount(bitmap & TASK1_RIGHT_HALF_MASK);
 
     bool match = ((left_cnt  >= TASK1_CORNER_LEFT_MIN_CNT) &&
                        (right_cnt <= TASK1_CORNER_RIGHT_MAX_CNT)) ? true : false;

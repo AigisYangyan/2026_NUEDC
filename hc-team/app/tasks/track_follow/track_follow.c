@@ -2,10 +2,10 @@
  * @file    track_follow.c
  * @brief   灰度循迹采样与误差计算模块实现
  *
- * 本文件实现 8 路灰度传感器的采样、位图格式化与循迹误差计算。
+ * 本文件实现 12 路灰度传感器的采样、位图格式化与循迹误差计算。
  *
  * 功能范围：
- * - 采集 8 路灰度输入并更新位图
+ * - 采集 12 路灰度输入并更新位图
  * - 提供位图读取与字符串格式化
  * - 按线性权重计算循迹误差
  *
@@ -15,7 +15,7 @@
  * - 调度与系统状态切换
  *
  * 实现说明：
- * 1. 仅使用低 8 位记录当前灰度输入状态
+ * 1. 仅使用低 TRACK_SENSOR_COUNT 位记录当前灰度输入状态
  * 2. 误差按线性权重生成，并对最终结果做限幅
  * 3. 丢线时按上次误差方向返回回退值
  */
@@ -30,7 +30,7 @@
 
 uint32_t TrackN = 0u;
 
-/* bit0=IN1 .. bit7=IN8，与既有灰度位图顺序一致 */
+/* bit0=IN1(最左) .. bit11=IN12(最右)，与硬件物理排列一致 */
 static const uint32_t s_track_sensor_pins[TRACK_SENSOR_COUNT] = {
     GPIO_LINE_SENSOR_PIN_IN1_PIN,
     GPIO_LINE_SENSOR_PIN_IN2_PIN,
@@ -40,6 +40,10 @@ static const uint32_t s_track_sensor_pins[TRACK_SENSOR_COUNT] = {
     GPIO_LINE_SENSOR_PIN_IN6_PIN,
     GPIO_LINE_SENSOR_PIN_IN7_PIN,
     GPIO_LINE_SENSOR_PIN_IN8_PIN,
+    GPIO_LINE_SENSOR_PIN_IN9_PIN,
+    GPIO_LINE_SENSOR_PIN_IN10_PIN,
+    GPIO_LINE_SENSOR_PIN_IN11_PIN,
+    GPIO_LINE_SENSOR_PIN_IN12_PIN,
 };
 
 /* ---- 采样接口 ----------------------------------------------------------- */
@@ -60,17 +64,17 @@ void Track_UpdateSample(void)
         }
     }
 
-    TrackN = track_map;/* 更新全局位图变量，低 8 位有效 */
+    TrackN = track_map;/* 更新全局位图变量，低 TRACK_SENSOR_COUNT 位有效 */
 }
 
 /**
  * @brief  获取当前灰度位图
- * @return 低 8 位有效的灰度输入位图
+ * @return 低 TRACK_SENSOR_COUNT 位有效的灰度输入位图
  */
 uint32_t Track_GetBitmap(void)
 {
-    return TrackN & 0xFFu;
-}//返回当前灰度位图，确保仅低 8 位有效
+    return TrackN & TRACK_BITMAP_MASK;
+}//返回当前灰度位图，确保仅有效位
 
 /* ---- 位图格式化 --------------------------------------------------------- */
 
@@ -101,11 +105,10 @@ void TrackN_To_BitmapString(char* buffer, uint32_t trackMap)
 static int16_t Track_GetLinearWeight(uint32_t index, int16_t max_error)
 {
     /* 中文说明：
-     * 1. 这里把 8 路灰度的权重按“等差线性变化”生成，而不是手写固定数组。
-     * 2. 本次修改的是“实现方式”，不是“实际权重结果”。
-     * 3. 当 TRACK_SENSOR_COUNT=8、max_error=55 时，最终数值仍然是：
-     *    index 0~7 => -55, -39, -23, -7, 7, 23, 39, 55。
-     * 4. 这样后续如果传感器路数或最大误差调整，权重会自动按平均步长变化。
+     * 1. 这里把灰度权重按“等差线性变化”生成，而不是手写固定数组。
+     * 2. 当 TRACK_SENSOR_COUNT=12、max_error=55 时，最终数值为：
+     *    index 0~11 => -55, -45, -35, -25, -15, -5, 5, 15, 25, 35, 45, 55。
+     * 3. 传感器路数或最大误差调整时，权重会自动按平均步长变化。
      */
     const int32_t center_span = (int32_t)TRACK_SENSOR_COUNT - 1;
     const int32_t scaled_index =
@@ -128,11 +131,8 @@ int16_t Calculate_Track_Error(uint32_t trackMap)
     uint32_t sensor_count = 0u;
     uint32_t index = 0u;
 
-    /* 中文说明：
-     * 这里只保留低 8 位灰度数据参与 PID 计算。
-     * 本次没有改数值范围，仍然是 0x00~0xFF 这 8 位有效。
-     */
-    trackMap &= 0xFFu;
+    /* 只保留低 TRACK_SENSOR_COUNT 位灰度数据参与 PID 计算。 */
+    trackMap &= TRACK_BITMAP_MASK;
 
     if (trackMap == 0u) {
         /* 中文说明：
@@ -151,12 +151,9 @@ int16_t Calculate_Track_Error(uint32_t trackMap)
 
     for (index = 0u; index < TRACK_SENSOR_COUNT; index++) {
         if ((trackMap & (1u << index)) != 0u) {
-            /* 中文说明：
-             * 1. 每触发一路灰度，就累加这一位对应的线性权重。
-             * 2. 当前 8 路实际权重数值依次为：
-             *    IN1~IN8 => -55, -39, -23, -7, 7, 23, 39, 55。
-             * 3. 相比上一次版本，数值结果没有变化，只是从“固定数组”改成“平均变化公式”。
-             */
+            /* 每触发一路灰度，就累加这一位对应的线性权重。
+             * 当前 12 路权重依次为:
+             * IN1~IN12 => -55, -45, -35, -25, -15, -5, 5, 15, 25, 35, 45, 55。 */
             error_sum += Track_GetLinearWeight(index, kMaxError);
             sensor_count++;
         }

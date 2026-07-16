@@ -5,8 +5,8 @@
  * 本文件实现 GRAY_TEST 运行项的灰度数字量采样与 VOFA 输出。
  *
  * 功能范围：
- * - 读取现有 8 路灰度 GPIO 数字量状态
- * - 维护 G1~G8 与位图缓存，供 VOFA 输出使用
+ * - 读取现有 12 路灰度 GPIO 数字量状态
+ * - 维护 G1~G12 与位图缓存，供 VOFA 输出使用
  * - 在进入运行项时重建 GRAY_TEST 专属 VOFA profile
  * - 不提供专用 OLED 显示，运行页统一显示默认 RUNNING
  *
@@ -15,7 +15,7 @@
  * - 循迹控制决策或 PID 闭环
  *
  * 实现说明：
- * 1. 第一版仅输出 8 路 0/1 数字量与 1 个位图值
+ * 1. 输出 12 路 0/1 数字量与 1 个位图值
  * 2. 采样与遥测合并在同一个 10ms 周期入口中执行
  * 3. Enter/Exit 期间会切换当前 VOFA profile，避免残留其他 DEBUG 子任务通道
  */
@@ -36,7 +36,7 @@ static void gray_test_refresh_cache(void)
 
     for (index = 0u; index < TRACK_SENSOR_COUNT; index++) {
         ctx->tx_channels[index] = ((bitmap & (1u << index)) != 0u) ? 1 : 0;
-    }//更新 G1~G8 数字量缓存，1 表示对应位图位为 1，0 表示对应位图位为 0
+    }//更新 G1~G12 数字量缓存，1 表示对应位图位为 1，0 表示对应位图位为 0
 
     ctx->tx_bitmap = (int)bitmap;//更新位图缓存
 }
