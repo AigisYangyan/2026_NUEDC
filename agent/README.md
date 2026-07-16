@@ -37,9 +37,14 @@ agent/
 
 1. ~~**HT.T1**~~ done（`CODEX_ACCEPTED` 2026-07-16）：`tests/host` 已迁入，32 项全绿，V16 closed。主机测试入口：`make.bat -C tests/host all`（或直接 CCS gmake）。
 2. ~~**P5**~~ done（`CODEX_ACCEPTED` 2026-07-16，提交 `b24a456`）：`board_uart` 四角色落地，V02/V08/V09 closed、V03 partially closed。E14–E16 硬件行随硬件验收取消而作废，**板上实测由用户自理**（三路 230400 实测、overflow 计数可见性、压测进出各 10 次）。
-3. **P6**（待编写）：EEPROM、OLED I2C 器件驱动收口。**下一个要写的计划。**
-4. **P7**（待编写）：其余 Driver 拆分。
-5. **Service 层承接**（待规划）：关闭 V07/V10/V13/V14/V15（Task 直接编排 Driver/PID、Service 空缺、可写全局、UI 直调 Driver、VOFA 跨层注册）。
+3. **P6**（`plan6_i2c_display.md`）——**已派工**：范围经用户 2026-07-16 裁定收窄为「I2C 屏幕收口 + EEPROM 删除」（EEPROM 改用 MSPM0 内置 Flash，且 `at24cxx` 零调用者）。删除 EEPROM 后 I2C_AUX 由 OLED 独占，**故不建 I2C 总线抽象层**；V17 登记并同批次关闭。与新引脚表零冲突。
+4. **引脚表 v2 迁移**（`plan_pin_table_v2_migration.md`）——**`BLOCKED`**：硬件组新表与工程/表自身存在冲突，Q1–Q4 待裁定（封装 LQFP-64 vs 100、IMU 串口两 sheet 打架、VOFA 无处安放、编码器⇄灰度原子对调且 timer↔轮 归属翻转）。不阻塞 P6。
+5. **P7**（待编写）：其余 Driver 拆分。
+6. **Service 层承接**（待规划）：关闭 V07/V10/V13/V14/V15（Task 直接编排 Driver/PID、Service 空缺、可写全局、UI 直调 Driver、VOFA 跨层注册）。
+
+## 3.1 待办（有裁定但未立计划）
+
+- **Encoder 极性/左右轮标定**：AB 相接反是预期内硬件事故（用户 2026-07-16 裁定）。全链路唯一修正点为 `encoder.c:41` `s_direction_sign[] = {-1, 1}`，**禁止新增第二个反转开关**（两处反转互相抵消）。待办是让它成为板级可配置 + 主机测试覆盖两种极性。若引脚表 v2 迁移执行（左右轮 timer 归属翻转），此常量**必须重新标定**，否则左右轮静默对调。
 
 ## 4. 违规登记现状速览（细节见拓扑 §6）
 
