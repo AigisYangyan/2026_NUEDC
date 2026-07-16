@@ -41,13 +41,16 @@
 
 | ID | 状态 | 模块 | 选择原因 | 详细计划 |
 |---|---|---|---|---|
-| P1 | done | `mspm0_runtime` | 当前所有 Driver 的板级基础，同时存在 Driver→App、ISR 回调和多资源混管；必须先建立干净底座 | `plan1_mspm0_runtime_rewrite.md` + 收口契约 `plan1_fix_runtime_closeout.md` |
-| P2 | done | `encoder` | 高度依赖 runtime，且把方向、速度和状态写进 Motor 全局；先拆它才能独立重写 Motor | `plan2_encoder_rewrite.md` + 收口契约 `plan2_fix_encoder_closeout.md` |
-| P3 | done | `motor` | 硬件风险最高；待 Encoder 不再依赖 Motor 状态后单独重写，并执行 P0 参数确认 | `plan3_motor_rewrite.md` |
-| P4 | done | `key` | 从共享 GPIO IRQ/Runtime 通知中拆出，形成主动读取事件接口 | `plan4_key_rewrite.md` |
-| P5 | pending | UART 角色驱动 | 按 Vision、VOFA、Stepmotor 的实际角色逐个迁移，禁止上层 ISR 回调 | `plan5_uart_role_drivers.md` |
-| P6 | queued | I2C 器件驱动 | MPU6050、EEPROM、OLED 分别明确总线、超时和错误所有权 | 后续编写 |
-| P7 | queued | 其他 Driver | IMU、Step Motor 等按依赖图继续拆分 | 后续编写 |
+| P1 | done | `mspm0_runtime` | 当前所有 Driver 的板级基础，同时存在 Driver→App、ISR 回调和多资源混管；必须先建立干净底座 | `done/plan1_mspm0_runtime_rewrite.md` + 收口契约 `done/plan1_fix_runtime_closeout.md` |
+| P2 | done | `encoder` | 高度依赖 runtime，且把方向、速度和状态写进 Motor 全局；先拆它才能独立重写 Motor | `done/plan2_encoder_rewrite.md` + 收口契约 `done/plan2_fix_encoder_closeout.md`（G3519 起计数源已换硬件 QEI，公共 API 不变） |
+| P3 | done | `motor` | 硬件风险最高；待 Encoder 不再依赖 Motor 状态后单独重写，并执行 P0 参数确认 | `done/plan3_motor_rewrite.md` |
+| P4 | done | `key` | 从共享 GPIO IRQ/Runtime 通知中拆出，形成主动读取事件接口 | `done/plan4_key_rewrite.md` |
+| HT | **pending（下一个派工）** | `tests/host` 主机测试基线恢复 | G3519 迁移未带入主机测试套件（拓扑 V16），是 P5 及一切后续施工的前置 | `plan_host_tests_restore.md` |
+| P5 | pending（等 HT） | UART 角色驱动 | 按 Vision、VOFA、Stepmotor 的实际角色逐个迁移，禁止上层 ISR 回调 | `plan5_uart_role_drivers.md` |
+| P6 | queued | I2C 器件驱动 | EEPROM、OLED 分别明确总线、超时和错误所有权（MPU6050 已移除，范围收窄） | 后续编写 |
+| P7 | queued | 其他 Driver | IMU（`imu_uart` TX 角色随 P5.T3）、Step Motor 等按依赖图继续拆分 | 后续编写 |
+
+2026-07-16 目录整理：已完成并验收的计划移入 `done/`（P1–P4 及 FIX-BAUD 共 7 份，只读历史契约，不再修订）；`obsolete/` 存放被 G3519 迁移作废的文档（`encoder_measurement_baseline.md` 记录的是已删除的 GROUP1 软件判向机制，该目录可整体删除）。本目录顶层只保留：本索引、待派工计划（`plan_host_tests_restore.md`、`plan5_uart_role_drivers.md`）。
 
 2026-07-16 备注（第二次修订）：REASONIX 提交 `SELF_CHECK_BLOCKED`，证据确认 P1（P1.3–P1.5）与 P2（P2.1 硬件、P2.4/P2.5）存在未完成项，“P1/P2 已验收”前置条件不成立。Codex 处置：建立收口契约 `plan1_fix_runtime_closeout.md`（含 P1.3/P1.4/P1.5.2 向 P5/P4 的正式移交与 P1 完成定义收窄）与 `plan2_fix_encoder_closeout.md`（承接 P2.4/P2.5 软件残余与 P2.1/§7 硬件基线）；plan3/plan4/plan5 前置条件同步改为引用具体 E 行验收结果。强制施工顺序：**P1F.T1 → P2F.T1 →（P3.T1/T2 与 P4 可并行）→ P5.T1/T2 → P5.T3**；（2026-07-16 更新：硬件验收整体取消，见下方裁定；原硬件行全部作废。）
 

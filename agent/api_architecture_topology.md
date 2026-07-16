@@ -590,7 +590,7 @@ flowchart LR
 | V14 | UI 直接调用 Key/OLED Driver，并在 UI 头暴露 Key 类型 | `menu_core.*`、`menu_pages.c` | UI 应通过 App 接口/Service，不直接操作 Driver | App Service/UI 阶段 |
 | V15 | VOFA Scheduler 直接依赖 VOFA Driver、PID 和 TrackFollow | `vofa_register.*` | Scheduler 不应成为跨层共享状态中心 | VOFA Service 阶段 |
 | P1-SCOPE | P1 完成范围收窄：UART 角色迁移交 P5、按键共享 IRQ 交 P4；P1F.T1 仅关闭 Runtime 死接口与时间包装 | `plan1_fix_runtime_closeout.md` §1；P1F E01–E05 | 无新增违规；避免跨计划重复关闭 | P1-FIX / P4 / P5 |
-| V16 | 主机测试套件 `tests/host/` 未随 G3507→G3519 迁移带入本仓库；历史证据行与 V12 引用的 `tests/host/*` 位于旧 `NUEDC` 仓库。当前仓库无法复跑任何 `make -C tests/host` 行 | 本仓库无 `tests/` 目录；旧套件在 `../NUEDC/tests/host/` | 测试是交付内容；验收协议依赖主机测试基线 | 任何后续施工（含 P5）开工前必须先把套件迁入并恢复全绿基线 |
+| V16 | 主机测试套件 `tests/host/` 未随 G3507→G3519 迁移带入本仓库；历史证据行与 V12 引用的 `tests/host/*` 位于旧 `NUEDC` 仓库。当前仓库无法复跑任何 `make -C tests/host` 行 | 本仓库无 `tests/` 目录；旧套件在 `../NUEDC/tests/host/` | 测试是交付内容；验收协议依赖主机测试基线 | `phase2_driver_rewrite/plan_host_tests_restore.md` HT.T1（已派工契约，P5 前置） |
 
 登记表只允许基于代码证据新增或关闭。修复完成后不要直接删除记录：先把状态改为“closed + 日期 + 验证”，下一次阶段收口时再归档。
 
@@ -670,3 +670,4 @@ flowchart LR
 | 2026-07-16 | P4.T1/T2 验收 `CODEX_ACCEPTED`：`Key_NotifyIrq` 符号全仓零命中（T2 目标随 T1 完成）；runtime GROUP1 ISR 只置私有边沿位图，原子读清经 `BoardGpio` 拉取；Codex 将 `Mspm0Runtime_ConsumeKeyIrqEdges` 的裸 `extern` 声明归位到 `mspm0_runtime.h`；P4 整体 done | `Runtime_API` 新增 `+Mspm0Runtime_ConsumeKeyIrqEdges()`（经 BoardGpio 消费）；其余同上行 | Codex 复跑：E03/E04 扫描零命中、Host 32 项全绿、固件构建 0 警告退出 0 |
 | 2026-07-16 | plan5 修订 4：P5.T3 的 IMU 处置改为迁移到最小 `imu_uart` TX 角色（`ImuUart_Init/TryWrite`，UART_IMU 无 DMA）；"UART2 归属确认"前置作废；Codex 核实 IMU 模块零外部调用者（休眠代码），禁止推测性 RX FIFO（归 P7） | 已复核，无代码 API 拓扑变化（imu_uart 为批准的未来接口，不提前画入） | `rg -c 'IMU_UART_\|IMU_Update_Yaw\|IMU_Get_Reset\|IMU_Calibrate' hc-team --glob '!hc-team/driver/imu/*'` 零命中；P5.T1–T3 全部可派工 |
 | 2026-07-16 | G3507→G3519 迁移后拓扑本地适配（仅文档同步，未改代码）：工程移入 `2026_Diansai`（MSPM0G3519/LQFP-100，SDK 2.11.00.07，配置源为仓库根 `board.syscfg`）；编码器改 TIMG8/TIMG9 硬件 QEI（PA7/PA6、PA3/PA2），GROUP1 仅服务按键；步进总线物理实例 UART2→UART7（PB15/PB16 不变）；MPU6050/I2C_IMU 已移除（提交 `37ff7fc`）；灰度 8 路升级 12 路（提交 `c60f4eb`，`TRACK_SENSOR_COUNT=12`） | 删除 MPU6050_API 类、System/Task1→MPU6050 边与覆盖清单行；5.1 数据流改为 QEI 硬件计数；事实来源路径改为根 `board.syscfg`；登记 V16（`tests/host` 未迁入） | 对照 `hc-team` 源码与 `docs/MIGRATION_G3507_TO_G3519.md` 复核：`rg 'MPU6050' hc-team` 仅余 task1.c 一条移除说明注释；公共 API（Encoder/BoardGpio/Runtime）与依赖边未变 |
+| 2026-07-16 | 计划目录整理（仅文档，未改代码）：phase2 已验收计划（P1/P1F/P2/P2F/P3/P4/FIX-BAUD 共 7 份）移入 `done/`，作废的 GROUP1 判向基线移入 `obsolete/`；新建 `agent/README.md`（目录导航 + 项目脉络）与 HT.T1 派工契约 `plan_host_tests_restore.md`（tests/host 迁入恢复 32 项基线，P5 前置） | 已复核，无代码 API 拓扑变化；V16 计划归属更新为 HT.T1 | 工作区 `git status` 中 `hc-team` 零改动；phase2 顶层只余索引与两份待派工计划 |
