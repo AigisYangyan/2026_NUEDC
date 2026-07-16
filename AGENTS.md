@@ -1,6 +1,6 @@
 # NUEDC 嵌入式工程开发规范
 
-适用工程：`2026_Diansai` —— MSPM0G3519（LQFP-100，SDK 2.11.00.07，ticlang 4.0.4），由旧工程 `NUEDC`（MSPM0G3507）移植而来，移植配方见 `docs/MIGRATION_G3507_TO_G3519.md`。唯一硬件配置源为仓库根 `board.syscfg`；固件构建入口为 `rtk make -C Debug all`。与 G3507 时期的差异：编码器为 TIMG8/TIMG9 硬件 QEI（GROUP1 中断仅服务按键）、步进总线物理实例为 UART7、MPU6050/I2C_IMU 已移除、灰度传感器为 12 路。
+适用工程：`2026_Diansai` —— MSPM0G3519（LQFP-100，SDK 2.11.00.07，ticlang 4.0.4），由旧工程 `NUEDC`（MSPM0G3507）移植而来，移植配方见 `agent/MIGRATION_G3507_TO_G3519.md`。唯一硬件配置源为仓库根 `board.syscfg`；固件构建入口为 `rtk make -C Debug all`。与 G3507 时期的差异：编码器为 TIMG8/TIMG9 硬件 QEI（GROUP1 中断仅服务按键）、步进总线物理实例为 UART7、MPU6050/I2C_IMU 已移除、灰度传感器为 12 路。
 
 本文件是本仓库所有新增、修改、重构和评审工作的强制规范。任何实现都必须先满足这里定义的架构边界，再考虑功能完成度。若用户的临时要求与本规范冲突，必须停止编码，说明冲突和可行的分层方案，不得先写出破坏架构的代码再补救。
 

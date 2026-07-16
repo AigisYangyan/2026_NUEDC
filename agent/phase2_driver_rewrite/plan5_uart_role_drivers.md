@@ -7,7 +7,7 @@
 修订 2：2026-07-16 用户将三个 UART 波特率统一改为 230400（`board.syscfg:226,260,293`），§0.1 数字与 T3 等待上限公式已按新波特率更新，全部涉及旧波特率的代码注释已由 FIX-BAUD 清理（见 `plan_fix_baud230400_comments.md`）。  
 修订 3：2026-07-16 用户重命名全部 syscfg 外设组并**新增 `UART_IMU` 专用端口**（230400，无 DMA）。影响：角色名同步为 `UART_STEPPER_BUS`/`UART_HOST_LINK`/`UART_VISION`（基线提交 `5131f6e`）；**P5.T3 的 UART2 共享归属问题获得配置级解法**——IMU 应迁移到自己的 `UART_IMU` 端口而非继续借用步进发送 API，P5.T3 已按此修订（修订 4）：IMU 迁移到最小 `imu_uart` TX 角色，DMA 角色通道表已在基线提交 `5131f6e` 核对。  
 修订 4：2026-07-16 Codex 落实修订 3——P5.T3 的 IMU 处置改为迁移到最小 `imu_uart` TX 角色（§4 新增契约；E11、前置条件、stop conditions 同步）；"UART2 设备归属确认"前置条件作废（IMU 已有专用端口，且 Codex 核实 IMU 模块当前零外部调用者）。  
-修订 5（G3519 本地适配）：2026-07-16 工程移植到 `2026_Diansai`（MSPM0G3519，见 `docs/MIGRATION_G3507_TO_G3519.md`）。本计划内以下环境事实按新工程解读：唯一硬件配置源为仓库根 `board.syscfg`（原 `project/mspm0/board.syscfg` 为旧仓库路径）；步进总线物理实例为 **UART7**（G3519 无 UART2；引脚 PB15/PB16、230400 不变，文中"物理 UART2"字样按 UART7 解读）；`UART_IMU` 为物理 UART3。**新增前置条件：`tests/host/` 套件未随迁（拓扑 V16），P5 开工前必须先从 `../NUEDC/tests/host/` 迁入并复跑恢复全绿基线**，否则本计划全部 `make -C tests/host` E 行不可执行。  
+修订 5（G3519 本地适配）：2026-07-16 工程移植到 `2026_Diansai`（MSPM0G3519，见 `agent/MIGRATION_G3507_TO_G3519.md`）。本计划内以下环境事实按新工程解读：唯一硬件配置源为仓库根 `board.syscfg`（原 `project/mspm0/board.syscfg` 为旧仓库路径）；步进总线物理实例为 **UART7**（G3519 无 UART2；引脚 PB15/PB16、230400 不变，文中"物理 UART2"字样按 UART7 解读）；`UART_IMU` 为物理 UART3。**新增前置条件：`tests/host/` 套件未随迁（拓扑 V16），P5 开工前必须先从 `../NUEDC/tests/host/` 迁入并复跑恢复全绿基线**，否则本计划全部 `make -C tests/host` E 行不可执行。  
 前置条件：P1F.T1 与 P4 均已验收合入（`mspm0_runtime.c` 无并行冲突）；`tests/host` 基线已在本仓库恢复全绿（修订 5）。（原 UART2 共享禁令因 `UART_IMU` 专用端口出现而作废，见修订 4。）  
 流程（2026-07-16 简化）：Codex 计划 → REASONIX 施工并提交行级完成报告 → Codex 精简验收（自检阶段已撤销）。
 

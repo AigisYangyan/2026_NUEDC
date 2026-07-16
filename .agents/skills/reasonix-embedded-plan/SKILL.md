@@ -9,7 +9,7 @@ This is a **Codex-owned** skill. Create a small, evidence-backed construction or
 
 ## Local Workspace Facts (2026_Diansai, adapted 2026-07-16)
 
-- Workspace: `2026_Diansai`, MSPM0G3519 (LQFP-100), SDK 2.11.00.07, migrated from `NUEDC`/G3507 — see `docs/MIGRATION_G3507_TO_G3519.md`.
+- Workspace: `2026_Diansai`, MSPM0G3519 (LQFP-100), SDK 2.11.00.07, migrated from `NUEDC`/G3507 — see `agent/MIGRATION_G3507_TO_G3519.md`.
 - Single hardware config source is `board.syscfg` at the repo root (the old `project/mspm0/board.syscfg` path in historical plans no longer exists). Firmware build entry: `rtk make -C Debug all`.
 - Facts that differ from historical NUEDC plans: encoders are hardware QEI on TIMG8/TIMG9 (GROUP1 IRQ serves keys only), stepper bus physical instance is UART7 (pins PB15/PB16 unchanged), MPU6050/I2C_IMU are removed, grayscale sensor is 12-channel.
 - The host test suite `tests/host/` was NOT migrated into this repo (topology entry V16). Do not assume a green host baseline. Before any task carries a `make -C tests/host` E row, the plan must include an explicit prior task that migrates the suite from `../NUEDC/tests/host/` and re-establishes the baseline.

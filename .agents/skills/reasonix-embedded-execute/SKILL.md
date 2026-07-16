@@ -7,7 +7,7 @@ description: Execute an approved REASONIX construction task for NUEDC embedded r
 
 This is a **REASONIX worker** skill. Execute only one Codex-approved construction task at a time. Treat the task's file boundaries and stop conditions as mandatory.
 
-Local workspace facts (2026_Diansai, adapted 2026-07-16): target is MSPM0G3519 (migrated from NUEDC/G3507, see `docs/MIGRATION_G3507_TO_G3519.md`); the single hardware config source is `board.syscfg` at the repo root; firmware build entry is `rtk make -C Debug all`; encoders are hardware QEI (GROUP1 IRQ is keys-only), stepper bus is physical UART7, MPU6050/I2C_IMU are removed, grayscale is 12-channel. The host test suite `tests/host/` is not yet present in this repo (topology V16) — if the assigned task requires host-test rows and the suite is absent, that is baseline drift: stop and report, do not improvise stubs.
+Local workspace facts (2026_Diansai, adapted 2026-07-16): target is MSPM0G3519 (migrated from NUEDC/G3507, see `agent/MIGRATION_G3507_TO_G3519.md`); the single hardware config source is `board.syscfg` at the repo root; firmware build entry is `rtk make -C Debug all`; encoders are hardware QEI (GROUP1 IRQ is keys-only), stepper bus is physical UART7, MPU6050/I2C_IMU are removed, grayscale is 12-channel. The host test suite `tests/host/` is not yet present in this repo (topology V16) — if the assigned task requires host-test rows and the suite is absent, that is baseline drift: stop and report, do not improvise stubs.
 
 For a ready-to-use contractor instruction, load [reasonix-worker-prompt.md](references/reasonix-worker-prompt.md) and append the approved task.
 

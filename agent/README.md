@@ -12,7 +12,7 @@
 | Phase 2 P3：`motor` | `Motor_SetOutput/Update/Brake` 状态机：slew 限速、换向过零 +5ms 死区、100ms 命令超时归零；PWM 统一 80MHz/period 7999（10kHz） | `CODEX_ACCEPTED`，V04/V06/V11/V12 closed |
 | Phase 2 P4：`key` | Key 改经 `BoardGpio` 拉取边沿/电平位图，GROUP1 ISR 只置私有位图，`Key_NotifyIrq` 删除 | `CODEX_ACCEPTED` |
 | 流程裁定（2026-07-16） | 撤销 REASONIX 自检阶段（三阶段流程）；取消硬件验收（软件验收唯一制，板上实测用户自理）；E 行预算 ≤6/任务 | 现行流程 |
-| G3507→G3519 迁移（2026-07-16，本仓库） | 工程移入 `2026_Diansai`：MSPM0G3519/LQFP-100、SDK 2.11、步进总线 UART2→UART7、编码器升级 TIMG8/TIMG9 硬件 QEI（公共 API 零变化，GROUP1 只剩按键）、MPU6050/I2C_IMU 移除、灰度 8→12 路 | 提交 `ccf3fee`…`fc86063`；配方见 `docs/MIGRATION_G3507_TO_G3519.md` |
+| G3507→G3519 迁移（2026-07-16，本仓库） | 工程移入 `2026_Diansai`：MSPM0G3519/LQFP-100、SDK 2.11、步进总线 UART2→UART7、编码器升级 TIMG8/TIMG9 硬件 QEI（公共 API 零变化，GROUP1 只剩按键）、MPU6050/I2C_IMU 移除、灰度 8→12 路 | 提交 `ccf3fee`…`fc86063`；配方见 `agent/MIGRATION_G3507_TO_G3519.md` |
 | Agent/skills 本地适配（2026-07-16） | AGENTS.md 入库并标注 G3519 工程事实；拓扑同步（删 MPU6050、QEI 数据流、V16 登记）；三个 REASONIX skills 注入本地事实；plan5 修订 5 | 提交 `a7446c6` |
 | 计划目录整理（2026-07-16） | 完成计划移入 `done/`，作废文档移入 `obsolete/`，新建 HT 派工计划与本索引 | 提交 `36d4d65` |
 | Phase 2 HT.T1：`tests/host` 恢复 | 主机测试套件从旧仓库迁入 `2026_Diansai`，32 项基线全绿 | `CODEX_ACCEPTED`，V16 closed，提交 `d57b728` |
@@ -25,6 +25,7 @@
 agent/
 ├── README.md                          ← 本文件（导航 + 脉络）
 ├── api_architecture_topology.md       ← 架构现状唯一权威，编码前必读、编码后必更
+├── MIGRATION_G3507_TO_G3519.md        ← G3507→G3519 移植配方（2026-07-16 由 docs/ 移入；AGENTS.md 引用）
 ├── phase1_DL_HAL/                     ← 纯历史归档（G3507 时期），只读
 └── phase2_driver_rewrite/
     ├── phase2_driver_rewrite_plan.md  ← Phase 2 索引（模块顺序、裁定记录）
@@ -49,7 +50,7 @@ agent/
 - **BSL ENTRY 监听器未实现**（调试串口迁移遗留，需立计划）：`UART_BSL_ENTRY`(UART0/9600) 已配好但**无消费者**——上位机 ENTRY 字节 `0x22` 的监听与软件跳 BSL 尚未落地。在此之前，**软件跳 BSL 不可用**，只能用硬件 BSL invoke 引脚 + 复位。参考实现：SDK `bsl_software_invoke_app_demo_uart/main.c:197`（判 0x22）+ `invokeBSLAsm()`（擦 SRAM + `DL_SYSCTL_RESET_BOOTLOADER_ENTRY`，含 BSL_ERR_01 勘误绕行）。
 - **PA0/PA1 待硬件组引出**（调试串口迁移遗留）：用户 2026-07-16 明示板上尚无这两个脚，将要求硬件组新画。**在引出前 VOFA 在实物上不可用**（固件已就绪）。
 - **BSL 波特率提升到 230400（可选，高风险）**：需自定义 UART BSL flash 插件（`BSL_UART_DEFAULT_BAUD` 改 230400）。代价：动 NONMAIN + linker + BCR 写保护，插件默认落 0x2000 与 app 撞车（建议挪 flash 顶部），配错要 SWD 工厂复位。不做则 BSL 恒为 9600（ROM 固定）。
-- **旧引脚表删除待确认**（P6 验收时发现）：新表 `docs/主控板引脚表(2).xlsx` 与可读导出 `docs/pin_table_v2/` 已入库，Q1–Q4 依据可复核。但 `docs/主控板引脚表_G3519.xlsx` 在工作树中处于已删除状态且未提交——需用户确认是否为本人操作。详见 `plan6_i2c_display.md` §10。
+- ~~旧引脚表删除待确认~~ **已闭环**（2026-07-16 用户裁定）：`docs/` 现只保留给硬件组的最新文件（`主控板引脚表(2).xlsx` 一份）；旧表 `_G3519.xlsx` 与可读导出 `pin_table_v2/` 均已删除；`MIGRATION_G3507_TO_G3519.md` 移入 `agent/`（它是固件侧文档，被 `AGENTS.md` 等 11 处引用）。历史版本经 git 追溯。
 - **Encoder 极性/左右轮标定**：AB 相接反是预期内硬件事故（用户 2026-07-16 裁定）。全链路唯一修正点为 `encoder.c:41` `s_direction_sign[] = {-1, 1}`，**禁止新增第二个反转开关**（两处反转互相抵消）。待办是让它成为板级可配置 + 主机测试覆盖两种极性。若引脚表 v2 迁移执行（左右轮 timer 归属翻转），此常量**必须重新标定**，否则左右轮静默对调。
 
 ## 4. 违规登记现状速览（细节见拓扑 §6）

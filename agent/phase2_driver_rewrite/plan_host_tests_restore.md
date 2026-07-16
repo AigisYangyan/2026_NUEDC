@@ -29,7 +29,7 @@ Evidence:
 - 本仓库无 `tests/` 目录；`agent/api_architecture_topology.md` V16 登记该缺口。
 - `../NUEDC/tests/host/Makefile:1-40`：以 `../../hc-team/driver/encoder/encoder.c`、`motor.c`、`key.c`、`pid.c`、`task_groups.c` 等相对路径编译，本仓库同名路径全部存在。
 - 旧目录含 4 个 `test_*.exe` 旧构建产物——是过时二进制，禁止带入（skills failure-patterns：stale artifact）。
-- G3519 迁移中 `encoder.c`/`board_gpio.c`/`key.c`/`motor.c`/`pid.c` 均未改动（`docs/MIGRATION_G3507_TO_G3519.md` §5"其余全部零改动"），QEI 变更只在 `mspm0_runtime.c`（不在主机测试链接范围内），预期套件对当前源码直接通过。
+- G3519 迁移中 `encoder.c`/`board_gpio.c`/`key.c`/`motor.c`/`pid.c` 均未改动（`agent/MIGRATION_G3507_TO_G3519.md` §5"其余全部零改动"），QEI 变更只在 `mspm0_runtime.c`（不在主机测试链接范围内），预期套件对当前源码直接通过。
 
 Architecture:
 - Abstraction: 主机可运行的 Driver/Middleware 行为验证基线（编译真实生产源 + fake 底座）。
