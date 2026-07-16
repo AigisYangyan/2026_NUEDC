@@ -1,6 +1,6 @@
-# REASONIX Construction Order
+# Task Contract
 
-Use this compact contract for every task.
+Use this compact contract for every task. It is written and **committed before any production code** — that commit is what makes self-acceptance meaningful (see SKILL.md).
 
 ```markdown
 ## <task-id> <title>
@@ -46,10 +46,12 @@ Do not combine a command and its postcondition into one vague sentence. For dest
 
 Do not use glob patterns in file boundaries. For a new file, write its exact intended path. When referencing topology debt, copy the exact violation ID from `agent/api_architecture_topology.md`; a phase label is not a violation ID.
 
-The REASONIX prompt must include:
+The standing rule for the BUILD phase, which now applies to yourself:
 
 ```text
-Execute only this task. Reports are claims, not proof. Do not mark complete until every command and observable postcondition has been reproduced. Never ignore command errors. Do not close topology items without direct evidence.
+Execute only this task. Your own report is a claim, not proof. Do not mark complete until every command and observable postcondition has been reproduced. Never ignore command errors. Do not close topology items without direct evidence.
 ```
 
-Codex assigns stable evidence row IDs (`E01`, `E02`, ...). REASONIX construction and Codex acceptance must reference those same IDs. Budget: at most 6 rows per task, one command per row, one firmware-build row per task. The construction report is one line per row plus changed files — no separate evidence-package document, no self-check stage.
+Evidence row IDs (`E01`, `E02`, ...) are assigned in DECIDE and are stable: BUILD reports against them and ACCEPT reproduces them under the same IDs. Budget: at most 6 rows per task, one command per row, one firmware-build row per task. The build report is one line per row plus changed files — no separate evidence-package document, no self-check stage.
+
+Because one agent now owns all three phases, the rows are only binding if they were committed before the code. If a row turns out to be wrong, amend it in its own commit that says so — never silently, and never in the commit that satisfies it.

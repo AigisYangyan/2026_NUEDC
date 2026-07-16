@@ -18,6 +18,7 @@
 | Phase 2 HT.T1：`tests/host` 恢复 | 主机测试套件从旧仓库迁入 `2026_Diansai`，32 项基线全绿 | `CODEX_ACCEPTED`，V16 closed，提交 `d57b728` |
 | Phase 2 P6：I2C 屏幕收口 + EEPROM 删除 | `driver/eeprom/at24cxx.*` 死代码整体删除（含构建登记）；OLED 公共头由 10+ 符号收敛为 6 个显示能力接口，页寻址/字模/pow/总线恢复全部私有；`50000u` 魔数超时改为 `2 byte×9 bit/400 kHz ×2 = 90 µs → 1800 loops` 算式推导；新增主机 OLED 测试 15 项 | `CODEX_ACCEPTED`，V17 登记并同批次 closed，主机测试 76 项 |
 | Phase 2 P5：`board_uart` 四角色（T1+T2+T3 统一施工） | 新增 vision/vofa/stepmotor/imu 角色 Driver 与私有 FIFO；Runtime 回调与 9 个 Send/Busy 接口删除；VOFA 解析迁任务态；emm42 纯组包；IMU 迁专用 `UART_IMU`；uart_stress 改有界等待独占 | `CODEX_ACCEPTED`，V02/V08/V09 closed、V03 partially closed，主机测试 61 项，提交 `b24a456` |
+| 流程自闭环（2026-07-16，用户裁定） | 取消第二个施工者：三个 `reasonix-embedded-*` skill 合并为 `.agents/skills/embedded-closed-loop`，删除 GPT 承包商注册与派工 Prompt；流程改为**单 agent 决策→施工→验收**，标签 `ACCEPTED`/`REJECTED`。代偿机制：**契约含 E 行须在写代码前先提交**，由 git 充当第二方 | 现行流程（权威：`phase2_driver_rewrite_plan.md` 同日「流程自闭环」条） |
 
 ## 2. 目录地图
 

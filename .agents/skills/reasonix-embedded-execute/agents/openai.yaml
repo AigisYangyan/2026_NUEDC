@@ -1,4 +1,0 @@
-interface:
-  display_name: "REASONIX Embedded Execute"
-  short_description: "Execute embedded rewrites with proof and safety"
-  default_prompt: "Use $reasonix-embedded-execute to implement the approved embedded rewrite task and prove each postcondition."

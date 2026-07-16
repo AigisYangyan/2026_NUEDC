@@ -1,4 +1,0 @@
-interface:
-  display_name: "REASONIX Embedded Plan"
-  short_description: "Plan bounded embedded rewrite construction tasks"
-  default_prompt: "Use $reasonix-embedded-plan to create a bounded construction plan for the next embedded module rewrite."

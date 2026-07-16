@@ -1,4 +1,6 @@
-# REASONIX And AI Failure Patterns
+# AI Failure Patterns
+
+These are the ways a self-accepting agent fools itself. Under closed-loop there is no second party to catch them, so each one must be checked deliberately.
 
 ## Verification Failures
 

@@ -1,6 +1,6 @@
 # NUEDC API 平台架构拓扑图（2026_Diansai · MSPM0G3519）
 
-最后复核：2026-07-16（调试串口迁移 UART5/PA1/PA0 施工复核）  
+最后复核：2026-07-16（流程自闭环收口复核；代码拓扑最近变更为 P6 与调试串口迁移）  
 适用工程：`2026_Diansai`（MSPM0G3519，LQFP-100，SDK 2.11.00.07；由旧工程 `NUEDC`/G3507 移植，见 `agent/MIGRATION_G3507_TO_G3519.md`）  
 事实来源：当前工作区 `hc-team/**/*.c`、`hc-team/**/*.h`、仓库根 `board.syscfg`  
 状态：当前实现拓扑，不是目标架构示意图  
@@ -685,3 +685,4 @@ flowchart LR
 | 2026-07-16 | G3507→G3519 迁移后拓扑本地适配（仅文档同步，未改代码）：工程移入 `2026_Diansai`（MSPM0G3519/LQFP-100，SDK 2.11.00.07，配置源为仓库根 `board.syscfg`）；编码器改 TIMG8/TIMG9 硬件 QEI（PA7/PA6、PA3/PA2），GROUP1 仅服务按键；步进总线物理实例 UART2→UART7（PB15/PB16 不变）；MPU6050/I2C_IMU 已移除（提交 `37ff7fc`）；灰度 8 路升级 12 路（提交 `c60f4eb`，`TRACK_SENSOR_COUNT=12`） | 删除 MPU6050_API 类、System/Task1→MPU6050 边与覆盖清单行；5.1 数据流改为 QEI 硬件计数；事实来源路径改为根 `board.syscfg`；登记 V16（`tests/host` 未迁入） | 对照 `hc-team` 源码与 `agent/MIGRATION_G3507_TO_G3519.md` 复核：`rg 'MPU6050' hc-team` 仅余 task1.c 一条移除说明注释；公共 API（Encoder/BoardGpio/Runtime）与依赖边未变 |
 | 2026-07-16 | 计划目录整理（仅文档，未改代码）：phase2 已验收计划（P1/P1F/P2/P2F/P3/P4/FIX-BAUD 共 7 份）移入 `done/`，作废的 GROUP1 判向基线移入 `obsolete/`；新建 `agent/README.md`（目录导航 + 项目脉络）与 HT.T1 派工契约 `plan_host_tests_restore.md`（tests/host 迁入恢复 32 项基线，P5 前置） | 已复核，无代码 API 拓扑变化；V16 计划归属更新为 HT.T1 | 工作区 `git status` 中 `hc-team` 零改动；phase2 顶层只余索引与两份待派工计划 |
 | 2026-07-16 | HT.T1 验收：从 `../NUEDC/tests/host/` 迁入 7 个主机测试源文件，恢复 `tests/host` 32 项基线（Encoder 14 + PID 5 + Motor 7 + Key 6）；`.gitignore` 补齐主机测试可执行产物忽略；`hc-team` 与 `board.syscfg` 保持零改动 | V16 closed；tests 不进入类图；无新增 API 边 | `rtk make -C tests/host all` 全绿；`rg -n 'ti_msp_dl_config|ti/driverlib' tests/host` 零命中；`git ls-files tests/host` 恰好 7 个文件；`git status --porcelain hc-team board.syscfg` 为空；`rtk make -C Debug all` 通过 |
+| 2026-07-16 | 流程自闭环（用户裁定，仅文档/skills，未改代码）：取消第二个施工者，三个 `reasonix-embedded-*` skill 合并为 `.agents/skills/embedded-closed-loop`（决策→施工→验收由单 agent 全占），删除 3 份 GPT 承包商注册 `openai.yaml` 与施工者派工 Prompt；4 份 reference 经 `git mv` 保留历史。代偿机制：**契约含全部 E 行须在写生产代码前先提交**，验收比对带时间戳的冻结契约，由 git 充当消失的第二方；E 行改错须单独提交说明。标签 `CODEX_*` 退役为 `ACCEPTED`/`REJECTED`。顺带回退 CCS 自动写入 `.cproject` 的失效索引项（指向已删 `docs/pin_table_v2`）与重复 Debug 构建配置块 | 已复核，无代码 API 拓扑变化 | `git grep -ri "reasonix|codex" .agents` 零命中；`git status --porcelain hc-team board.syscfg tests Debug` 为空；日志表 REASONIX 历史记述按惯例不回改。教训登记：本次 `sed -i` 曾静默剥掉全文 687 行 CRLF，被 `--ignore-all-space` 与 `cat -A` 发现并回退，改用 Edit 工具重做 |
