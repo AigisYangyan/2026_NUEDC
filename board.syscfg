@@ -91,6 +91,14 @@ GPIO1.associatedPins[3].pubChanID        = 1;
 GPIO1.associatedPins[3].pin.$assign      = "PA14";
 
 /* 12 路灰度,物理排列从左到右 IN1 -> IN12(与旧版 Board_cfg 文档一致)。 */
+/* GPIO_LINE_SENSOR = 12 路灰度循迹传感器。
+ * ★ 12 路必须全部落在 PORTB，不得跨端口。原因：SysConfig 仅在同组同端口时生成
+ *   组级单端口宏 GPIO_LINE_SENSOR_PORT，track_follow.c 依赖它一次读取全部 12 路；
+ *   跨端口会使该宏消失（编译失败），且 12 路无法再原子采样，通道间产生时间偏斜。
+ * 2026-07-16：IN4/IN5/IN10/IN11 让出 PB7/PB9/PB10/PB11 给编码器 QEI（编码器被核心板
+ *   晶振逼出 PA 侧，且 QEI 只能落在特定 CCP 脚上；灰度是普通输入，落哪都行 ——
+ *   约束多的先占位）。IN4 选 PB8 而非引脚表建议的 PA7：PB8 是 PB7 的物理邻脚，
+ *   布线代价最小，且留在 PORTB。 */
 GPIO2.$name                          = "GPIO_LINE_SENSOR";
 GPIO2.associatedPins.create(12);
 GPIO2.associatedPins[0].$name        = "PIN_IN1";
@@ -104,10 +112,10 @@ GPIO2.associatedPins[2].direction    = "INPUT";
 GPIO2.associatedPins[2].pin.$assign  = "PB13";
 GPIO2.associatedPins[3].$name        = "PIN_IN4";
 GPIO2.associatedPins[3].direction    = "INPUT";
-GPIO2.associatedPins[3].pin.$assign  = "PB7";
+GPIO2.associatedPins[3].pin.$assign  = "PB8";
 GPIO2.associatedPins[4].$name        = "PIN_IN5";
 GPIO2.associatedPins[4].direction    = "INPUT";
-GPIO2.associatedPins[4].pin.$assign  = "PB9";
+GPIO2.associatedPins[4].pin.$assign  = "PB20";
 GPIO2.associatedPins[5].$name        = "PIN_IN6";
 GPIO2.associatedPins[5].direction    = "INPUT";
 GPIO2.associatedPins[5].pin.$assign  = "PB26";
@@ -122,10 +130,10 @@ GPIO2.associatedPins[8].direction    = "INPUT";
 GPIO2.associatedPins[8].pin.$assign  = "PB21";
 GPIO2.associatedPins[9].$name        = "PIN_IN10";
 GPIO2.associatedPins[9].direction    = "INPUT";
-GPIO2.associatedPins[9].pin.$assign  = "PB10";
+GPIO2.associatedPins[9].pin.$assign  = "PB14";
 GPIO2.associatedPins[10].$name       = "PIN_IN11";
 GPIO2.associatedPins[10].direction   = "INPUT";
-GPIO2.associatedPins[10].pin.$assign = "PB11";
+GPIO2.associatedPins[10].pin.$assign = "PB0";
 GPIO2.associatedPins[11].$name       = "PIN_IN12";
 GPIO2.associatedPins[11].direction   = "INPUT";
 GPIO2.associatedPins[11].pin.$assign = "PB24";
@@ -189,10 +197,14 @@ PWM2.ccp0PinConfig.$name                = "ti_driverlib_gpio_GPIOPinGeneric8";
 PWM2.peripheral.$assign                 = "TIMA1";
 PWM2.peripheral.ccp0Pin.$assign         = "PB2";
 
+/* QEI_LEFT = 左轮编码器。2026-07-16 迁出核心板晶振脚：
+ * 原 PA7/PA6 中的 PA6 = SYSCTL.HFXOUT（高频晶振输出），核心板实焊晶振，不可作数字输入。
+ * 迁至 PB7(A相)/PB9(B相)，二者是 TIMG9 的 CCP0/CCP1，故实例随之由 TIMG8 改 TIMG9。
+ * $name 继续与物理左轮绑定，QEI_LEFT_INST 宏自动指向 TIMG9，encoder.c 无需感知。 */
 QEI1.$name                              = "QEI_LEFT";
-QEI1.peripheral.$assign                 = "TIMG8";
-QEI1.peripheral.ccp0Pin.$assign         = "PA7";
-QEI1.peripheral.ccp1Pin.$assign         = "PA6";
+QEI1.peripheral.$assign                 = "TIMG9";
+QEI1.peripheral.ccp0Pin.$assign         = "PB7";
+QEI1.peripheral.ccp1Pin.$assign         = "PB9";
 QEI1.ccp0PinConfig.hideOutputInversion  = scripting.forceWrite(false);
 QEI1.ccp0PinConfig.onlyInternalResistor = scripting.forceWrite(false);
 QEI1.ccp0PinConfig.passedPeripheralType = scripting.forceWrite("Digital");
@@ -202,10 +214,14 @@ QEI1.ccp1PinConfig.onlyInternalResistor = scripting.forceWrite(false);
 QEI1.ccp1PinConfig.passedPeripheralType = scripting.forceWrite("Digital");
 QEI1.ccp1PinConfig.$name                = "ti_driverlib_gpio_GPIOPinGeneric15";
 
+/* QEI_RIGHT = 右轮编码器。2026-07-16 迁出核心板晶振脚：
+ * 原 PA3 = SYSCTL.LFXIN（低频晶振输入）、PA2 = SYSCTL.ROSC（振荡器外接电阻），均不可作数字输入。
+ * 迁至 PB10(A相)/PB11(B相)，二者是 TIMG8 的 CCP0/CCP1，故实例随之由 TIMG9 改 TIMG8。
+ * 与 QEI_LEFT 的 timer 归属互换，但左右语义由 $name 承载，不产生静默对调。 */
 QEI2.$name                              = "QEI_RIGHT";
-QEI2.peripheral.$assign                 = "TIMG9";
-QEI2.peripheral.ccp0Pin.$assign         = "PA3";
-QEI2.peripheral.ccp1Pin.$assign         = "PA2";
+QEI2.peripheral.$assign                 = "TIMG8";
+QEI2.peripheral.ccp0Pin.$assign         = "PB10";
+QEI2.peripheral.ccp1Pin.$assign         = "PB11";
 QEI2.ccp0PinConfig.hideOutputInversion  = scripting.forceWrite(false);
 QEI2.ccp0PinConfig.onlyInternalResistor = scripting.forceWrite(false);
 QEI2.ccp0PinConfig.passedPeripheralType = scripting.forceWrite("Digital");

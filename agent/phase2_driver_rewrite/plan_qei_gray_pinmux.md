@@ -1,8 +1,30 @@
 # 计划：编码器迁出晶振脚 + 12 路灰度让位（QEI/GRAY 引脚重映射）
 
-状态：`pending`
+状态：`ACCEPTED`（2026-07-16 自闭环施工 + 验收）
 日期：2026-07-16
-流程：单 agent 自闭环（`.agents/skills/embedded-closed-loop`）。**本契约在写任何代码前提交**，验收比对本文冻结的 E 行。
+流程：单 agent 自闭环（`.agents/skills/embedded-closed-loop`）。**本契约在写任何代码前提交**（`150c7d7`），验收比对本文冻结的 E 行。
+
+## 0. 验收记录（2026-07-16）
+
+契约冻结于 `150c7d7`，早于任何 `board.syscfg` 改动 —— E 行未被事后调整以迁就实现。
+
+| ID | 结果 | 观察到的后置条件 |
+|---|---|---|
+| E01 | PASS | clean 固件构建 exit 0；构建日志中 warning/error/remark 命中 **0** 行 |
+| E02 | PASS | `QEI_LEFT_INST = TIMG9`、`QEI_RIGHT_INST = TIMG8` |
+| E03 | PASS | `GPIO_LINE_SENSOR_PORT (GPIOB)` **仍存在** —— 12 路同端口未破 |
+| E04 | PASS | `git status --porcelain hc-team tests` **输出为空** —— 驱动零改动 |
+| E05 | PASS | 主机 8 个套件全跑，**76 PASS / 0 FAIL**，gcc `-Wall -Wextra` 0 告警 |
+| E06 | PASS | 表与 `board.syscfg` 交叉核对 **0 冲突**；原表 44 脚零丢失，仅增 PB8 |
+
+验收中发现并处理的契约外问题：
+
+1. **E05 首次计数误报 44/76**。原因是统计正则只匹配 `All ... passed (N tests)` 汇总行，
+   而 encoder/pid/motor/key 四个套件不打汇总行。改数 `PASS:` 行后为 76，测试本身从未失败。
+   **记录此事是因为它差点被当成基线漂移**——统计口径错误伪装成了回归。
+2. **引脚表存在重复行**：PA25/PA26 各出现两次（陀螺仪行有效 + 调试串口行「作废」），
+   状态互相矛盾。硬件组按引脚检索会命中两条打架的记录。已删除 2 行作废记录（历史经 git 可追）。
+   这是 E06 检查按引脚建字典时暴露的，属表的质量问题而非本次施工引入。
 
 ## 1. 触发与事实源裁定
 

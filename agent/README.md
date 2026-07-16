@@ -18,6 +18,7 @@
 | Phase 2 HT.T1：`tests/host` 恢复 | 主机测试套件从旧仓库迁入 `2026_Diansai`，32 项基线全绿 | `CODEX_ACCEPTED`，V16 closed，提交 `d57b728` |
 | Phase 2 P6：I2C 屏幕收口 + EEPROM 删除 | `driver/eeprom/at24cxx.*` 死代码整体删除（含构建登记）；OLED 公共头由 10+ 符号收敛为 6 个显示能力接口，页寻址/字模/pow/总线恢复全部私有；`50000u` 魔数超时改为 `2 byte×9 bit/400 kHz ×2 = 90 µs → 1800 loops` 算式推导；新增主机 OLED 测试 15 项 | `CODEX_ACCEPTED`，V17 登记并同批次 closed，主机测试 76 项 |
 | Phase 2 P5：`board_uart` 四角色（T1+T2+T3 统一施工） | 新增 vision/vofa/stepmotor/imu 角色 Driver 与私有 FIFO；Runtime 回调与 9 个 Send/Busy 接口删除；VOFA 解析迁任务态；emm42 纯组包；IMU 迁专用 `UART_IMU`；uart_stress 改有界等待独占 | `CODEX_ACCEPTED`，V02/V08/V09 closed、V03 partially closed，主机测试 61 项，提交 `b24a456` |
+| QEI/灰度引脚重映射（2026-07-16） | 编码器 4 脚中 3 个是核心板晶振脚（PA3=LFXIN、PA6=HFXOUT、PA2=ROSC）——核心板为现成模块，晶振实焊，固件不可绕过。`QEI_LEFT`→**TIMG9/PB7/PB9**、`QEI_RIGHT`→**TIMG8/PB10/PB11**；灰度 IN4/IN5/IN10/IN11→**PB8/PB20/PB14/PB0**（IN4 用 PB8 而非表建议的 PA7，保住 12 路同端口原子采样）。释放 PA2/PA3/PA6/PA7 | `ACCEPTED`，`plan_qei_gray_pinmux.md`，E01–E06 全过，**驱动零改动**，引脚表 11 行冲突全消 |
 | 流程自闭环（2026-07-16，用户裁定） | 取消第二个施工者：三个 `reasonix-embedded-*` skill 合并为 `.agents/skills/embedded-closed-loop`，删除 GPT 承包商注册与派工 Prompt；流程改为**单 agent 决策→施工→验收**，标签 `ACCEPTED`/`REJECTED`。代偿机制：**契约含 E 行须在写代码前先提交**，由 git 充当第二方 | 现行流程（权威：`phase2_driver_rewrite_plan.md` 同日「流程自闭环」条） |
 
 ## 2. 目录地图
@@ -42,7 +43,11 @@ agent/
 2. ~~**P5**~~ done（`CODEX_ACCEPTED` 2026-07-16，提交 `b24a456`）：`board_uart` 四角色落地，V02/V08/V09 closed、V03 partially closed。E14–E16 硬件行随硬件验收取消而作废，**板上实测由用户自理**（三路 230400 实测、overflow 计数可见性、压测进出各 10 次）。
 3. ~~**P6**~~ done（`CODEX_ACCEPTED` 2026-07-16）：EEPROM 器件删除、OLED 公共头收口为 6 个显示能力接口、I2C 等待上限改按 400 kHz/80 MHz 算式推导。I2C_AUX 由 `driver/oled` 独占，**未建 I2C 总线抽象层**（单器件独占不需要仲裁）；V17 登记并同批次关闭。主机测试 76 项。
 4. ~~**调试串口迁移**~~ done（`CODEX_ACCEPTED` 2026-07-16，`plan_debug_uart_remap.md`，**流程例外：Codex 自施工自验收**）：`UART_HOST_LINK`(VOFA) 迁 **UART5/PA1/PA0/230400/DMA**；PA10/PA11 收归 **`UART_BSL_ENTRY`=UART0/9600/无 DMA**，专供无线 BSL。仅改 `board.syscfg`，**驱动零改动**（R05 证实）。PA0/PA1 在 LQFP-64/100 下均存在，**绕开引脚表 Q1**。⚠ 两个未闭环项见 §3.1。
-5. **引脚表 v2 迁移**（`plan_pin_table_v2_migration.md`）——**`BLOCKED`**：硬件组新表与工程/表自身存在冲突，Q1–Q4 待裁定（封装 LQFP-64 vs 100、IMU 串口两 sheet 打架、VOFA 无处安放、编码器⇄灰度原子对调且 timer↔轮 归属翻转）。**与调试串口迁移同改 `board.syscfg`，须排在其后或合并施工**。Q2/Q3 已被用户 2026-07-16 裁定推翻（IMU 定在 PA25/PA26、VOFA 定在 UART5/PA1/PA0），须随 Q1/Q4 一并回告硬件组。
+5. ~~**引脚表 v2 迁移**~~ **已闭环**（2026-07-16）。事实源方向裁定（用户）：**硬件围绕固件走** —— 先定 `board.syscfg`，硬件组照配置画板；引脚表是 syscfg 的**派生产物**，不是事实源。据此四问全部落地：
+   - **Q1（封装 LQFP-64 vs 100）**：**不影响任何裁定，继续挂起**。经核实本次涉及的全部引脚（PB7/PB9/PB10/PB11/PB8/PB20/PB14/PB0、PA0/PA1）在两种封装下均存在。
+   - **Q2（IMU 串口）/ Q3（VOFA）**：用户 2026-07-16 裁定 —— IMU 定 PA25/PA26，VOFA 定 UART5/PA1/PA0。已施工。
+   - **Q4（编码器⇄灰度对调）**：**硬件组是对的，固件是错的**。编码器原占的 PA3/PA6/PA2 分别是 `SYSCTL.LFXIN`/`HFXOUT`/`ROSC`，核心板为现成模块、晶振实焊，固件无法绕过 —— 这是引脚表比固件更接近物理事实的**唯一一处**。已按 `plan_qei_gray_pinmux.md` 施工并验收，表的 11 行冲突全消。
+   - 「左右轮 timer 归属翻转导致静默对调」的风险**不存在**：syscfg `$name` 继续与物理轮子绑定，实例号是 Driver 以下私有事实（E04 证实驱动零改动）。
 6. **P7**（待编写）：其余 Driver 拆分。
 7. **Service 层承接**（待规划）：关闭 V07/V10/V13/V14/V15（Task 直接编排 Driver/PID、Service 空缺、可写全局、UI 直调 Driver、VOFA 跨层注册）。
 
@@ -52,7 +57,8 @@ agent/
 - **PA0/PA1 待硬件组引出**（调试串口迁移遗留）：用户 2026-07-16 明示板上尚无这两个脚，将要求硬件组新画。**在引出前 VOFA 在实物上不可用**（固件已就绪）。
 - **BSL 波特率提升到 230400（可选，高风险）**：需自定义 UART BSL flash 插件（`BSL_UART_DEFAULT_BAUD` 改 230400）。代价：动 NONMAIN + linker + BCR 写保护，插件默认落 0x2000 与 app 撞车（建议挪 flash 顶部），配错要 SWD 工厂复位。不做则 BSL 恒为 9600（ROM 固定）。
 - ~~旧引脚表删除待确认~~ **已闭环**（2026-07-16 用户裁定）：`docs/` 现只保留给硬件组的最新文件（`主控板引脚表(2).xlsx` 一份）；旧表 `_G3519.xlsx` 与可读导出 `pin_table_v2/` 均已删除；`MIGRATION_G3507_TO_G3519.md` 移入 `agent/`（它是固件侧文档，被 `AGENTS.md` 等 11 处引用）。历史版本经 git 追溯。
-- **Encoder 极性/左右轮标定**：AB 相接反是预期内硬件事故（用户 2026-07-16 裁定）。全链路唯一修正点为 `encoder.c:41` `s_direction_sign[] = {-1, 1}`，**禁止新增第二个反转开关**（两处反转互相抵消）。待办是让它成为板级可配置 + 主机测试覆盖两种极性。若引脚表 v2 迁移执行（左右轮 timer 归属翻转），此常量**必须重新标定**，否则左右轮静默对调。
+- **★ Encoder 极性须在新板上重新实测**（2026-07-16 QEI 迁移后升级为必办项）：`encoder.c:41` `s_direction_sign[] = {-1, 1}` 是对**旧板** AB 接线极性的补偿（AB 接反是预期内硬件事故）。编码器已迁至 PB7/PB9（左）、PB10/PB11（右），新板重画后 AB 极性可能不同：若硬件组按 A相→PB7/PB10、B相→PB9/PB11 接正，该常量须改 `{1, 1}`；若仍接反则保持。**验证方法**：手推左轮前进，`Encoder_GetSnapshot()` 左轮速度应为正。**禁止新增第二个反转开关**（两处反转互相抵消）。无实测依据不得改动此常量（AGENTS.md §8.1）。附带待办：使其板级可配置 + 主机测试覆盖两种极性。
+- **核心板晶振实焊情况待硬件组书面确认**（2026-07-16 QEI 迁移的前提）：本次迁移假设核心板 PA3/PA5/PA6 上确有实焊晶振（依据：引脚表 r44 硬件组备注 + TI 复用表）。若实物未焊晶振，则迁移非必需（但无害，且释放了 3 个脚）。固件本身用内部 SYSOSC，不使用晶振。
 
 ## 4. 违规登记现状速览（细节见拓扑 §6）
 
