@@ -2,7 +2,7 @@
 
 计划所有者：Codex（本文件即验收契约，REASONIX 不得修改验收条目）  
 制定日期：2026-07-16  
-状态：pending  
+状态：**dispatched（修订 6 统一派工，见 §8）**  
 修订：2026-07-16 响应 REASONIX `SELF_CHECK_BLOCKED`——前置条件由“P1/P2 已验收”改为下列可验证条件，并在 §0.1 回应吞吐量发现（发现时 StepMotor 为 921600 baud × 5 ms ≈ 461 B/周期 vs 256 B 处理预算）。本计划即 plan1 P1.3/P1.4 的移交承接（见 `plan1_fix_runtime_closeout.md` §1）。  
 修订 2：2026-07-16 用户将三个 UART 波特率统一改为 230400（`board.syscfg:226,260,293`），§0.1 数字与 T3 等待上限公式已按新波特率更新，全部涉及旧波特率的代码注释已由 FIX-BAUD 清理（见 `plan_fix_baud230400_comments.md`）。  
 修订 3：2026-07-16 用户重命名全部 syscfg 外设组并**新增 `UART_IMU` 专用端口**（230400，无 DMA）。影响：角色名同步为 `UART_STEPPER_BUS`/`UART_HOST_LINK`/`UART_VISION`（基线提交 `5131f6e`）；**P5.T3 的 UART2 共享归属问题获得配置级解法**——IMU 应迁移到自己的 `UART_IMU` 端口而非继续借用步进发送 API，P5.T3 已按此修订（修订 4）：IMU 迁移到最小 `imu_uart` TX 角色，DMA 角色通道表已在基线提交 `5131f6e` 核对。  
@@ -283,3 +283,44 @@ Stop conditions:
 - 登记表：V02 改 `closed + 日期 + E10/E11 证据`；V03 改 `partially closed`（补记 vision_bus/stepmotor_bus/uart_stress 关闭，track_follow 残留）；V08 改 `closed + 日期 + E09 证据`；V09 改 `closed + 日期 + E05 证据`。
 - 源文件覆盖清单：新增 `driver/board_uart/` 三个模块；`app/tasks/platform_2d` 行更新；日志新增一行。
 - 软件行验收后登记表即可写 `closed`（硬件实测由用户自理）。
+
+## 8. 统一派工（修订 6，用户裁定 2026-07-16：一次派完，单报告单验收）
+
+T1/T2/T3 合并为**一次施工**。理由：三个角色改的是同两个共享文件（`mspm0_runtime.c/.h`、`sys_init.c`），单执行端顺序施工时逐段验收只增加往返成本。§5 各任务的 Steps、preserved_behavior、per-task stop conditions **全部保留**，作为施工内部的阶段说明与止损条件；作废的只是"每段单独报告+单独验收"。
+
+施工内部顺序仍为 T1 → T2 → T3（依赖顺序：FIFO 实现模式在 Vision 上定型，T2/T3 复用；runtime 回调机制必须最后统一删除）。**若在第 N 个角色遇到 stop condition：提交 `CONSTRUCTION_BLOCKED`，报告已完成角色及其行状态——已完成的角色不回滚。**
+
+### 合并范围
+
+- allowed_files = §5 三个任务 allowed_files 的并集（含 `hc-team/driver/board_uart/` 8 个新文件、`imu_uart` 两个新文件、`tests/host/test_uart_fifo.c`/`fake_uart_port.c`/`test_vofa_rx.c`/`test_stepmotor_uart.c` 新建、`tests/host/Makefile`、构建元数据最小修改）。
+- forbidden_files = §5 三个任务 forbidden_files 的并集（`vision_coord.c`、`2DPlatform_LaserStrike.c`、`vofa_register.*`、`middleware/**` 等）。
+- §6 全任务禁止事项原样生效。
+
+### 合并证据行（R01–R06，取代分段的 E01–E13；括号内为原行映射）
+
+- R01 command: `make -C tests/host all`（原 E01+E04+E08，并含既有 32 项回归）
+- R01 expected_exit: 0
+- R01 postcondition: 既有 32 项 + 新增 FIFO/VOFA 解析/StepMotor TX 用例全部通过（新用例集合按 §5 各任务 Steps 第 1 步定义：wrap、恰满、保旧丢新+overflow 只增、分段/粘连帧解析恰好一次、超长不越界、busy 拒绝、tx_done 单次消费等）；通过总数与分套件计数写入报告。
+- R01 negative_check: 测试从源码新构建；不得调用已删除符号；不得绕过公共 API 写内部索引。
+- R02 command: `rg 'SetStepmotorRxCallback|SetStepmotorTxCallback|SetVofaRxCallback|SetVisionRxCallback|UartRxCallback|UartTxCallback|Mspm0Runtime_Send|Mspm0Runtime_Is\w*TxBusy|vofa_rx_isr|VisionBus_RxISR' hc-team`（原 E02 后半+E05+E06+E10+E11）
+- R02 expected_exit: 1
+- R02 postcondition: 全仓库零命中——V02 回调机制与 9 个 Send/Busy 接口整体消失；`vofa_parse_rx_frame` 的全部剩余调用点清单写入报告且均位于任务上下文函数内。
+- R02 negative_check: 不得以改名/弱符号/函数指针注入规避。
+- R03 command: `rg 'ti_msp_dl_config|ti/driverlib|__disable_irq|__enable_irq' hc-team/app/tasks/platform_2d/vision_bus.c hc-team/app/tasks/platform_2d/vision_bus.h hc-team/app/tasks/platform_2d/stepmotor_bus.c hc-team/app/tasks/uart_stress/uart_stress.c`（原 E02 前半+E12）
+- R03 expected_exit: 1
+- R03 postcondition: 零命中（V03 的 vision_bus/stepmotor_bus/uart_stress 三处关闭；track_follow 残余不属本计划）。
+- R03 negative_check: 不得把 FIFO 或 IRQ 原语挪进其他 App 文件绕过扫描。
+- R04 command: `rg 'Emm42_Transport|extern' hc-team/driver/step_motor/emm42.c`（原 E09）
+- R04 expected_exit: 1
+- R04 postcondition: emm42 纯组包，无任何上层符号声明（V08 关闭）。
+- R05 command: `rg 'ti_msp_dl_config|ti/driverlib' hc-team/driver/board_uart/vision_uart.h hc-team/driver/board_uart/vofa_uart.h hc-team/driver/board_uart/stepmotor_uart.h hc-team/driver/board_uart/imu_uart.h tests/host/test_uart_fifo.c tests/host/test_vofa_rx.c tests/host/test_stepmotor_uart.c`（原 E01 negative）
+- R05 expected_exit: 1
+- R05 postcondition: 角色驱动公共头与主机测试零 TI 头（`.c` 实现文件允许包含）。
+- R06 command: `rtk make -C Debug clean` 后 `rtk make -C Debug all`（原 E03+E07+E13，合并为唯一一次干净固件构建）
+- R06 expected_exit: 0
+- R06 postcondition: 新鲜产物；map 同时含 `VisionUart_Read`、`VofaUart_TryWrite`、`StepmotorUart_ConsumeTxDone`、`ImuUart_TryWrite`；无新增 warning；`git diff --stat` 只落在合并 allowed_files。
+- R06 negative_check: 无旧目标缓存。
+
+### 报告与验收
+
+施工报告一份：R01–R06 每行一行 `Rxx: <command> -> exit <n>, <observed>` + 改动文件清单 + 状态（`CONSTRUCTION_DONE`/`CONSTRUCTION_BLOCKED <角色+原因>`）。拓扑按 §7 契约在验证通过后一次性更新（V02/V08/V09 closed，V03 partially closed）。Codex 按精简验收（含 2026-07-16 token 经济条款）一次验收，结论 `CODEX_ACCEPTED`/`CODEX_REJECTED`。

@@ -34,7 +34,7 @@ agent/
 ## 3. 接下来的执行顺序
 
 1. ~~**HT.T1**~~ done（`CODEX_ACCEPTED` 2026-07-16）：`tests/host` 已迁入，32 项全绿，V16 closed。主机测试入口：`make.bat -C tests/host all`（或直接 CCS gmake）。
-2. **P5.T1–T3**（`plan5_uart_role_drivers.md`，按修订 5 解读）——**当前下一个派工，前置已满足**：Vision / VOFA / StepMotor 三个 UART 角色驱动化，消灭 Runtime 上层回调（V02/V09），IMU 迁 `imu_uart` TX 角色。
+2. **P5**（`plan5_uart_role_drivers.md` §8，修订 6 统一派工）——**已派工，施工中**：T1+T2+T3 一次施工（内部仍按 Vision→VOFA→StepMotor 顺序），单报告单验收（R01–R06）；消灭 Runtime 上层回调（V02/V09）、emm42 纯组包（V08）、IMU 迁 `imu_uart` TX 角色。
 3. **P6**（待编写）：EEPROM、OLED I2C 器件驱动收口。
 4. **P7**（待编写）：其余 Driver 拆分。
 5. **Service 层承接**（待规划）：关闭 V07/V10/V13/V14/V15（Task 直接编排 Driver/PID、Service 空缺、可写全局、UI 直调 Driver、VOFA 跨层注册）。
