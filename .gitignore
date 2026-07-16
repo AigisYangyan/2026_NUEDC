@@ -3,3 +3,11 @@ Release/
 OUT/
 *.out
 *.map
+tests/host/test_encoder
+tests/host/test_encoder.exe
+tests/host/test_pid
+tests/host/test_pid.exe
+tests/host/test_motor
+tests/host/test_motor.exe
+tests/host/test_key
+tests/host/test_key.exe

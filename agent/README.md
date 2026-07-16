@@ -33,13 +33,13 @@ agent/
 
 ## 3. 接下来的执行顺序
 
-1. **HT.T1**（`plan_host_tests_restore.md`）：从 `../NUEDC/tests/host/` 迁入 7 个源文件，恢复 32 项主机测试全绿基线，关闭 V16。
-2. **P5.T1–T3**（`plan5_uart_role_drivers.md`，按修订 5 解读）：Vision / VOFA / StepMotor 三个 UART 角色驱动化，消灭 Runtime 上层回调（V02/V09），IMU 迁 `imu_uart` TX 角色。
+1. ~~**HT.T1**~~ done（`CODEX_ACCEPTED` 2026-07-16）：`tests/host` 已迁入，32 项全绿，V16 closed。主机测试入口：`make.bat -C tests/host all`（或直接 CCS gmake）。
+2. **P5.T1–T3**（`plan5_uart_role_drivers.md`，按修订 5 解读）——**当前下一个派工，前置已满足**：Vision / VOFA / StepMotor 三个 UART 角色驱动化，消灭 Runtime 上层回调（V02/V09），IMU 迁 `imu_uart` TX 角色。
 3. **P6**（待编写）：EEPROM、OLED I2C 器件驱动收口。
 4. **P7**（待编写）：其余 Driver 拆分。
 5. **Service 层承接**（待规划）：关闭 V07/V10/V13/V14/V15（Task 直接编排 Driver/PID、Service 空缺、可写全局、UI 直调 Driver、VOFA 跨层注册）。
 
 ## 4. 违规登记现状速览（细节见拓扑 §6）
 
-- **closed**：V01、V04、V05、V06、V11、V12。
-- **open**：V02（Runtime 上层回调，归 P5）、V03（App 直调 DL HAL 残余）、V07、V08（Emm42 extern App）、V09（VOFA ISR 解析，归 P5）、V10、V13、V14、V15、**V16（tests/host 未迁入，归 HT.T1，当前最高优先）**。
+- **closed**：V01、V04、V05、V06、V11、V12、V16（2026-07-16 HT.T1）。
+- **open**：V02（Runtime 上层回调，归 P5）、V03（App 直调 DL HAL 残余）、V07、V08（Emm42 extern App）、V09（VOFA ISR 解析，归 P5）、V10、V13、V14、V15。

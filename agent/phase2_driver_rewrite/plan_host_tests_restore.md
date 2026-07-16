@@ -12,9 +12,17 @@ REASONIX 施工时必须携带以下指令：
 Execute only this task. Reports are claims, not proof. Do not mark complete until every command and observable postcondition has been reproduced. Never ignore command errors. Do not close topology items without direct evidence.
 ```
 
+## 验收记录（Codex，2026-07-16）
+
+结论：**`CODEX_ACCEPTED`**。E01–E05 全部由 Codex 独立复现：E01 32 PASS / 0 FAIL（四套件全绿）；E02 TI 头零命中；E03 生产代码零改动；E04 恰好 7 个源文件且与旧仓逐字节一致、无 `.exe`；E05 强制删 `.out` 重链退出 0、无真实诊断（拒绝增量空转作证据）。
+
+范围偏差裁定（接受，记录在案）：施工方在契约外新增 `make.bat` 并修改 `Debug/makefile:212`（原禁改区），系修复"固件构建可通过"前置条件本身的漂移（本机 make 未指向 CCS gmake），已披露且经 E03/E05 验证只影响构建工具链。遗留注意：`Debug/makefile` 为 CCS 生成物，CCS 重新生成工程文件时该修复会被覆盖，届时需重打；`make.bat` 硬编码本机 `ccs2041` 路径，不可移植。
+
+后续：V16 已关闭，P5（`plan5_uart_role_drivers.md`）前置条件满足，可派工。
+
 ## HT.T1 迁入主机测试套件并恢复全绿基线
 
-Status: pending
+Status: done（CODEX_ACCEPTED 2026-07-16）
 Goal: `rtk make -C tests/host all` 在本仓库退出 0 且四个套件全部通过（≥32 项），生产代码零改动。
 
 Evidence:

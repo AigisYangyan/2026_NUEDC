@@ -45,8 +45,8 @@
 | P2 | done | `encoder` | 高度依赖 runtime，且把方向、速度和状态写进 Motor 全局；先拆它才能独立重写 Motor | `done/plan2_encoder_rewrite.md` + 收口契约 `done/plan2_fix_encoder_closeout.md`（G3519 起计数源已换硬件 QEI，公共 API 不变） |
 | P3 | done | `motor` | 硬件风险最高；待 Encoder 不再依赖 Motor 状态后单独重写，并执行 P0 参数确认 | `done/plan3_motor_rewrite.md` |
 | P4 | done | `key` | 从共享 GPIO IRQ/Runtime 通知中拆出，形成主动读取事件接口 | `done/plan4_key_rewrite.md` |
-| HT | **pending（下一个派工）** | `tests/host` 主机测试基线恢复 | G3519 迁移未带入主机测试套件（拓扑 V16），是 P5 及一切后续施工的前置 | `plan_host_tests_restore.md` |
-| P5 | pending（等 HT） | UART 角色驱动 | 按 Vision、VOFA、Stepmotor 的实际角色逐个迁移，禁止上层 ISR 回调 | `plan5_uart_role_drivers.md` |
+| HT | done（`CODEX_ACCEPTED` 2026-07-16，32 项全绿，V16 closed） | `tests/host` 主机测试基线恢复 | G3519 迁移未带入主机测试套件（拓扑 V16），是 P5 及一切后续施工的前置 | `plan_host_tests_restore.md`（含验收记录与构建工具链偏差裁定） |
+| P5 | **pending（下一个派工，前置已满足）** | UART 角色驱动 | 按 Vision、VOFA、Stepmotor 的实际角色逐个迁移，禁止上层 ISR 回调 | `plan5_uart_role_drivers.md` |
 | P6 | queued | I2C 器件驱动 | EEPROM、OLED 分别明确总线、超时和错误所有权（MPU6050 已移除，范围收窄） | 后续编写 |
 | P7 | queued | 其他 Driver | IMU（`imu_uart` TX 角色随 P5.T3）、Step Motor 等按依赖图继续拆分 | 后续编写 |
 
