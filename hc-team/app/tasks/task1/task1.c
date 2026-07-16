@@ -4,13 +4,13 @@
  *
  * 本文件实现 TASK1 状态机：
  *   STRAIGHT (循迹 PID) -> BEFORE_ANGLE (0.5s 距离补偿) ->
- *   ANGLE (MPU6050 角速度积分原地左转) -> STRAIGHT -> ... -> DONE
+ *   ANGLE (陀螺仪角速度积分原地左转) -> STRAIGHT -> ... -> DONE
  *
  * 核心数据流：
  *   采样层 (10ms):
  *     - Encoder_GetSnapshot()         : 读取 TaskGroups 唯一采样所有者更新的电机速度 (m/s)
  *     - Track_UpdateSample()          : 8 路灰度位图
- *     - MPU6050_Read_Gyro()           : 获取 Gz (°/s)，本状态机只需要 Gz
+ *     - s_gyro_gz_dps                 : Gz (°/s)，由新陀螺仪驱动接入后更新
  *
  *   控制层 (10ms):
  *     - STRAIGHT:     循迹误差 -> 左右目标速度差 -> pid_closeloop_motor
@@ -30,7 +30,6 @@
 #include "app/scheduler/vofa_register.h"
 #include "driver/motor/motor.h"
 #include "driver/encoder/encoder.h"
-#include "driver/MPU6050/mpu6050.h"
 #include "driver/clock/clock.h"
 #include "driver/uart_vofa/uart_vofa.h"
 #include "middleware/pid/pid.h"
@@ -38,6 +37,11 @@
 #include "app/tasks/track_follow/track_follow.h"
 
 #include <math.h>
+
+/* 陀螺仪:MPU6050 已随 I2C_IMU 移除,新陀螺仪(UART_IMU)接入前
+ * s_gyro_gz_dps 恒为 0,ANGLE 状态将无法达到目标角度(安全:原地不动)。
+ * 新陀螺仪驱动就绪后,在 Task1_Sample10ms() 里更新 s_gyro_gz_dps 即可。 */
+static double s_gyro_gz_dps = 0.0;
 
 /* ========================================================================== */
 /* 可调参数 (所有阈值均用 #define，烧录前可按需调整)                          */
@@ -280,9 +284,9 @@ static uint8_t task1_turn_integrate(void)
         return 0u;
     }
 
-    /* 左转时 Gz 对 MPU6050 默认朝向通常为正(右手系 Z 向上)；这里直接取绝对值，
+    /* 左转时 Gz 通常为正(右手系 Z 向上)；这里直接取绝对值，
      * 避免 IMU 轴向安装方向差异带来符号困扰。精度已足够判断 90° 角。 */
-    double gz = g_tMpu6050.Gz;
+    double gz = s_gyro_gz_dps;
     s_turn_angle_deg += fabs(gz) * dt;
 
     return (s_turn_angle_deg >= (double)TASK1_TURN_TARGET_DEG) ? 1u : 0u;
@@ -428,7 +432,7 @@ void Task1_Sample10ms(void)
     Track_UpdateSample();
     s_track_bitmap = Track_GetBitmap();
     s_track_error  = Calculate_Track_Error(s_track_bitmap);
-    MPU6050_Read_Gyro(&g_tMpu6050);
+    /* TODO(新陀螺仪): 在此读取新 IMU 的 Gz(°/s) 并写入 s_gyro_gz_dps。 */
 }
 
 void Task1_Control10ms(void)

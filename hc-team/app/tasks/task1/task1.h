@@ -11,7 +11,7 @@
  *   IDLE            初始态；等待 Task1_Enter 置 ARM
  *   STRAIGHT        直线段；使用 Track PID (速度环) 循迹
  *   BEFORE_ANGLE    角点补偿；检测到直角后继续直行固定时长
- *   ANGLE           原地差速左转；用 MPU6050 陀螺仪 Gz 积分到目标角度
+ *   ANGLE           原地差速左转；用陀螺仪 Gz 积分到目标角度
  *   DONE            已跑完目标圈数；刹车并锁定
  *
  * 圈计数：
@@ -22,7 +22,7 @@
  * 1. 本模块只调度上层状态机，不重写 PID / 电机 / 编码器底层
  * 2. 直线段复用 pid_closeloop_motor() 做双轮速度环，循迹误差→速度差
  * 3. 控制层生成带符号输出后，通过 Motor Driver 执行换向/死区/超时保护
- * 4. 陀螺仪积分只取 MPU6050 的 Gz (°/s)，不使用卡尔曼解算
+ * 4. 陀螺仪积分只取陀螺仪 Gz (°/s)，不使用卡尔曼解算
  * 5. 进入角点时机：灰度低 4 位亮 (左半有线) + 高 4 位全灭 (右半无线)
  *
  * 单位与口径：
@@ -31,7 +31,7 @@
  * - 角速度  : °/s
  *
  * 依赖：
- * - driver/motor, driver/encoder, driver/MPU6050
+ * - driver/motor, driver/encoder（陀螺仪驱动待接入）
  * - middleware/pid (pid_closeloop_motor, g_tLeft/RightMotorPID)
  * - app/tasks/track_follow (Track_UpdateSample / Calculate_Track_Error)
  *
@@ -73,7 +73,7 @@ void Task1_Exit(void);
 
 /* ---- 周期任务入口 ------------------------------------------------------- */
 
-/** 10ms 采样：编码器 + 灰度 + MPU6050 (Gz) */
+/** 10ms 采样：编码器 + 灰度 + 陀螺仪 (Gz, 待接入) */
 void Task1_Sample10ms(void);
 
 /** 10ms 控制：状态机推进 + 电机输出 */

@@ -36,7 +36,6 @@
 #include "driver/key/key.h"
 #include "driver/motor/motor.h"
 #include "driver/oled/oled_hardware_i2c.h"
-#include "driver/MPU6050/mpu6050.h"
 #include "app/tasks/task1/task1.h"
 #include "app/tasks/platform_2d/stepmotor_bus.h"
 #include "app/tasks/platform_2d/vision_bus.h"
@@ -84,7 +83,6 @@ void SysInit(void)
     Mspm0Runtime_SetVisionRxCallback(VisionBus_RxISR);
     SpeedLoop_Init();
     VisionHdl_Init();
-    MPU6050_Init();
     Task1_Init();
 
     /* ---- 中断使能（所有 Driver 初始化完成后） --------------------------- */
