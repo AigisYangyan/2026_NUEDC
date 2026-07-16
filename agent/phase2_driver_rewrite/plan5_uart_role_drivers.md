@@ -2,7 +2,7 @@
 
 计划所有者：Codex（本文件即验收契约，REASONIX 不得修改验收条目）  
 制定日期：2026-07-16  
-状态：**dispatched（修订 6 统一派工，见 §8）**  
+状态：**`CODEX_ACCEPTED`（2026-07-16 验收，提交 `b24a456`）**——R01 主机测试 61 项全绿（clean 重建；Encoder 14 + PID 5 + Motor 7 + Key 6 + UART FIFO 13 + VOFA RX 6 + StepMotor UART 10）；R02–R05 负面扫描全部 exit 1 零命中；R06 固件 clean 构建 exit 0、map 含四角色符号、0 warning。契约外补充复核：§0 容量算式四处在位且与 `board.syscfg` 230400 一致、§0.1 第 1 条 drain-until-empty 三角色均为 `do{Read}while(>0)`、§6 有界等待 `STEPMOTOR_BUS_EXCLUSIVE_WAIT_MS=9u` 算式在位、`vofa_parse_rx_frame` 唯一调用链 `vofa_run():225 → vofa_process_rx_byte → :599` 确在任务态、`IMU.c` 仅两处发送调用点替换且协议零改动。验收方补齐 `.gitignore` 三个新测试二进制条目（施工遗漏，不属 R 行）。  
 修订：2026-07-16 响应 REASONIX `SELF_CHECK_BLOCKED`——前置条件由“P1/P2 已验收”改为下列可验证条件，并在 §0.1 回应吞吐量发现（发现时 StepMotor 为 921600 baud × 5 ms ≈ 461 B/周期 vs 256 B 处理预算）。本计划即 plan1 P1.3/P1.4 的移交承接（见 `plan1_fix_runtime_closeout.md` §1）。  
 修订 2：2026-07-16 用户将三个 UART 波特率统一改为 230400（`board.syscfg:226,260,293`），§0.1 数字与 T3 等待上限公式已按新波特率更新，全部涉及旧波特率的代码注释已由 FIX-BAUD 清理（见 `plan_fix_baud230400_comments.md`）。  
 修订 3：2026-07-16 用户重命名全部 syscfg 外设组并**新增 `UART_IMU` 专用端口**（230400，无 DMA）。影响：角色名同步为 `UART_STEPPER_BUS`/`UART_HOST_LINK`/`UART_VISION`（基线提交 `5131f6e`）；**P5.T3 的 UART2 共享归属问题获得配置级解法**——IMU 应迁移到自己的 `UART_IMU` 端口而非继续借用步进发送 API，P5.T3 已按此修订（修订 4）：IMU 迁移到最小 `imu_uart` TX 角色，DMA 角色通道表已在基线提交 `5131f6e` 核对。  
