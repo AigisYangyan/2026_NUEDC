@@ -18,6 +18,8 @@ This is the **Codex-owned single acceptance gate** (flow since 2026-07-16: Codex
 
 Do not independently re-derive everything; the plan already fixed what matters as E rows. Reproduce E rows, not vibes.
 
+Token economy (user decree 2026-07-16): run each verification command **at most once** — capture output to a log file and grep/count from that log, never re-run to reformat output. Cheap scans (rg, git status, git ls-files: seconds) are always rerun. Expensive rows (host suite, firmware build) reuse the builder's disclosed output by default; rerun only the specific row whose inputs the diff touches, and rerun it minimally (e.g. a forced relink of the final target, not a clean rebuild). An incremental "up to date" no-op is never evidence — if a rerun is triggered, it must actually exercise the changed path.
+
 ## Never Weakened (the essence)
 
 - Exit 0 is never success by itself; every row needs its observed postcondition.
