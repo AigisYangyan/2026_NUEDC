@@ -17,3 +17,5 @@ tests/host/test_vofa_rx
 tests/host/test_vofa_rx.exe
 tests/host/test_stepmotor_uart
 tests/host/test_stepmotor_uart.exe
+tests/host/test_oled
+tests/host/test_oled.exe

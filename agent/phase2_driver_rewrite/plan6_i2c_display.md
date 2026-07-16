@@ -2,7 +2,37 @@
 
 计划所有者：Codex（本文件即验收契约，REASONIX 不得修改验收条目）
 制定日期：2026-07-16
-状态：**dispatched（统一派工，见 §8）**
+状态：**`CODEX_ACCEPTED`（2026-07-16 验收）**
+
+> ## 验收记录（Codex，2026-07-16）
+>
+> R01–R06 全部由 Codex 独立复现（未采信施工报告的输出）：
+>
+> - **R01** `make.bat -C tests/host clean` 后 `all` → exit 0。**76 项全绿** = 既有 61（Encoder 14 / PID 5 / Motor 7 / Key 6 / UART FIFO 13 / VOFA RX 6 / StepMotor UART 10）+ 新增 OLED 15。先 clean 再构建，排除陈旧 `.o` 冒充通过。
+> - **R02** `at24cxx|AT24_|EEPROM` 扫 `hc-team` 与 `Debug/*.mk` → 零命中。
+> - **R03** 隐藏符号扫 `oled_hardware_i2c.h` + `hc-team/app` → 零命中；`oledfont.h` 在 app 层亦零命中。
+> - **R04** `I2C_AUX` 扫 `hc-team` → **恰好 1 个文件**（`driver/oled/oled_hardware_i2c.c`），独占成立，V17 关闭依据充分。
+> - **R05** `50000u` 扫 `driver/oled/` → 零命中。算式经 Codex 独立复算：`2 byte × 9 bit / 400 kHz = 45 µs`；`× 安全系数 2 = 90 µs`；`90 µs × 80 MHz / 4 cycles = 1800 loops`——与实现注释一致，且为编译期具名常量推导，非伪装魔数。
+> - **R06** `make.bat -C Debug clean` 后 `all` → exit 0，0 warning。map 含 `OLED_ShowString`/`OLED_IsReady`/`OLED_Clear`，**不含** `at24cxx_write`/`at24cxx_read`/`oled_pow`；链接行无 eeprom 目标；`Debug/hc-team/driver/eeprom` 不存在；产物时间戳新鲜。
+>
+> 契约外另行核实（R 行未覆盖，Codex 主动查证）：
+>
+> - **超时算式的前提是代码事实而非假设**：`oled_i2c_master_write` 全文件仅 1 个调用者 `oled_write_packet`，恒传 `sizeof(packet)`=2。故「单次事务固定 2 字节」成立，`wait_not_busy` 上限无推小风险（§0.1 要求的"现值偏小需报数"不适用）。
+> - **测试接缝为编译期 `#if defined(HOST_TEST)`**，无函数指针、无运行期间接层，符合 P5 先例；§6 禁止的 I2C 总线抽象层确未出现。
+> - **主机测试未绕过公共 API**：`test_oled.c` 只经公共头 + `fake_i2c_port.c` 注入，无直写内部状态。R01 postcondition 四项（超时不挂死、错误不吞、`IsReady` 三态、越界不写）逐项对应到具体用例。
+> - **签名未被借机改动**：`git show HEAD:...h` 证实原始返回类型本就是 `Oled_Status_e`——**本计划 §4 代码块里写的 `void` 是 Codex 的笔误**，施工按 §4「以现有实现为准，逐字抄录」照抄真实签名，处置正确。UI 侧零改动编译通过。
+>
+> **本计划的两处缺口（Codex 自认，非施工过错）**：
+>
+> 1. §4 的保留/隐藏清单**漏列** `OLED_WR_Byte`、`OLED_ShowNum`、`OLED_ShowChinese`（原公共头有，R03 亦未扫）。施工按 §4 判据（UI 零调用且非显示能力抽象 → 隐藏）整体删除，全仓零命中，处置与判据一致，**接受**。
+> 2. §4 代码块的返回类型笔误（见上）。
+>
+> **验收补丁（Codex 在合入前修复，均属 R 行未覆盖的构建元数据缺口，未达 `CODEX_REJECTED` 阈值）**：
+>
+> - `.gitignore` 补 `tests/host/test_oled` / `.exe`——与 P5 同类缺口，否则测试二进制会被提交。
+> - 摘除 `Debug/makefile` clean 中新增的 `rmdir hc-team\driver\eeprom` 规则：它为一个已不存在且不会再出现的模块留下永久清理规则，与本计划刚写入拓扑的"EEPROM 已删除"自相矛盾，属误导性死重量。摘除后 clean+build 复跑仍 exit 0、0 warning。
+>
+> **未归因于 P6 的工作树变更（Codex 不代为处置，见 §10）**：`docs/主控板引脚表_G3519.xlsx` 被删除、`docs/主控板引脚表(2).xlsx` 未入库——施工报告已如实披露，Codex 未纳入本次提交。
 
 前置条件：P5 已验收合入（`CODEX_ACCEPTED`，提交 `b24a456`）；`tests/host` 基线全绿（61 项）。
 
@@ -207,3 +237,11 @@ T1+T2 合并为**一次施工**，内部顺序 T1 → T2（先删 EEPROM 使 I2C
 **结论：P6 与引脚表零冲突，可独立推进，不必等待引脚表争议裁定。**
 
 引脚表的冲突全部集中在编码器/灰度/IMU/VOFA，且含阻断级歧义，另立 `plan_pin_table_v2_migration.md`（状态 `blocked`）处理。两个计划无文件重叠：P6 不碰 `board.syscfg`，引脚迁移计划不碰 `driver/oled`。
+
+## 10. 待用户裁定：引脚表文档未入库（P6 验收时发现，不属 P6 范围）
+
+工作树中 `docs/主控板引脚表_G3519.xlsx` 处于已删除状态，新表 `docs/主控板引脚表(2).xlsx` 处于未跟踪状态，两者均**不在 P6 的 allowed_files 内**，Codex 未纳入 P6 提交。
+
+**但这构成一个真实缺口**：`plan_pin_table_v2_migration.md` 已入库，且把 `docs/主控板引脚表(2).xlsx` 声明为其**事实来源**——而该文件不在版本库中，任何人（含未来的 Codex/REASONIX）都无法复核该计划的 Q1–Q4 依据。
+
+需用户裁定：新表是否入库、旧表 `_G3519.xlsx` 是否确认删除（是否为用户本人操作）。裁定后单独提交，与 P6 分离。

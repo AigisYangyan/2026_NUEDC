@@ -16,6 +16,7 @@
 | Agent/skills 本地适配（2026-07-16） | AGENTS.md 入库并标注 G3519 工程事实；拓扑同步（删 MPU6050、QEI 数据流、V16 登记）；三个 REASONIX skills 注入本地事实；plan5 修订 5 | 提交 `a7446c6` |
 | 计划目录整理（2026-07-16） | 完成计划移入 `done/`，作废文档移入 `obsolete/`，新建 HT 派工计划与本索引 | 提交 `36d4d65` |
 | Phase 2 HT.T1：`tests/host` 恢复 | 主机测试套件从旧仓库迁入 `2026_Diansai`，32 项基线全绿 | `CODEX_ACCEPTED`，V16 closed，提交 `d57b728` |
+| Phase 2 P6：I2C 屏幕收口 + EEPROM 删除 | `driver/eeprom/at24cxx.*` 死代码整体删除（含构建登记）；OLED 公共头由 10+ 符号收敛为 6 个显示能力接口，页寻址/字模/pow/总线恢复全部私有；`50000u` 魔数超时改为 `2 byte×9 bit/400 kHz ×2 = 90 µs → 1800 loops` 算式推导；新增主机 OLED 测试 15 项 | `CODEX_ACCEPTED`，V17 登记并同批次 closed，主机测试 76 项 |
 | Phase 2 P5：`board_uart` 四角色（T1+T2+T3 统一施工） | 新增 vision/vofa/stepmotor/imu 角色 Driver 与私有 FIFO；Runtime 回调与 9 个 Send/Busy 接口删除；VOFA 解析迁任务态；emm42 纯组包；IMU 迁专用 `UART_IMU`；uart_stress 改有界等待独占 | `CODEX_ACCEPTED`，V02/V08/V09 closed、V03 partially closed，主机测试 61 项，提交 `b24a456` |
 
 ## 2. 目录地图
@@ -37,17 +38,18 @@ agent/
 
 1. ~~**HT.T1**~~ done（`CODEX_ACCEPTED` 2026-07-16）：`tests/host` 已迁入，32 项全绿，V16 closed。主机测试入口：`make.bat -C tests/host all`（或直接 CCS gmake）。
 2. ~~**P5**~~ done（`CODEX_ACCEPTED` 2026-07-16，提交 `b24a456`）：`board_uart` 四角色落地，V02/V08/V09 closed、V03 partially closed。E14–E16 硬件行随硬件验收取消而作废，**板上实测由用户自理**（三路 230400 实测、overflow 计数可见性、压测进出各 10 次）。
-3. **P6**（`plan6_i2c_display.md`）——**已派工**：范围经用户 2026-07-16 裁定收窄为「I2C 屏幕收口 + EEPROM 删除」（EEPROM 改用 MSPM0 内置 Flash，且 `at24cxx` 零调用者）。删除 EEPROM 后 I2C_AUX 由 OLED 独占，**故不建 I2C 总线抽象层**；V17 登记并同批次关闭。与新引脚表零冲突。
+3. ~~**P6**~~ done（`CODEX_ACCEPTED` 2026-07-16）：EEPROM 器件删除、OLED 公共头收口为 6 个显示能力接口、I2C 等待上限改按 400 kHz/80 MHz 算式推导。I2C_AUX 由 `driver/oled` 独占，**未建 I2C 总线抽象层**（单器件独占不需要仲裁）；V17 登记并同批次关闭。主机测试 76 项。
 4. **引脚表 v2 迁移**（`plan_pin_table_v2_migration.md`）——**`BLOCKED`**：硬件组新表与工程/表自身存在冲突，Q1–Q4 待裁定（封装 LQFP-64 vs 100、IMU 串口两 sheet 打架、VOFA 无处安放、编码器⇄灰度原子对调且 timer↔轮 归属翻转）。不阻塞 P6。
 5. **P7**（待编写）：其余 Driver 拆分。
 6. **Service 层承接**（待规划）：关闭 V07/V10/V13/V14/V15（Task 直接编排 Driver/PID、Service 空缺、可写全局、UI 直调 Driver、VOFA 跨层注册）。
 
 ## 3.1 待办（有裁定但未立计划）
 
+- **引脚表文档未入库**（P6 验收时发现，待用户裁定）：`docs/主控板引脚表(2).xlsx` 未跟踪、`docs/主控板引脚表_G3519.xlsx` 已删除但未提交。`plan_pin_table_v2_migration.md` 把前者声明为事实来源，文件却不在库中——Q1–Q4 的依据当前无法被他人复核。详见 `plan6_i2c_display.md` §10。
 - **Encoder 极性/左右轮标定**：AB 相接反是预期内硬件事故（用户 2026-07-16 裁定）。全链路唯一修正点为 `encoder.c:41` `s_direction_sign[] = {-1, 1}`，**禁止新增第二个反转开关**（两处反转互相抵消）。待办是让它成为板级可配置 + 主机测试覆盖两种极性。若引脚表 v2 迁移执行（左右轮 timer 归属翻转），此常量**必须重新标定**，否则左右轮静默对调。
 
 ## 4. 违规登记现状速览（细节见拓扑 §6）
 
-- **closed**：V01、V04、V05、V06、V11、V12、V16（HT.T1）、V02/V08/V09（2026-07-16 P5）。
+- **closed**：V01、V04、V05、V06、V11、V12、V16（HT.T1）、V02/V08/V09（2026-07-16 P5）、V17（2026-07-16 P6，登记与关闭同批次）。
 - **partially closed**：V03（vision_bus/stepmotor_bus/uart_stress 已清零；`tasks/track_follow/track_follow.c` 仍直调 DL HAL，归后续计划）。
 - **open**：V07、V10、V13、V14、V15——全部指向同一根因（Service 层空缺），由「Service 层承接」一次性规划。

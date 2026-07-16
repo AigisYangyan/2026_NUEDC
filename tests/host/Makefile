@@ -24,8 +24,11 @@ VOFA_DRIVER_SRC = ../../hc-team/driver/uart_vofa/uart_vofa.c
 UART_FIFO_TEST_SRC = test_uart_fifo.c
 VOFA_RX_TEST_SRC = test_vofa_rx.c
 STEPMOTOR_UART_TEST_SRC = test_stepmotor_uart.c
+OLED_DRIVER_SRC = ../../hc-team/driver/oled/oled_hardware_i2c.c
+OLED_TEST_SRC = test_oled.c
+FAKE_I2C_PORT_SRC = fake_i2c_port.c
 
-all: test_encoder run test_pid run_pid test_motor run_motor test_key run_key test_uart_fifo run_uart_fifo test_vofa_rx run_vofa_rx test_stepmotor_uart run_stepmotor_uart
+all: test_encoder run test_pid run_pid test_motor run_motor test_key run_key test_uart_fifo run_uart_fifo test_vofa_rx run_vofa_rx test_stepmotor_uart run_stepmotor_uart test_oled run_oled
 
 test_encoder: $(DRIVER_SRC) $(ENCODER_OWNER_SRC) $(FAKE_SRC) $(MOTOR_DRIVER_SRC) $(MOTOR_FAKE_SRC) $(TEST_SRC)
 	$(CC) $(CFLAGS) -o $@ $(DRIVER_SRC) $(ENCODER_OWNER_SRC) $(FAKE_SRC) $(MOTOR_DRIVER_SRC) $(MOTOR_FAKE_SRC) $(TEST_SRC) $(GC_LDFLAGS) -lm
@@ -69,6 +72,12 @@ test_stepmotor_uart: $(BOARD_UART_VISION_SRC) $(BOARD_UART_VOFA_SRC) $(BOARD_UAR
 run_stepmotor_uart: test_stepmotor_uart
 	./test_stepmotor_uart
 
+test_oled: $(OLED_DRIVER_SRC) $(FAKE_I2C_PORT_SRC) $(OLED_TEST_SRC)
+	$(CC) $(CFLAGS) -o $@ $(OLED_DRIVER_SRC) $(FAKE_I2C_PORT_SRC) $(OLED_TEST_SRC) $(GC_LDFLAGS) -lm
+
+run_oled: test_oled
+	./test_oled
+
 ifeq ($(OS),Windows_NT)
 clean:
 	cmd.exe /D /C "if exist test_encoder.exe del /Q /F test_encoder.exe"
@@ -85,9 +94,11 @@ clean:
 	cmd.exe /D /C "if exist test_vofa_rx del /Q /F test_vofa_rx"
 	cmd.exe /D /C "if exist test_stepmotor_uart.exe del /Q /F test_stepmotor_uart.exe"
 	cmd.exe /D /C "if exist test_stepmotor_uart del /Q /F test_stepmotor_uart"
+	cmd.exe /D /C "if exist test_oled.exe del /Q /F test_oled.exe"
+	cmd.exe /D /C "if exist test_oled del /Q /F test_oled"
 else
 clean:
-	rm -f test_encoder test_encoder.exe test_pid test_pid.exe test_motor test_motor.exe test_key test_key.exe test_uart_fifo test_uart_fifo.exe test_vofa_rx test_vofa_rx.exe test_stepmotor_uart test_stepmotor_uart.exe
+	rm -f test_encoder test_encoder.exe test_pid test_pid.exe test_motor test_motor.exe test_key test_key.exe test_uart_fifo test_uart_fifo.exe test_vofa_rx test_vofa_rx.exe test_stepmotor_uart test_stepmotor_uart.exe test_oled test_oled.exe
 endif
 
-.PHONY: all run run_pid run_motor run_key run_uart_fifo run_vofa_rx run_stepmotor_uart clean
+.PHONY: all run run_pid run_motor run_key run_uart_fifo run_vofa_rx run_stepmotor_uart run_oled clean

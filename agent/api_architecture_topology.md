@@ -1,6 +1,6 @@
 # NUEDC API 平台架构拓扑图（2026_Diansai · MSPM0G3519）
 
-最后复核：2026-07-16（P5 UART 角色驱动施工复核）  
+最后复核：2026-07-16（P6 OLED 收口与 EEPROM 移除施工复核）  
 适用工程：`2026_Diansai`（MSPM0G3519，LQFP-100，SDK 2.11.00.07；由旧工程 `NUEDC`/G3507 移植，见 `docs/MIGRATION_G3507_TO_G3519.md`）  
 事实来源：当前工作区 `hc-team/**/*.c`、`hc-team/**/*.h`、仓库根 `board.syscfg`  
 状态：当前实现拓扑，不是目标架构示意图  
@@ -118,14 +118,9 @@ class OLED_API {
   +OLED_Init()
   +OLED_Clear()
   +OLED_ShowChar()
-  +OLED_ShowString_Num_Chinese()
-  +OLED_Set_Pos()
-  +OLED_Display_On_Off()
+  +OLED_ShowString()
   +OLED_Process()
   +OLED_IsReady()
-  +OLED_ColorTurn()
-  +OLED_DisplayTurn()
-  +g_tOLED
 }
 
 class IMU_API {
@@ -145,13 +140,6 @@ class IMU_API {
   +IMU_Get_Reset_Yaw()
   +IMU_Calibrate_Gyro_Offset()
   +IMU_UART_Calibration_Reset_Reboot()
-}
-
-class EEPROM_API {
-  <<driver:eeprom>>
-  +at24cxx_init()
-  +at24cxx_write()
-  +at24cxx_read()
 }
 
 class Emm42_API {
@@ -195,7 +183,7 @@ Motor_API --> DL_HAL : GPIO and PWM via motor_hw.c
 Encoder_API --> BoardGpio_API : raw snapshot
 Key_API --> BoardGpio_API : pull raw key bitmap
 OLED_API --> Clock_API : time
-OLED_API --> DL_HAL : I2C
+OLED_API --> DL_HAL : I2C_AUX exclusive
 VisionUart_API --> DL_HAL : UART_VISION RX
 VofaUart_API --> DL_HAL : UART_HOST_LINK RX DMA TX DMA
 StepmotorUart_API --> DL_HAL : UART_STEPPER_BUS RX DMA TX DMA
@@ -203,8 +191,6 @@ ImuUart_API --> DL_HAL : UART_IMU polling TX
 IMU_API --> ImuUart_API : dedicated IMU TX
 IMU_API --> Clock_API : time
 IMU_API --> DL_HAL : exposed TI header
-EEPROM_API --> Runtime_API : delay
-EEPROM_API --> DL_HAL : I2C
 VofaDriver_API --> VofaUart_API : UART transport
 ```
 
@@ -612,6 +598,7 @@ flowchart LR
 | V13 | Scheduler、PID、TrackFollow 暴露可写全局状态 | `g_eSysFlagManage`、`g_PID_instances`、`TrackN` | 模块状态必须私有，禁止跨模块直接写 | 对应模块重写时关闭 |
 | V14 | UI 直接调用 Key/OLED Driver，并在 UI 头暴露 Key 类型 | `menu_core.*`、`menu_pages.c` | UI 应通过 App 接口/Service，不直接操作 Driver | App Service/UI 阶段 |
 | V15 | VOFA Scheduler 直接依赖 VOFA Driver、PID 和 TrackFollow | `vofa_register.*` | Scheduler 不应成为跨层共享状态中心 | VOFA Service 阶段 |
+| V17 | **closed 2026-07-16（P6 R02/R04）**：EEPROM 器件删除，I2C_AUX 只剩 `driver/oled/oled_hardware_i2c.c` 独占；未引入多余 I2C 总线层 | `driver/eeprom/` 删除；`rg -l 'I2C_AUX' hc-team` 仅命中 OLED driver `.c` | 多器件共享总线却无所有者；单器件独占时禁止过度抽象 | Phase 2 P6 |
 | P1-SCOPE | P1 完成范围收窄：UART 角色迁移交 P5、按键共享 IRQ 交 P4；P1F.T1 仅关闭 Runtime 死接口与时间包装 | `plan1_fix_runtime_closeout.md` §1；P1F E01–E05 | 无新增违规；避免跨计划重复关闭 | P1-FIX / P4 / P5 |
 | V16 | **closed 2026-07-16（HT.T1 E01/E04）**：主机测试套件 `tests/host/` 已从旧 `NUEDC` 仓库迁入当前仓库，可在本仓库复跑 32 项基线（Encoder 14 + PID 5 + Motor 7 + Key 6） | `tests/host/` 7 个源文件；`rtk make -C tests/host all` 全绿；`git ls-files tests/host` 恰好 7 个文件且无 `.exe` | 测试是交付内容；验收协议依赖主机测试基线 | HT.T1 done，P5 前置满足 |
 
@@ -629,9 +616,8 @@ flowchart LR
 | Driver | Motor | `driver/motor/motor.c/.h`（纯状态机，无 TI 头）、`motor_hw.c/.h`（唯一 TI 头位置） |
 | Driver | Encoder | `driver/encoder/encoder.c/.h` |
 | Driver | Key | `driver/key/key.c/.h` |
-| Driver | OLED | `driver/oled/oled_hardware_i2c.c/.h`、`oledfont.h` |
+| Driver | OLED | `driver/oled/oled_hardware_i2c.c/.h`（公共面仅 Init/Clear/ShowChar/ShowString/Process/IsReady；`oledfont.h` 仅 driver 私有字模） |
 | Driver | IMU | `driver/imu/IMU.c/.h`（休眠代码，零外部调用者；MPU6050/I2C_IMU 已于 2026-07-16 移除） |
-| Driver | EEPROM | `driver/eeprom/at24cxx.c/.h` |
 | Driver | EMM42 | `driver/step_motor/emm42.c/.h` |
 | Driver | VOFA UART | `driver/uart_vofa/uart_vofa.c/.h` |
 | Middleware | PID | `middleware/pid/pid.c/.h` |
@@ -693,6 +679,7 @@ flowchart LR
 | 2026-07-16 | P3.T3 验收 `CODEX_ACCEPTED`：syscfg 单源统一左右驱动 PWM 为 10 kHz（80 MHz/8000），`motor_hw.c` 收敛为单一 period 常量；P3 整体 done | V11 closed（生成配置双通道 `CLK_FREQ=80000000`、`period=7999` 为证据） | Codex 复核生成值与 diff；构建退出 0、0 警告 |
 | 2026-07-16 | P4.T1/T2 验收 `CODEX_ACCEPTED`：`Key_NotifyIrq` 符号全仓零命中（T2 目标随 T1 完成）；runtime GROUP1 ISR 只置私有边沿位图，原子读清经 `BoardGpio` 拉取；Codex 将 `Mspm0Runtime_ConsumeKeyIrqEdges` 的裸 `extern` 声明归位到 `mspm0_runtime.h`；P4 整体 done | `Runtime_API` 新增 `+Mspm0Runtime_ConsumeKeyIrqEdges()`（经 BoardGpio 消费）；其余同上行 | Codex 复跑：E03/E04 扫描零命中、Host 32 项全绿、固件构建 0 警告退出 0 |
 | 2026-07-16 | P5 统一施工（Vision→VOFA→StepMotor/EMM42/UartStress/IMU）：新增 `board_uart` 四角色 Driver，Runtime 删除全部 UART 回调/Send/Busy 接口，Vision/VOFA/StepMotor RX 全部改为任务态 drain-and-parse，IMU 改走 `UART_IMU` 最小 TX 角色 | 顶部复核日期改为 P5；Driver/App 类图新增 `VisionUart_API`/`VofaUart_API`/`StepmotorUart_API`/`ImuUart_API`，删除 Runtime callback/VOFA ISR/Emm42 extern 依赖；5.2/5.3/启动图改为固定分发 + 私有 FIFO；V02/V08/V09 closed，V03 partially closed | 以 R01-R06 为准：Host 全套通过、负面扫描零命中、clean 固件构建退出 0 且 map 含四个新角色符号 |
+| 2026-07-16 | P6：删除 `driver/eeprom/at24cxx.*` 死代码，OLED 公共头收口为 6 个显示能力接口，I2C 等待上限按 400 kHz + 80 MHz 算式替代 `50000u`，新增主机 OLED 测试 | 顶部复核日期改为 P6；Driver 类图删除 `EEPROM_API` 与其 I2C 边，`OLED_API` 收敛为 6 个公共接口并标注 `I2C_AUX` 独占；新增并关闭 V17；覆盖清单删除 EEPROM 行并更新 OLED 行 | 以 P6 R01-R06 为准：Host 76 项通过，EEPROM/旧 OLED 公共符号零命中，clean 固件构建退出 0，map 含 `OLED_ShowString`/`OLED_IsReady` 且不含 `at24cxx_*`/`oled_pow` |
 | 2026-07-16 | plan5 修订 4：P5.T3 的 IMU 处置改为迁移到最小 `imu_uart` TX 角色（`ImuUart_Init/TryWrite`，UART_IMU 无 DMA）；"UART2 归属确认"前置作废；Codex 核实 IMU 模块零外部调用者（休眠代码），禁止推测性 RX FIFO（归 P7） | 已复核，无代码 API 拓扑变化（imu_uart 为批准的未来接口，不提前画入） | `rg -c 'IMU_UART_\|IMU_Update_Yaw\|IMU_Get_Reset\|IMU_Calibrate' hc-team --glob '!hc-team/driver/imu/*'` 零命中；P5.T1–T3 全部可派工 |
 | 2026-07-16 | G3507→G3519 迁移后拓扑本地适配（仅文档同步，未改代码）：工程移入 `2026_Diansai`（MSPM0G3519/LQFP-100，SDK 2.11.00.07，配置源为仓库根 `board.syscfg`）；编码器改 TIMG8/TIMG9 硬件 QEI（PA7/PA6、PA3/PA2），GROUP1 仅服务按键；步进总线物理实例 UART2→UART7（PB15/PB16 不变）；MPU6050/I2C_IMU 已移除（提交 `37ff7fc`）；灰度 8 路升级 12 路（提交 `c60f4eb`，`TRACK_SENSOR_COUNT=12`） | 删除 MPU6050_API 类、System/Task1→MPU6050 边与覆盖清单行；5.1 数据流改为 QEI 硬件计数；事实来源路径改为根 `board.syscfg`；登记 V16（`tests/host` 未迁入） | 对照 `hc-team` 源码与 `docs/MIGRATION_G3507_TO_G3519.md` 复核：`rg 'MPU6050' hc-team` 仅余 task1.c 一条移除说明注释；公共 API（Encoder/BoardGpio/Runtime）与依赖边未变 |
 | 2026-07-16 | 计划目录整理（仅文档，未改代码）：phase2 已验收计划（P1/P1F/P2/P2F/P3/P4/FIX-BAUD 共 7 份）移入 `done/`，作废的 GROUP1 判向基线移入 `obsolete/`；新建 `agent/README.md`（目录导航 + 项目脉络）与 HT.T1 派工契约 `plan_host_tests_restore.md`（tests/host 迁入恢复 32 项基线，P5 前置） | 已复核，无代码 API 拓扑变化；V16 计划归属更新为 HT.T1 | 工作区 `git status` 中 `hc-team` 零改动；phase2 顶层只余索引与两份待派工计划 |
