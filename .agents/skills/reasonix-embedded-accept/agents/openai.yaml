@@ -1,0 +1,4 @@
+interface:
+  display_name: "REASONIX Embedded Accept"
+  short_description: "Independently verify embedded rewrite results"
+  default_prompt: "Use $reasonix-embedded-accept to independently verify a REASONIX embedded rewrite result."
