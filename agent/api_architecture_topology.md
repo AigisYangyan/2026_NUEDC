@@ -1,7 +1,8 @@
-# NUEDC API 平台架构拓扑图
+# NUEDC API 平台架构拓扑图（2026_Diansai · MSPM0G3519）
 
-最后复核：2026-07-16（P4.T1 Key 拉取化主机验证）  
-事实来源：当前工作区 `hc-team/**/*.c`、`hc-team/**/*.h`、`project/mspm0/board.syscfg`  
+最后复核：2026-07-16（G3507→G3519 迁移后本地适配复核）  
+适用工程：`2026_Diansai`（MSPM0G3519，LQFP-100，SDK 2.11.00.07；由旧工程 `NUEDC`/G3507 移植，见 `docs/MIGRATION_G3507_TO_G3519.md`）  
+事实来源：当前工作区 `hc-team/**/*.c`、`hc-team/**/*.h`、仓库根 `board.syscfg`  
 状态：当前实现拓扑，不是目标架构示意图  
 维护规则：任何代码修改前必须先阅读本文件；修改完成后必须同步更新本文件和末尾日志。
 
@@ -104,17 +105,6 @@ class OLED_API {
   +g_tOLED
 }
 
-class MPU6050_API {
-  <<driver:MPU6050>>
-  +MPU6050_Init()
-  +MPU6050_Read_Accel()
-  +MPU6050_Read_Gyro()
-  +MPU6050_Read_Temp()
-  +MPU6050_Read_All()
-  +Kalman_GetAngle()
-  +g_tMpu6050
-}
-
 class IMU_API {
   <<driver:imu>>
   +IMU_UART_Send()
@@ -195,8 +185,6 @@ Encoder_API --> BoardGpio_API : raw snapshot
 Key_API --> BoardGpio_API : pull raw key bitmap
 OLED_API --> Clock_API : time
 OLED_API --> DL_HAL : I2C
-MPU6050_API --> Clock_API : time
-MPU6050_API --> DL_HAL : I2C
 IMU_API --> Runtime_API : shared UART send
 IMU_API --> Clock_API : time
 IMU_API --> DL_HAL : exposed TI header
@@ -393,7 +381,6 @@ class Motor_API { <<driver>> }
 class Encoder_API { <<driver>> }
 class Key_API { <<driver>> }
 class OLED_API { <<driver>> }
-class MPU6050_API { <<driver>> }
 class Emm42_API { <<driver>> }
 class VofaDriver_API { <<driver>> }
 class DL_HAL { <<external>> }
@@ -406,7 +393,6 @@ System_API --> Motor_API : init and stop
 System_API --> Encoder_API : init
 System_API --> Key_API : init
 System_API --> OLED_API : init
-System_API --> MPU6050_API : init
 System_API --> PID_API : init
 System_API --> VofaRegister_API : init
 System_API --> StepMotorBus_API : init
@@ -450,7 +436,6 @@ SpeedLoop_API --> VofaDriver_API : telemetry send
 
 Task1_API --> Clock_API : time
 Task1_API --> Encoder_API : sample
-Task1_API --> MPU6050_API : attitude
 Task1_API --> TrackFollow_API : track sample
 Task1_API --> PID_API : control
 Task1_API --> Motor_API : output
@@ -496,7 +481,7 @@ flowchart TD
   SysInit --> BoardInit[Board_Init]
   SysInit --> ClockInit[Clock_Init]
   SysInit --> RuntimeInit[Runtime UART DMA callbacks]
-  SysInit --> DriverInit[OLED Key Motor Encoder MPU6050 VOFA]
+  SysInit --> DriverInit[OLED Key Motor Encoder VOFA]
   SysInit --> MiddlewareInit[PID init]
   SysInit --> AppInit[Menu Run profiles Tasks Vision StepMotor]
   SysInit --> BoardIRQ[Board_EnableInterrupts]
@@ -527,9 +512,9 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-  EncGPIO[Encoder AB GPIO] --> RuntimeIRQ[Runtime GROUP1 IRQ quadrature]
-  RuntimeIRQ --> RawCount[Runtime left right totals]
-  RawCount -->|PRIMASK critical section| BoardGpio[BoardGpio_GetEncoderRawSnapshot]
+  EncGPIO[Encoder AB GPIO] --> QEI[TIMG8 TIMG9 硬件 QEI 计数器]
+  QEI --> RawCount[Runtime 16 位模差扩展 int32 累计]
+  RawCount --> BoardGpio[BoardGpio_GetEncoderRawSnapshot]
   BoardGpio --> Encoder[Encoder_Update elapsed_ms]
   Clock[Clock_NowMs] -->|elapsed ms| SampleOwner[TaskGroups unique encoder sampler]
   SampleOwner -->|real elapsed| Encoder
@@ -540,7 +525,7 @@ flowchart LR
   MotorSet --> TB6612[TB6612 GPIO and PWM]
 ```
 
-必须检查的数据处理：Runtime 正交判向、Encoder 唯一车辆方向修正、Motor 中尚未删除的未使用 `encoder_sign`、速度 `m/s`、PID 输出限幅和 Motor 硬件限幅。任何修改都要证明没有重复反向、滤波、缩放或限幅。
+必须检查的数据处理：QEI 硬件判向（G3519 起编码器不再产生 GPIO 中断，GROUP1 仅服务按键）、`Mspm0Runtime_GetEncoderCounts()` 的 16→32 位模差扩展（前提：两次读数间位移 < 32767 计数）、Encoder `s_direction_sign` 全链路唯一方向修正点、速度 `m/s`、PID 输出限幅和 Motor 硬件限幅。任何修改都要证明没有重复反向、滤波、缩放或限幅。QEI 方向约定与旧版软件判向可能镜像，上板方向/PPR 校准由用户自理（`docs/MIGRATION_G3507_TO_G3519.md` §4.3）。
 
 ### 5.2 视觉与步进电机
 
@@ -605,6 +590,7 @@ flowchart LR
 | V14 | UI 直接调用 Key/OLED Driver，并在 UI 头暴露 Key 类型 | `menu_core.*`、`menu_pages.c` | UI 应通过 App 接口/Service，不直接操作 Driver | App Service/UI 阶段 |
 | V15 | VOFA Scheduler 直接依赖 VOFA Driver、PID 和 TrackFollow | `vofa_register.*` | Scheduler 不应成为跨层共享状态中心 | VOFA Service 阶段 |
 | P1-SCOPE | P1 完成范围收窄：UART 角色迁移交 P5、按键共享 IRQ 交 P4；P1F.T1 仅关闭 Runtime 死接口与时间包装 | `plan1_fix_runtime_closeout.md` §1；P1F E01–E05 | 无新增违规；避免跨计划重复关闭 | P1-FIX / P4 / P5 |
+| V16 | 主机测试套件 `tests/host/` 未随 G3507→G3519 迁移带入本仓库；历史证据行与 V12 引用的 `tests/host/*` 位于旧 `NUEDC` 仓库。当前仓库无法复跑任何 `make -C tests/host` 行 | 本仓库无 `tests/` 目录；旧套件在 `../NUEDC/tests/host/` | 测试是交付内容；验收协议依赖主机测试基线 | 任何后续施工（含 P5）开工前必须先把套件迁入并恢复全绿基线 |
 
 登记表只允许基于代码证据新增或关闭。修复完成后不要直接删除记录：先把状态改为“closed + 日期 + 验证”，下一次阶段收口时再归档。
 
@@ -620,8 +606,7 @@ flowchart LR
 | Driver | Encoder | `driver/encoder/encoder.c/.h` |
 | Driver | Key | `driver/key/key.c/.h` |
 | Driver | OLED | `driver/oled/oled_hardware_i2c.c/.h`、`oledfont.h` |
-| Driver | MPU6050 | `driver/MPU6050/mpu6050.c/.h` |
-| Driver | IMU | `driver/imu/IMU.c/.h` |
+| Driver | IMU | `driver/imu/IMU.c/.h`（休眠代码，零外部调用者；MPU6050/I2C_IMU 已于 2026-07-16 移除） |
 | Driver | EEPROM | `driver/eeprom/at24cxx.c/.h` |
 | Driver | EMM42 | `driver/step_motor/emm42.c/.h` |
 | Driver | VOFA UART | `driver/uart_vofa/uart_vofa.c/.h` |
@@ -684,3 +669,4 @@ flowchart LR
 | 2026-07-16 | P3.T3 验收 `CODEX_ACCEPTED`：syscfg 单源统一左右驱动 PWM 为 10 kHz（80 MHz/8000），`motor_hw.c` 收敛为单一 period 常量；P3 整体 done | V11 closed（生成配置双通道 `CLK_FREQ=80000000`、`period=7999` 为证据） | Codex 复核生成值与 diff；构建退出 0、0 警告 |
 | 2026-07-16 | P4.T1/T2 验收 `CODEX_ACCEPTED`：`Key_NotifyIrq` 符号全仓零命中（T2 目标随 T1 完成）；runtime GROUP1 ISR 只置私有边沿位图，原子读清经 `BoardGpio` 拉取；Codex 将 `Mspm0Runtime_ConsumeKeyIrqEdges` 的裸 `extern` 声明归位到 `mspm0_runtime.h`；P4 整体 done | `Runtime_API` 新增 `+Mspm0Runtime_ConsumeKeyIrqEdges()`（经 BoardGpio 消费）；其余同上行 | Codex 复跑：E03/E04 扫描零命中、Host 32 项全绿、固件构建 0 警告退出 0 |
 | 2026-07-16 | plan5 修订 4：P5.T3 的 IMU 处置改为迁移到最小 `imu_uart` TX 角色（`ImuUart_Init/TryWrite`，UART_IMU 无 DMA）；"UART2 归属确认"前置作废；Codex 核实 IMU 模块零外部调用者（休眠代码），禁止推测性 RX FIFO（归 P7） | 已复核，无代码 API 拓扑变化（imu_uart 为批准的未来接口，不提前画入） | `rg -c 'IMU_UART_\|IMU_Update_Yaw\|IMU_Get_Reset\|IMU_Calibrate' hc-team --glob '!hc-team/driver/imu/*'` 零命中；P5.T1–T3 全部可派工 |
+| 2026-07-16 | G3507→G3519 迁移后拓扑本地适配（仅文档同步，未改代码）：工程移入 `2026_Diansai`（MSPM0G3519/LQFP-100，SDK 2.11.00.07，配置源为仓库根 `board.syscfg`）；编码器改 TIMG8/TIMG9 硬件 QEI（PA7/PA6、PA3/PA2），GROUP1 仅服务按键；步进总线物理实例 UART2→UART7（PB15/PB16 不变）；MPU6050/I2C_IMU 已移除（提交 `37ff7fc`）；灰度 8 路升级 12 路（提交 `c60f4eb`，`TRACK_SENSOR_COUNT=12`） | 删除 MPU6050_API 类、System/Task1→MPU6050 边与覆盖清单行；5.1 数据流改为 QEI 硬件计数；事实来源路径改为根 `board.syscfg`；登记 V16（`tests/host` 未迁入） | 对照 `hc-team` 源码与 `docs/MIGRATION_G3507_TO_G3519.md` 复核：`rg 'MPU6050' hc-team` 仅余 task1.c 一条移除说明注释；公共 API（Encoder/BoardGpio/Runtime）与依赖边未变 |

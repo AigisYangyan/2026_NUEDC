@@ -11,7 +11,7 @@ This is the **Codex-owned single acceptance gate** (flow since 2026-07-16: Codex
 
 1. **Diff read**: `git diff`/`git status` against the task's allowed_files. Any touch on forbidden_files or unexplained files → reject immediately, skip the rest.
 2. **Scans**: rerun the plan's dependency-scan rows yourself (rg, seconds). Zero-hit rows must be zero; hit lists must match the plan.
-3. **Host tests**: run the host suite once (`make -C tests/host all`). Count must be ≥ baseline + the task's new cases.
+3. **Host tests**: run the host suite once (`make -C tests/host all`). Count must be ≥ baseline + the task's new cases. Local fact (2026_Diansai, 2026-07-16): `tests/host/` was not migrated from the old NUEDC repo (topology V16); until a task migrates it and re-establishes the green baseline, any report claiming host-test rows is an automatic reject — the suite the report ran does not exist here.
 4. **Build**: reuse the builder's fresh-build evidence (exit code + warning delta stated in the report). Rebuild yourself only when the diff touches build metadata, linker layout, or the report lacks a build line.
 5. **Focused code read**: read only the hunks that carry the task's core contract (new signatures, ISR paths, safety states, ownership moves) — not the whole file set.
 6. **Topology check**: verify only the edges/violation entries named in the task's topology contract against the code facts you just confirmed.

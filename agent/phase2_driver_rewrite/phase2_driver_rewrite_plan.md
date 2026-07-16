@@ -57,6 +57,8 @@
 
 进度（2026-07-16）：P1F.T1、P2F.T1 已获 `CODEX_ACCEPTED`（软件验收唯一制下为终局；提交 `455a968`），P1、P2 标 `done`。plan3 斜坡冲突已消除（修订 2：Motor 私有对称 slew limit）；plan3 T3 已改为 syscfg PWM 频率统一的纯软件任务（修订 3）。下一步：P3.T1 与 P4.T1 可并行开工。
 
+2026-07-16 G3519 迁移本地适配（覆盖本文件及各计划中与之矛盾的环境事实，历史记录不回改）：工程已整体移植到 `2026_Diansai`（MSPM0G3519/LQFP-100，SDK 2.11.00.07，见 `docs/MIGRATION_G3507_TO_G3519.md`）。生效事实：① 唯一硬件配置源为仓库根 `board.syscfg`（各计划中 `project/mspm0/board.syscfg` 为旧仓库路径）；② 编码器改 TIMG8/TIMG9 硬件 QEI，GROUP1 中断仅服务按键（P2 系列文档中"GROUP1 软件判向"描述仅为历史事实）；③ 步进总线物理实例 UART2→UART7（引脚 PB15/PB16、波特率 230400 不变）；④ MPU6050/I2C_IMU 已移除——P6 范围相应收窄为 EEPROM、OLED；⑤ 灰度 8 路升级 12 路；⑥ **`tests/host/` 主机测试套件未随迁（拓扑 V16）**——P5 或任何后续施工开工前，必须先从 `../NUEDC/tests/host/` 迁入套件并复跑恢复全绿基线，此前所有 `make -C tests/host` E 行不可执行。
+
 P2 选择 Encoder 而非 Motor 的原因：Encoder 当前直接写 `g_tMotors[]`，Motor 又持有 PID 指针，形成 `Encoder -> Motor <-> PID` 的交叉所有权。先移除 Encoder 对 Motor 的依赖，Motor 才能在 P3 只保留“方向 + PWM + 安全状态”职责。
 
 ## 5. 每个模块的固定执行协议
