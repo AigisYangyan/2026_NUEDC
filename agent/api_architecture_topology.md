@@ -1,6 +1,6 @@
 # NUEDC API 平台架构拓扑图（2026_Diansai · MSPM0G3519）
 
-最后复核：2026-07-16（QEI/灰度引脚重映射复核；编码器迁出核心板晶振脚，驱动零改动）  
+最后复核：2026-07-17（P7：emm42 残渣清理；IMU 经用户裁定推迟，违规边保持 open）  
 适用工程：`2026_Diansai`（MSPM0G3519，LQFP-100，SDK 2.11.00.07；由旧工程 `NUEDC`/G3507 移植，见 `agent/MIGRATION_G3507_TO_G3519.md`）  
 事实来源：当前工作区 `hc-team/**/*.c`、`hc-team/**/*.h`、仓库根 `board.syscfg`  
 状态：当前实现拓扑，不是目标架构示意图  
@@ -152,7 +152,6 @@ class Emm42_API {
   +Emm42_BuildStartHomingFrame()
   +Emm42_BuildExitHomingFrame()
   +Emm42_BuildPidConfigFrame()
-  +Emm42_RunCommandTask()
 }
 
 class VofaDriver_API {
@@ -687,3 +686,4 @@ flowchart LR
 | 2026-07-16 | HT.T1 验收：从 `../NUEDC/tests/host/` 迁入 7 个主机测试源文件，恢复 `tests/host` 32 项基线（Encoder 14 + PID 5 + Motor 7 + Key 6）；`.gitignore` 补齐主机测试可执行产物忽略；`hc-team` 与 `board.syscfg` 保持零改动 | V16 closed；tests 不进入类图；无新增 API 边 | `rtk make -C tests/host all` 全绿；`rg -n 'ti_msp_dl_config|ti/driverlib' tests/host` 零命中；`git ls-files tests/host` 恰好 7 个文件；`git status --porcelain hc-team board.syscfg` 为空；`rtk make -C Debug all` 通过 |
 | 2026-07-16 | 流程自闭环（用户裁定，仅文档/skills，未改代码）：取消第二个施工者，三个 `reasonix-embedded-*` skill 合并为 `.agents/skills/embedded-closed-loop`（决策→施工→验收由单 agent 全占），删除 3 份 GPT 承包商注册 `openai.yaml` 与施工者派工 Prompt；4 份 reference 经 `git mv` 保留历史。代偿机制：**契约含全部 E 行须在写生产代码前先提交**，验收比对带时间戳的冻结契约，由 git 充当消失的第二方；E 行改错须单独提交说明。标签 `CODEX_*` 退役为 `ACCEPTED`/`REJECTED`。顺带回退 CCS 自动写入 `.cproject` 的失效索引项（指向已删 `docs/pin_table_v2`）与重复 Debug 构建配置块 | 已复核，无代码 API 拓扑变化 | `git grep -ri "reasonix|codex" .agents` 零命中；`git status --porcelain hc-team board.syscfg tests Debug` 为空；日志表 REASONIX 历史记述按惯例不回改。教训登记：本次 `sed -i` 曾静默剥掉全文 687 行 CRLF，被 `--ignore-all-space` 与 `cat -A` 发现并回退，改用 Edit 工具重做 |
 | 2026-07-16 | QEI/灰度引脚重映射（`plan_qei_gray_pinmux.md`，自闭环施工+验收）：编码器 4 脚中 3 个是核心板晶振/振荡器脚（PA3=SYSCTL.LFXIN、PA6=SYSCTL.HFXOUT、PA2=SYSCTL.ROSC，经 TI 器件数据核实），核心板为现成模块、晶振实焊，固件不可绕过 —— 采纳硬件组方案：`QEI_LEFT` 迁 **TIMG9/PB7/PB9**、`QEI_RIGHT` 迁 **TIMG8/PB10/PB11**；12 路灰度让出 PB7/PB9/PB10/PB11，IN5/IN10/IN11 迁 PB20/PB14/PB0，**IN4 迁 PB8 而非引脚表建议的 PA7**（唯一偏离：PA7 跨端口会消灭 `GPIO_LINE_SENSOR_PORT` 组级单端口宏并破坏 12 路原子采样；PB8 是 PB7 物理邻脚）。释放 PA2/PA3/PA6/PA7。仅改 `board.syscfg` | **无 API 边变化**：5.1 数据流 `TIMG8 TIMG9 硬件 QEI 计数器` 不含引脚与左右归属，迁移后仍为真。左右轮与 timer 的绑定互换由 syscfg `$name` 吸收（QEI_LEFT/RIGHT 继续与物理轮子绑定），**无新增/关闭违规** | E01 clean 固件构建 exit 0 且 0 warning；E02 `QEI_LEFT_INST=TIMG9`/`QEI_RIGHT_INST=TIMG8`；E03 `GPIO_LINE_SENSOR_PORT=(GPIOB)` 仍存在（12 路同端口未破）；**E04 `git status hc-team tests` 为空 —— 驱动零改动，再次证实外设实例号为 Driver 以下私有事实**；E05 主机 76 项全绿 0 FAIL；E06 引脚表与 `board.syscfg` 逐行交叉核对 0 冲突（原 11 行 Q4 冲突全消），原表 44 脚零丢失、只增 PB8，并删除 2 行与陀螺仪共用 PA25/PA26 的「作废」重复记录。**遗留风险：`encoder.c:41` `s_direction_sign[]={-1,1}` 按旧板 AB 极性标定，新板须实测重标（禁止新增第二个反转开关）；核心板晶振实焊情况待硬件组书面确认** |
+| 2026-07-17 | P7：巡查推翻原范围 —— Step Motor 已于 P5 拆完（`emm42.c` 已是纯组包），IMU 无外部调用者且 RX 未接线（`mspm0_runtime.c` 中 IMU 字样 0 处）。**IMU 部分经用户 2026-07-17 裁定推迟**（IMU 与 12 路灰度后续要改，避免与重写冲突），已施工的 IMU 改动全部回退，本次仅交付 emm42 残渣清理（契约 `plan_p7_imu_stepmotor.md`，冻结于 `16e0c96`） | 类图去 `Emm42_RunCommandTask()`。**违规边 `IMU_API --> DL_HAL : exposed TI header` 保持 open** —— IMU 未施工，该边仍是真实现状 | E01/E03/E05/E06 全过（构建 0 告警、emm42 残渣 0 命中、主机 76 PASS）。巡查副产物（未修，随 IMU 一并推迟）：`IMU.c` 三处延时按 32MHz 计算而 `CPUCLK=80MHz`，实际时长仅标称 40%；因 IMU 是死代码从未暴露。**教训：`git show HEAD:` 输出的是已归一化的 blob，不能用来判断工作区行尾，只能用 `cat -A` 看工作区文件本身。** |

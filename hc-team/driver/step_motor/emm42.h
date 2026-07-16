@@ -108,7 +108,6 @@ void Emm42_MoveRelative(Emm42_Axis_e axis,
 void Emm42_MoveAbsolute(Emm42_Axis_e axis,
                         uint32_t position_pulses,
                         uint16_t speed);
-void Emm42_RunCommandTask(void);
 void Emm42_SetZeroPosition(uint8_t axis_id);
 void Emm42_StartHoming(uint8_t axis_id);
 void Emm42_ExitHoming(uint8_t axis_id);

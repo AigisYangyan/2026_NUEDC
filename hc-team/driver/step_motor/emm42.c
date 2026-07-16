@@ -22,9 +22,6 @@
 #define EMM42_ORIGIN_RUN_FIXED_1  0x00u
 #define EMM42_ORIGIN_QUIT_FIXED_0 0x48u
 
-int g_emm42_default_acceleration = 0;
-int g_emm42_default_speed = 30;
-
 static uint16_t emm42_clamp_speed_rpm(uint16_t speed)
 {
     if (speed > EMM42_SPEED_MAX_RPM) {
@@ -222,8 +219,4 @@ bool Emm42_BuildPidConfigFrame(uint8_t axis_id,
     out[15] = (uint8_t)(kd);
     out[16] = EMM42_CHECK_BYTE;
     return true;
-}
-
-void Emm42_RunCommandTask(void)
-{
 }

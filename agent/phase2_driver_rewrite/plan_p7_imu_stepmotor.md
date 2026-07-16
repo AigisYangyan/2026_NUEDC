@@ -1,8 +1,56 @@
 # 计划：P7 —— IMU 解耦 DL_HAL + emm42 残渣清理
 
-状态：`FROZEN`（待施工）
+状态：`ACCEPTED`（2026-07-17 自闭环施工 + 验收，**范围经用户裁定收窄至 step_motor**）
 日期：2026-07-17
-流程：单 agent 自闭环（`.agents/skills/embedded-closed-loop`）。**本契约在写任何生产代码前提交**，验收比对本文冻结的 E 行。
+流程：单 agent 自闭环（`.agents/skills/embedded-closed-loop`）。**本契约在写任何生产代码前提交**（`16e0c96`），验收比对本文冻结的 E 行。
+
+## 0. 用户裁定：IMU 部分推迟（2026-07-17）
+
+**施工过程中用户裁定：IMU 与 12 路灰度暂不编写，后续会修改。**
+
+裁定到达时，IMU 部分已施工完成且 E01–E06 全过。按用户选择，**已施工的 IMU 改动整体回退**
+（`git checkout HEAD -- hc-team/driver/imu/`），本次仅交付 emm42 残渣清理。
+
+理由（用户选定）：IMU 后续要重写，保留本次改动会与重写冲突，且届时基线不干净。
+本次 IMU 改动极小（删 1 行 include + 3 处延时调用），重写时无保留价值。
+
+**因此推迟、保持原样的项：**
+
+- 缺陷 A（`IMU.h:5` 冗余 `ti_msp_dl_config.h`）→ 违规边 `IMU_API --> DL_HAL : exposed TI header`
+  **保持 open**。拓扑未改该边，因为它仍是真实现状。
+- 缺陷 B（三处延时按 32MHz 算，实际 `CPUCLK=80MHz`，时长仅标称 40%）→ **未修，缺陷仍在**。
+  IMU 是死代码，不会被触发；但 **IMU 重写时必须一并处理**，否则一启用即暴露。
+  正解已查明：改用 `Mspm0Runtime_DelayMs()`（基于 `Clock_NowMs()`，不含频率假设），
+  `IMU.c` 已包含该头，无需新增依赖。
+- 12 路灰度：本次全程零触碰（灰度是 `plan_qei_gray_pinmux.md` 的范围，已于 `1f182f3` 完成）。
+
+## 0.1 验收记录（2026-07-17，收窄后）
+
+契约冻结于 `16e0c96`，早于任何 `hc-team/**` 改动 —— E 行未被事后调整以迁就实现。
+
+| ID | 结果 | 观察到的后置条件 |
+|---|---|---|
+| E01 | PASS | clean 固件构建 exit 0；warning/error/remark 命中 1 行，核查为链接器命令行中的 `--warn_sections` **旗标名**，非告警。实际 0 warning / 0 error |
+| E02 | **N/A** | IMU 部分经用户裁定推迟并回退，本行不适用。IMU 层 TI 依赖**仍在** |
+| E03 | PASS | `g_emm42_default` / `Emm42_RunCommandTask` 全工程 **0 命中** |
+| E04 | **N/A** | 同 E02。`IMU.c` 的 32MHz 频率假设**仍在** |
+| E05 | PASS | 主机 8 套件 **76 PASS / 0 FAIL**，gcc `-Wall -Wextra` 0 告警 |
+| E06 | PASS | `emm42.h` 仅删 1 行声明，`Emm42_Build*Frame` 全部签名逐字未变；`IMU.h` 已回退，与 HEAD 逐字节相同 |
+
+**E02/E04 标 N/A 而非 PASS**：二者曾在回退前实测通过，但当前工作区不满足。
+标 PASS 会让后来者以为违规边已消除 —— 那是假的。
+
+验收中发现并处理的契约外问题：
+
+1. **E05 统计口径再次误报**。正则 `FAIL|Error|error:` 命中 2 行，核查为 PID 测试名
+   `test_signed_error_direction` / `test_zero_error_steady_state` 中的 "error" 子串，
+   两行本身都是 PASS。**这是 `plan_qei_gray_pinmux.md` §0.1（44/76 误报）的同类错误第二次发生**
+   —— 统计口径而非被测对象出错。教训：断言必须锚定行首（`^\s*PASS:`），不可子串匹配。
+2. **`git show HEAD:` 不能用于判断工作区行尾**。`core.autocrlf=false` 且无 `.gitattributes`，
+   但 `git show` 输出的是仓库 blob。本次据此得出「HEAD 是 LF、Edit 写了 CRLF」的**错误结论**，
+   实为 `IMU.c` 原本就是**混合行尾**（约 13 行 LF 夹在 CRLF 中）。
+   **判定行尾只能用 `cat -A` 看工作区文件本身**。
+   附带效果：IMU 回退后，该行尾问题随之消失，无残留。
 
 ## 0. 巡查结论：P7 的实际范围远小于原计划
 
@@ -76,11 +124,11 @@ delay_cycles(interval_ms * 32000);
 
 | 文件 | 变更 | 缺陷 |
 |---|---|---|
-| `hc-team/driver/imu/IMU.h` | 删 `#include "ti_msp_dl_config.h"`；补 `<stdint.h>` 确认 | A |
-| `hc-team/driver/imu/IMU.c` | 删 `delay_cycles` 宏定义（:11-13）；3 处调用改 `Mspm0Runtime_DelayMs(ms)`；删 `ti_msp_dl_config.h` 包含（若无其它用途） | A+B |
+| ~~`hc-team/driver/imu/IMU.h`~~ | ~~删 `#include "ti_msp_dl_config.h"`~~ | **推迟（§0）** |
+| ~~`hc-team/driver/imu/IMU.c`~~ | ~~删 `delay_cycles` 宏；3 处调用改 `Mspm0Runtime_DelayMs(ms)`~~ | **推迟（§0）** |
 | `hc-team/driver/step_motor/emm42.c` | 删 2 个未引用全局；删 `Emm42_RunCommandTask` 空实现 | C |
 | `hc-team/driver/step_motor/emm42.h` | 删 `Emm42_RunCommandTask` 声明 | C |
-| `agent/api_architecture_topology.md` | 删违规边 `IMU_API --> DL_HAL`；类图去 `Emm42_RunCommandTask` | — |
+| `agent/api_architecture_topology.md` | 类图去 `Emm42_RunCommandTask`。**违规边 `IMU_API --> DL_HAL` 保持不动** | — |
 
 ## 5. 范围
 
