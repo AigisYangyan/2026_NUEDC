@@ -13,8 +13,8 @@
  *     - s_gyro_gz_dps                 : Gz (°/s)，由新陀螺仪驱动接入后更新
  *
  *   控制层 (10ms):
- *     - STRAIGHT:     循迹误差 -> 左右目标速度差 -> pid_closeloop_motor
- *     - BEFORE_ANGLE: 固定目标速度 -> pid_closeloop_motor
+ *     - STRAIGHT:     循迹误差 -> 左右目标速度差 -> 左右轮 Pid_UpdateIncremental
+ *     - BEFORE_ANGLE: 固定目标速度 -> 左右轮 Pid_UpdateIncremental
  *     - ANGLE:        速度环输出经 Motor_SetOutput 下发到 Driver
  *     - DONE:         Motor_BrakeAll
  *
@@ -115,30 +115,22 @@ static uint32_t task1_tick_ms(void)
     return Clock_NowMs();
 }
 
-static void task1_reset_pid_runtime(PID_T* pid)
-{
-    if (pid == (PID_T*)0) {
-        return;
-    }
-    pid->target = 0.0f;
-    pid->current = 0.0f;
-    pid->out = 0.0f;
-    pid->error = 0.0f;
-    pid->last_error = 0.0f;
-    pid->last2_error = 0.0f;
-    pid->last_out = 0.0f;
-    pid->integral = 0.0f;
-    pid->p_out = 0.0f;
-    pid->i_out = 0.0f;
-    pid->d_out = 0.0f;
-    pid->last_d_out = 0.0f;
-}
+/* 左右轮速度环 PID 上下文：本任务持有，增益由 VOFA cmd 同步 */
+static Pid_T s_left_pid;
+static Pid_T s_right_pid;
+
+static const Pid_Config_T s_pid_cfg = {
+    .kp = 0.0f, .ki = 0.0f, .kd = 0.0f,
+    .out_limit = 1000.0f,       /* PWM 输出尺度 ±1000，沿用原电机实例限幅 */
+    .integral_limit = 0.0f,     /* 按 out_limit*3.5 推导 */
+    .d_filter_alpha = 1.0f,     /* 不过滤 */
+};
 
 static void task1_brake_all(void)
 {
     Motor_BrakeAll();
-    task1_reset_pid_runtime(&g_tLeftMotorPID);
-    task1_reset_pid_runtime(&g_tRightMotorPID);
+    Pid_Reset(&s_left_pid);
+    Pid_Reset(&s_right_pid);
 }
 
 static uint8_t task1_popcount(uint32_t bits)
@@ -191,8 +183,8 @@ static void task1_enter_state(Task1_State_e next)
     switch (next) {
     case TASK1_STATE_STRAIGHT:
         s_corner_hit_cnt = 0u;
-        task1_reset_pid_runtime(&g_tLeftMotorPID);
-        task1_reset_pid_runtime(&g_tRightMotorPID);
+        Pid_Reset(&s_left_pid);
+        Pid_Reset(&s_right_pid);
         break;
 
     case TASK1_STATE_BEFORE_ANGLE:
@@ -242,12 +234,12 @@ static void task1_drive_straight(uint8_t use_track)
         right_target = TASK1_BASE_SPEED_MPS - diff;
     }
 
-    pid_closeloop_motor(left_target,
-                        right_target,
-                        s_encoder_snapshot.speed_mps[ENCODER_LEFT],
-                        s_encoder_snapshot.speed_mps[ENCODER_RIGHT],
-                        &left_out,
-                        &right_out);
+    left_out = Pid_UpdateIncremental(&s_left_pid,
+                                     left_target,
+                                     s_encoder_snapshot.speed_mps[ENCODER_LEFT]);
+    right_out = Pid_UpdateIncremental(&s_right_pid,
+                                      right_target,
+                                      s_encoder_snapshot.speed_mps[ENCODER_RIGHT]);
     (void)Motor_SetOutput(MOTOR_LEFT, (int16_t)left_out);
     (void)Motor_SetOutput(MOTOR_RIGHT, (int16_t)right_out);
 }
@@ -262,12 +254,12 @@ static void task1_drive_turn_left(void)
     float right_out;
 
     /* 左轮倒退 -v, 右轮前进 +v；速度环会自动解析符号并输出相应 PWM */
-    pid_closeloop_motor(-TASK1_TURN_SPEED_MPS,
-                        +TASK1_TURN_SPEED_MPS,
-                        s_encoder_snapshot.speed_mps[ENCODER_LEFT],
-                        s_encoder_snapshot.speed_mps[ENCODER_RIGHT],
-                        &left_out,
-                        &right_out);
+    left_out = Pid_UpdateIncremental(&s_left_pid,
+                                     -TASK1_TURN_SPEED_MPS,
+                                     s_encoder_snapshot.speed_mps[ENCODER_LEFT]);
+    right_out = Pid_UpdateIncremental(&s_right_pid,
+                                      +TASK1_TURN_SPEED_MPS,
+                                      s_encoder_snapshot.speed_mps[ENCODER_RIGHT]);
     (void)Motor_SetOutput(MOTOR_LEFT, (int16_t)left_out);
     (void)Motor_SetOutput(MOTOR_RIGHT, (int16_t)right_out);
 }
@@ -354,12 +346,8 @@ static void task1_sync_pid_cfg(void)
 {
     VofaTask1Ctx_t* ctx = VofaRegister_GetTask1Ctx();
 
-    g_tLeftMotorPID.kp = ctx->cmd_left_kp;
-    g_tLeftMotorPID.ki = ctx->cmd_left_ki;
-    g_tLeftMotorPID.kd = ctx->cmd_left_kd;
-    g_tRightMotorPID.kp = ctx->cmd_right_kp;
-    g_tRightMotorPID.ki = ctx->cmd_right_ki;
-    g_tRightMotorPID.kd = ctx->cmd_right_kd;
+    Pid_SetGains(&s_left_pid, ctx->cmd_left_kp, ctx->cmd_left_ki, ctx->cmd_left_kd);
+    Pid_SetGains(&s_right_pid, ctx->cmd_right_kp, ctx->cmd_right_ki, ctx->cmd_right_kd);
 }
 
 static void task1_refresh_telemetry(void)
@@ -381,6 +369,8 @@ static void task1_refresh_telemetry(void)
 
 void Task1_Init(void)
 {
+    Pid_Init(&s_left_pid, &s_pid_cfg);
+    Pid_Init(&s_right_pid, &s_pid_cfg);
     s_state          = TASK1_STATE_IDLE;
     s_state_enter_ms = 0u;
     s_corner_hit_cnt = 0u;
@@ -404,8 +394,8 @@ void Task1_Enter(void)
     s_track_bitmap   = 0u;
     Encoder_GetSnapshot(&s_encoder_snapshot);
 
-    task1_reset_pid_runtime(&g_tLeftMotorPID);
-    task1_reset_pid_runtime(&g_tRightMotorPID);
+    Pid_Reset(&s_left_pid);
+    Pid_Reset(&s_right_pid);
     Motor_BrakeAll();
 
     VofaRegister_EnterProfile(VOFA_PROFILE_TASK1);

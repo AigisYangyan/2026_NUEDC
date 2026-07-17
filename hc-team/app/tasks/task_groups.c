@@ -66,6 +66,18 @@ float g_vofa_vision_y = -1.0f;
 static Encoder_Snapshot s_encoder_snapshot;
 static uint32_t s_encoder_last_ms;
 
+/* VOFA 直控速度环的左右轮 PID 上下文：本文件持有，首次使用时初始化 */
+static Pid_T s_vofa_left_pid;
+static Pid_T s_vofa_right_pid;
+static bool s_vofa_pid_ready = false;
+
+static const Pid_Config_T s_vofa_pid_cfg = {
+    .kp = 0.0f, .ki = 0.0f, .kd = 0.0f,
+    .out_limit = 1000.0f,       /* PWM 输出尺度 ±1000，沿用原电机实例限幅 */
+    .integral_limit = 0.0f,     /* 按 out_limit*3.5 推导 */
+    .d_filter_alpha = 1.0f,     /* 不过滤 */
+};
+
 /* ---- 任务组定义与导出 --------------------------------------------------- */
 
 /* 统一 UI 任务：挂到菜单浏览态与未接后台逻辑的运行项，保证系统运行过程中也可刷新 OLED。 */
@@ -247,12 +259,18 @@ void Task_MotorPidControl(void)
     float left_out;
     float right_out;
 
-    pid_closeloop_motor(g_vofa_cmd_lm,
-                        g_vofa_cmd_rm,
-                        s_encoder_snapshot.speed_mps[ENCODER_LEFT],
-                        s_encoder_snapshot.speed_mps[ENCODER_RIGHT],
-                        &left_out,
-                        &right_out);
+    if (!s_vofa_pid_ready) {
+        Pid_Init(&s_vofa_left_pid, &s_vofa_pid_cfg);
+        Pid_Init(&s_vofa_right_pid, &s_vofa_pid_cfg);
+        s_vofa_pid_ready = true;
+    }
+
+    left_out = Pid_UpdateIncremental(&s_vofa_left_pid,
+                                     g_vofa_cmd_lm,
+                                     s_encoder_snapshot.speed_mps[ENCODER_LEFT]);
+    right_out = Pid_UpdateIncremental(&s_vofa_right_pid,
+                                      g_vofa_cmd_rm,
+                                      s_encoder_snapshot.speed_mps[ENCODER_RIGHT]);
     (void)Motor_SetOutput(MOTOR_LEFT, (int16_t)left_out);
     (void)Motor_SetOutput(MOTOR_RIGHT, (int16_t)right_out);
     Motor_Update(SPEED_LOOP_CONTROL_PERIOD_MS);

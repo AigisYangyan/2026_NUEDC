@@ -80,7 +80,7 @@ typedef enum {
 } StepperTestMode_e;
 
 typedef struct {
-    PID_T pid;
+    Pid_T pid;
     bool has_seen_target;
     bool has_meta;
     uint32_t last_seq;
@@ -205,25 +205,13 @@ static void visionhdl_run_track(const VisionCoord_Coordinates_t* p_coord)
     visionhdl_move_axes(delta_y, delta_x, VISIONHDL_TRACK_SPEED, VISIONHDL_TRACK_ACC);
 }
 
-static void visionhdl_reset_pid_runtime(PID_T* pid)
-{
-    if (pid == (PID_T*)0) {
-        return;
-    }
-
-    pid->target = 0.0f;
-    pid->current = 0.0f;
-    pid->out = 0.0f;
-    pid->error = 0.0f;
-    pid->last_error = 0.0f;
-    pid->last2_error = 0.0f;
-    pid->last_out = 0.0f;
-    pid->integral = 0.0f;
-    pid->p_out = 0.0f;
-    pid->i_out = 0.0f;
-    pid->d_out = 0.0f;
-    pid->last_d_out = 0.0f;
-}
+/* 步进轴 PID 默认配置：增益/限幅每周期由 VOFA cmd 同步，此处只保证微分滤波系数有效 */
+static const Pid_Config_T k_stepper_pid_cfg = {
+    .kp = 0.0f, .ki = 0.0f, .kd = 0.0f,
+    .out_limit = 0.0f,
+    .integral_limit = 0.0f,
+    .d_filter_alpha = 1.0f,
+};
 
 /* ---- 静态辅助函数：DEBUG_Vision_data ----------------------------------- */
 
@@ -542,7 +530,7 @@ static void stepper_axis_runtime_reset(StepperAxisRuntime_t* runtime)
     }
 
     memset(runtime, 0, sizeof(*runtime));
-    visionhdl_reset_pid_runtime(&runtime->pid);
+    Pid_Init(&runtime->pid, &k_stepper_pid_cfg);
 }
 
 static uint16_t stepper_test_clamp_speed(float speed_raw)
@@ -635,7 +623,7 @@ static void stepper_test_clear_observation(VofaPidAxisCtx_t* ctx, StepperAxisRun
     }
 
     runtime->pending_pulse = 0;
-    visionhdl_reset_pid_runtime(&runtime->pid);
+    Pid_Reset(&runtime->pid);
     ctx->tx_err_px = 0.0f;
     ctx->tx_out_pulse = 0.0f;
     ctx->tx_kp = ctx->cmd_kp;
@@ -646,18 +634,16 @@ static void stepper_test_clear_observation(VofaPidAxisCtx_t* ctx, StepperAxisRun
     ctx->tx_d_term = 0.0f;
 }
 
-static void stepper_test_sync_pid_cfg(PID_T* pid, const VofaPidAxisCtx_t* ctx)
+static void stepper_test_sync_pid_cfg(Pid_T* pid, const VofaPidAxisCtx_t* ctx)
 {
-    if ((pid == (PID_T*)0) || (ctx == (const VofaPidAxisCtx_t*)0)) {
+    if ((pid == (Pid_T*)0) || (ctx == (const VofaPidAxisCtx_t*)0)) {
         return;
     }
 
-    pid->kp = ctx->cmd_kp;
-    pid->ki = ctx->cmd_ki;
-    pid->kd = ctx->cmd_kd;
-    pid->integral_limit = (ctx->cmd_integral_limit > 0.0f) ? ctx->cmd_integral_limit : 0.0f;
-    pid->limit = visionhdl_abs_f32(ctx->cmd_output_limit);
-    pid->d_filter_alpha = 1.0f;
+    Pid_SetGains(pid, ctx->cmd_kp, ctx->cmd_ki, ctx->cmd_kd);
+    Pid_SetLimits(pid,
+                  visionhdl_abs_f32(ctx->cmd_output_limit),
+                  (ctx->cmd_integral_limit > 0.0f) ? ctx->cmd_integral_limit : 0.0f);
 }
 
 static void stepper_test_update_meta(VofaPidAxisCtx_t* ctx,
@@ -739,17 +725,18 @@ static void stepper_test_prepare_command(StepperTestMode_e mode)
     }
 
     stepper_test_sync_pid_cfg(&runtime->pid, ctx);
-    runtime->pid.target = error_px;
-    runtime->pid.current = 0.0f;
-    pid_formula_positional(&runtime->pid);
-    pid_out_limit(&runtime->pid);
+    {
+        float out_pulse = Pid_UpdatePositional(&runtime->pid, error_px, 0.0f);
+        Pid_Telemetry_T tele;
 
-    ctx->tx_out_pulse = runtime->pid.out;
-    ctx->tx_p_term = runtime->pid.p_out;
-    ctx->tx_i_term = runtime->pid.i_out;
-    ctx->tx_d_term = runtime->pid.d_out;
+        Pid_GetTelemetry(&runtime->pid, &tele);
+        ctx->tx_out_pulse = tele.out;
+        ctx->tx_p_term = tele.p_out;
+        ctx->tx_i_term = tele.i_out;
+        ctx->tx_d_term = tele.d_out;
 
-    runtime->pending_pulse = stepper_test_round_pulse(runtime->pid.out);
+        runtime->pending_pulse = stepper_test_round_pulse(out_pulse);
+    }
     if ((runtime->pending_pulse == 0) && (visionhdl_abs_f32(error_px) > (float)VISIONHDL_DEADBAND_PX)) {
         runtime->pending_pulse = (error_px > 0.0f) ? 1 : -1;
     }

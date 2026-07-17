@@ -20,7 +20,7 @@
  *
  * 设计约定：
  * 1. 本模块只调度上层状态机，不重写 PID / 电机 / 编码器底层
- * 2. 直线段复用 pid_closeloop_motor() 做双轮速度环，循迹误差→速度差
+ * 2. 直线段用本任务持有的左右轮 Pid_T 做双轮速度环，循迹误差→速度差
  * 3. 控制层生成带符号输出后，通过 Motor Driver 执行换向/死区/超时保护
  * 4. 陀螺仪积分只取陀螺仪 Gz (°/s)，不使用卡尔曼解算
  * 5. 进入角点时机：灰度低 4 位亮 (左半有线) + 高 4 位全灭 (右半无线)
@@ -32,7 +32,7 @@
  *
  * 依赖：
  * - driver/motor, driver/encoder（陀螺仪驱动待接入）
- * - middleware/pid (pid_closeloop_motor, g_tLeft/RightMotorPID)
+ * - middleware/pid（本任务持有的 Pid_T 左右轮实例，Pid_UpdateIncremental）
  * - app/tasks/track_follow (Track_UpdateSample / Calculate_Track_Error)
  *
  * 使用方式：

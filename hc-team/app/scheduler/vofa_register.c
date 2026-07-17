@@ -27,7 +27,6 @@
 #include <string.h>
 
 #include "driver/uart_vofa/uart_vofa.h"
-#include "middleware/pid/pid.h"
 
  /* ---- 默认参数 ----------------------------------------------------------- */
 /* Emm 固件口径：
@@ -55,26 +54,42 @@ static VofaPidAxisCtx_t s_stepper_y_ctx;// 二维平台步进电机 Y 轴 profil
 
 /* ---- 静态重置函数 ------------------------------------------------------- */
 
+/* 速度环/TASK1 重置：memset 前暂存当前 cmd 增益并恢复，
+ * 保住「profile 重进不丢调参」的既有语义（原实现经 PID 全局回读，M01 后 PID 无全局）。 */
 static void vofa_register_reset_speed_loop(void)
 {
+    float kp_l = s_speed_loop_ctx.cmd_left_kp;
+    float ki_l = s_speed_loop_ctx.cmd_left_ki;
+    float kd_l = s_speed_loop_ctx.cmd_left_kd;
+    float kp_r = s_speed_loop_ctx.cmd_right_kp;
+    float ki_r = s_speed_loop_ctx.cmd_right_ki;
+    float kd_r = s_speed_loop_ctx.cmd_right_kd;
+
     memset(&s_speed_loop_ctx, 0, sizeof(s_speed_loop_ctx));
-    s_speed_loop_ctx.cmd_left_kp = g_tLeftMotorPID.kp;
-    s_speed_loop_ctx.cmd_left_ki = g_tLeftMotorPID.ki;
-    s_speed_loop_ctx.cmd_left_kd = g_tLeftMotorPID.kd;
-    s_speed_loop_ctx.cmd_right_kp = g_tRightMotorPID.kp;
-    s_speed_loop_ctx.cmd_right_ki = g_tRightMotorPID.ki;
-    s_speed_loop_ctx.cmd_right_kd = g_tRightMotorPID.kd;
+    s_speed_loop_ctx.cmd_left_kp = kp_l;
+    s_speed_loop_ctx.cmd_left_ki = ki_l;
+    s_speed_loop_ctx.cmd_left_kd = kd_l;
+    s_speed_loop_ctx.cmd_right_kp = kp_r;
+    s_speed_loop_ctx.cmd_right_ki = ki_r;
+    s_speed_loop_ctx.cmd_right_kd = kd_r;
 }
 
 static void vofa_register_reset_task1(void)
 {
+    float kp_l = s_task1_ctx.cmd_left_kp;
+    float ki_l = s_task1_ctx.cmd_left_ki;
+    float kd_l = s_task1_ctx.cmd_left_kd;
+    float kp_r = s_task1_ctx.cmd_right_kp;
+    float ki_r = s_task1_ctx.cmd_right_ki;
+    float kd_r = s_task1_ctx.cmd_right_kd;
+
     memset(&s_task1_ctx, 0, sizeof(s_task1_ctx));
-    s_task1_ctx.cmd_left_kp = g_tLeftMotorPID.kp;
-    s_task1_ctx.cmd_left_ki = g_tLeftMotorPID.ki;
-    s_task1_ctx.cmd_left_kd = g_tLeftMotorPID.kd;
-    s_task1_ctx.cmd_right_kp = g_tRightMotorPID.kp;
-    s_task1_ctx.cmd_right_ki = g_tRightMotorPID.ki;
-    s_task1_ctx.cmd_right_kd = g_tRightMotorPID.kd;
+    s_task1_ctx.cmd_left_kp = kp_l;
+    s_task1_ctx.cmd_left_ki = ki_l;
+    s_task1_ctx.cmd_left_kd = kd_l;
+    s_task1_ctx.cmd_right_kp = kp_r;
+    s_task1_ctx.cmd_right_ki = ki_r;
+    s_task1_ctx.cmd_right_kd = kd_r;
 }
 
 static void vofa_register_reset_gray_test(void)

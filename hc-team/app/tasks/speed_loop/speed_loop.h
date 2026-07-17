@@ -11,7 +11,7 @@
  *
  * 设计约定：
  * - 目标速度单位统一为 m/s
- * - PID 核心复用现有 pid_closeloop_motor()
+ * - PID 核心为本任务持有的左右轮 Pid_T 实例（Pid_UpdateIncremental）
  * - 本模块只做编排，不重写控制算法
  *
  * 使用方式：

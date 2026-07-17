@@ -27,28 +27,20 @@
 static Encoder_Snapshot s_encoder_snapshot;
 
 #define SPEED_LOOP_CONTROL_PERIOD_MS 10u
+#define SPEED_LOOP_PID_OUT_LIMIT 1000.0f    /* PWM 输出尺度 ±1000，沿用原电机实例限幅 */
+
+/* 左右轮速度环 PID 上下文：本任务持有，增益由 VOFA cmd 同步 */
+static Pid_T s_left_pid;
+static Pid_T s_right_pid;
+
+static const Pid_Config_T s_pid_cfg = {
+    .kp = 0.0f, .ki = 0.0f, .kd = 0.0f,
+    .out_limit = SPEED_LOOP_PID_OUT_LIMIT,
+    .integral_limit = 0.0f,     /* 按 out_limit*3.5 推导 */
+    .d_filter_alpha = 1.0f,     /* 不过滤 */
+};
 
 /* ---- 静态辅助函数 ------------------------------------------------------- */
-
-static void speedloop_reset_pid_runtime(PID_T* pid)
-{
-    if (pid == (PID_T*)0) {
-        return;
-    }
-
-    pid->target = 0.0f;
-    pid->current = 0.0f;
-    pid->out = 0.0f;
-    pid->error = 0.0f;
-    pid->last_error = 0.0f;
-    pid->last2_error = 0.0f;
-    pid->last_out = 0.0f;
-    pid->integral = 0.0f;
-    pid->p_out = 0.0f;
-    pid->i_out = 0.0f;
-    pid->d_out = 0.0f;
-    pid->last_d_out = 0.0f;
-}
 
 static void speedloop_clear_targets(void)
 {
@@ -66,20 +58,21 @@ static void speedloop_refresh_telemetry(void)
     ctx->tx_target_right_mps = (float)ctx->cmd_target_right_mps;
     ctx->tx_feedback_left_mps = s_encoder_snapshot.speed_mps[ENCODER_LEFT];
     ctx->tx_feedback_right_mps = s_encoder_snapshot.speed_mps[ENCODER_RIGHT];
-    ctx->tx_pwm_left = g_tLeftMotorPID.out;
-    ctx->tx_pwm_right = g_tRightMotorPID.out;
+    Pid_Telemetry_T left_tele;
+    Pid_Telemetry_T right_tele;
+
+    Pid_GetTelemetry(&s_left_pid, &left_tele);
+    Pid_GetTelemetry(&s_right_pid, &right_tele);
+    ctx->tx_pwm_left = left_tele.out;
+    ctx->tx_pwm_right = right_tele.out;
 }
 
 static void speedloop_sync_pid_cfg(void)
 {
     VofaSpeedLoopCtx_t* ctx = VofaRegister_GetSpeedLoopCtx();
 
-    g_tLeftMotorPID.kp = ctx->cmd_left_kp;
-    g_tLeftMotorPID.ki = ctx->cmd_left_ki;
-    g_tLeftMotorPID.kd = ctx->cmd_left_kd;
-    g_tRightMotorPID.kp = ctx->cmd_right_kp;
-    g_tRightMotorPID.ki = ctx->cmd_right_ki;
-    g_tRightMotorPID.kd = ctx->cmd_right_kd;
+    Pid_SetGains(&s_left_pid, ctx->cmd_left_kp, ctx->cmd_left_ki, ctx->cmd_left_kd);
+    Pid_SetGains(&s_right_pid, ctx->cmd_right_kp, ctx->cmd_right_ki, ctx->cmd_right_kd);
 }
 
 /* ---- 公开 API ----------------------------------------------------------- */
@@ -87,6 +80,8 @@ static void speedloop_sync_pid_cfg(void)
 void SpeedLoop_Init(void)
 {
     /* 仅做一次性调试状态初始化，不在这里注册运行态 profile。 */
+    Pid_Init(&s_left_pid, &s_pid_cfg);
+    Pid_Init(&s_right_pid, &s_pid_cfg);
     speedloop_clear_targets();
     Encoder_GetSnapshot(&s_encoder_snapshot);
     speedloop_refresh_telemetry();
@@ -100,8 +95,8 @@ void SpeedLoop_Enter(void)
      */
     speedloop_clear_targets();
     Encoder_GetSnapshot(&s_encoder_snapshot);
-    speedloop_reset_pid_runtime(&g_tLeftMotorPID);
-    speedloop_reset_pid_runtime(&g_tRightMotorPID);
+    Pid_Reset(&s_left_pid);
+    Pid_Reset(&s_right_pid);
     Motor_BrakeAll();
     VofaRegister_EnterProfile(VOFA_PROFILE_SPEED_LOOP);
     speedloop_sync_pid_cfg();
@@ -112,8 +107,8 @@ void SpeedLoop_Exit(void)
 {
     /* 退出时清零控制状态并主动刹车，避免离开测试页后继续输出。 */
     speedloop_clear_targets();
-    speedloop_reset_pid_runtime(&g_tLeftMotorPID);
-    speedloop_reset_pid_runtime(&g_tRightMotorPID);
+    Pid_Reset(&s_left_pid);
+    Pid_Reset(&s_right_pid);
     Motor_BrakeAll();
     speedloop_refresh_telemetry();
     VofaRegister_ExitProfile();
@@ -133,13 +128,13 @@ void SpeedLoop_Control10ms(void)
 
     speedloop_sync_pid_cfg();
 
-    /* 速度环核心继续复用现有增量式 PID 实现。 */
-    pid_closeloop_motor((float)ctx->cmd_target_left_mps,
-                        (float)ctx->cmd_target_right_mps,
-                        s_encoder_snapshot.speed_mps[ENCODER_LEFT],
-                        s_encoder_snapshot.speed_mps[ENCODER_RIGHT],
-                        &left_out,
-                        &right_out);
+    /* 速度环核心：左右轮各自增量式 PID，m/s 进、±1000 PWM 出。 */
+    left_out = Pid_UpdateIncremental(&s_left_pid,
+                                     (float)ctx->cmd_target_left_mps,
+                                     s_encoder_snapshot.speed_mps[ENCODER_LEFT]);
+    right_out = Pid_UpdateIncremental(&s_right_pid,
+                                      (float)ctx->cmd_target_right_mps,
+                                      s_encoder_snapshot.speed_mps[ENCODER_RIGHT]);
 
     (void)Motor_SetOutput(MOTOR_LEFT, (int16_t)left_out);
     (void)Motor_SetOutput(MOTOR_RIGHT, (int16_t)right_out);

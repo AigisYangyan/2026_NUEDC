@@ -35,7 +35,6 @@
 #include "driver/board_uart/vision_uart.h"
 #include "driver/board_uart/vofa_uart.h"
 #include "driver/mspm0_runtime/mspm0_runtime.h"
-#include "middleware/pid/pid.h"
 #include "driver/encoder/encoder.h"
 #include "driver/imu/imu.h"
 #include "driver/key/key.h"
@@ -76,7 +75,7 @@ void SysInit(void)
 
     Motor_Init(); /* 内部完成安全态和 PWM 计数器启动。 */
     Encoder_Init();
-    pid_Init();
+    /* PID 无模块级实例（M01）：各任务持有自己的 Pid_T，无全局初始化项。 */
     VofaRegister_Init();
     Motor_BrakeAll();
     StepmotorBus_Init();

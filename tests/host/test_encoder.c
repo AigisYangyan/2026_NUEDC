@@ -41,7 +41,6 @@ void Menu_HandleKey(void) {}
 void Key_PollPressEvent(void) {}
 void Menu_IsDirty(void) {}
 void Menu_RenderIfDirty(void) {}
-void pid_closeloop_motor(void) {}
 void Motor_SetPwm(void) {}
 void StepmotorBus_Service5ms(void) {}
 void VisionBus_Service5ms(void) {}
