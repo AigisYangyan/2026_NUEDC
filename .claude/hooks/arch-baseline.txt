@@ -7,7 +7,6 @@
 
 hc-team/app/scheduler/task_scheduler.c|driver/clock/clock.h
 hc-team/app/scheduler/vofa_register.c|driver/uart_vofa/uart_vofa.h
-hc-team/app/scheduler/vofa_register.c|middleware/pid/pid.h
 hc-team/app/tasks/gray_test/gray_test.c|driver/uart_vofa/uart_vofa.h
 hc-team/app/tasks/platform_2d/2DPlatform_LaserStrike.c|driver/step_motor/emm42.h
 hc-team/app/tasks/platform_2d/2DPlatform_LaserStrike.c|driver/uart_vofa/uart_vofa.h
