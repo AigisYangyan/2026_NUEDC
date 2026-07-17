@@ -42,8 +42,11 @@ LOST_LINE_SRC = ../../hc-team/app/service/line_follow/lost_line.c
 LOST_LINE_TEST_SRC = test_lost_line.c
 LINE_FOLLOW_SRC = ../../hc-team/app/service/line_follow/line_follow.c
 LINE_FOLLOW_TEST_SRC = test_line_follow.c
+TUNING_SRC = ../../hc-team/app/service/tuning/tuning.c
+TUNING_CHASSIS_SRC = ../../hc-team/app/service/tuning/tuning_chassis.c
+TUNING_TEST_SRC = test_tuning.c
 
-all: test_encoder run test_pid run_pid test_motor run_motor test_key run_key test_uart_fifo run_uart_fifo test_vofa_rx run_vofa_rx test_stepmotor_uart run_stepmotor_uart test_oled run_oled test_imu run_imu test_gray run_gray test_track_error run_track_error test_chassis run_chassis test_lost_line run_lost_line test_line_follow run_line_follow
+all: test_encoder run test_pid run_pid test_motor run_motor test_key run_key test_uart_fifo run_uart_fifo test_vofa_rx run_vofa_rx test_stepmotor_uart run_stepmotor_uart test_oled run_oled test_imu run_imu test_gray run_gray test_track_error run_track_error test_chassis run_chassis test_lost_line run_lost_line test_line_follow run_line_follow test_tuning run_tuning
 
 test_encoder: $(DRIVER_SRC) $(ENCODER_OWNER_SRC) $(FAKE_SRC) $(MOTOR_DRIVER_SRC) $(MOTOR_FAKE_SRC) $(PID_SRC) $(TEST_SRC)
 	$(CC) $(CFLAGS) -o $@ $(DRIVER_SRC) $(ENCODER_OWNER_SRC) $(FAKE_SRC) $(MOTOR_DRIVER_SRC) $(MOTOR_FAKE_SRC) $(PID_SRC) $(TEST_SRC) $(GC_LDFLAGS) -lm
@@ -123,6 +126,12 @@ test_line_follow: $(LINE_FOLLOW_SRC) $(LOST_LINE_SRC) $(CHASSIS_SRC) $(DRIVER_SR
 run_line_follow: test_line_follow
 	./test_line_follow
 
+test_tuning: $(TUNING_SRC) $(TUNING_CHASSIS_SRC) ../../hc-team/app/service/tuning/tuning.h ../../hc-team/app/service/tuning/tuning_chassis.h $(CHASSIS_SRC) $(DRIVER_SRC) $(FAKE_SRC) $(MOTOR_DRIVER_SRC) $(MOTOR_FAKE_SRC) $(PID_SRC) $(FAKE_CLOCK_SRC) $(VOFA_DRIVER_SRC) $(BOARD_UART_VISION_SRC) $(BOARD_UART_VOFA_SRC) $(BOARD_UART_STEPMOTOR_SRC) $(BOARD_UART_IMU_SRC) $(FAKE_UART_PORT_SRC) $(TUNING_TEST_SRC)
+	$(CC) $(CFLAGS) -o $@ $(TUNING_SRC) $(TUNING_CHASSIS_SRC) $(CHASSIS_SRC) $(DRIVER_SRC) $(FAKE_SRC) $(MOTOR_DRIVER_SRC) $(MOTOR_FAKE_SRC) $(PID_SRC) $(FAKE_CLOCK_SRC) $(VOFA_DRIVER_SRC) $(BOARD_UART_VISION_SRC) $(BOARD_UART_VOFA_SRC) $(BOARD_UART_STEPMOTOR_SRC) $(BOARD_UART_IMU_SRC) $(FAKE_UART_PORT_SRC) $(TUNING_TEST_SRC) $(GC_LDFLAGS) -lm
+
+run_tuning: test_tuning
+	./test_tuning
+
 test_oled: $(OLED_DRIVER_SRC) $(FAKE_I2C_PORT_SRC) $(OLED_TEST_SRC)
 	$(CC) $(CFLAGS) -o $@ $(OLED_DRIVER_SRC) $(FAKE_I2C_PORT_SRC) $(OLED_TEST_SRC) $(GC_LDFLAGS) -lm
 
@@ -159,9 +168,11 @@ clean:
 	cmd.exe /D /C "if exist test_lost_line del /Q /F test_lost_line"
 	cmd.exe /D /C "if exist test_line_follow.exe del /Q /F test_line_follow.exe"
 	cmd.exe /D /C "if exist test_line_follow del /Q /F test_line_follow"
+	cmd.exe /D /C "if exist test_tuning.exe del /Q /F test_tuning.exe"
+	cmd.exe /D /C "if exist test_tuning del /Q /F test_tuning"
 else
 clean:
-	rm -f test_encoder test_encoder.exe test_pid test_pid.exe test_motor test_motor.exe test_key test_key.exe test_uart_fifo test_uart_fifo.exe test_vofa_rx test_vofa_rx.exe test_stepmotor_uart test_stepmotor_uart.exe test_oled test_oled.exe test_imu test_imu.exe test_gray test_gray.exe test_track_error test_track_error.exe test_chassis test_chassis.exe test_lost_line test_lost_line.exe test_line_follow test_line_follow.exe
+	rm -f test_encoder test_encoder.exe test_pid test_pid.exe test_motor test_motor.exe test_key test_key.exe test_uart_fifo test_uart_fifo.exe test_vofa_rx test_vofa_rx.exe test_stepmotor_uart test_stepmotor_uart.exe test_oled test_oled.exe test_imu test_imu.exe test_gray test_gray.exe test_track_error test_track_error.exe test_chassis test_chassis.exe test_lost_line test_lost_line.exe test_line_follow test_line_follow.exe test_tuning test_tuning.exe
 endif
 
-.PHONY: all run run_pid run_motor run_key run_uart_fifo run_vofa_rx run_stepmotor_uart run_oled run_imu run_gray run_track_error run_chassis run_lost_line run_line_follow clean
+.PHONY: all run run_pid run_motor run_key run_uart_fifo run_vofa_rx run_stepmotor_uart run_oled run_imu run_gray run_track_error run_chassis run_lost_line run_line_follow run_tuning clean

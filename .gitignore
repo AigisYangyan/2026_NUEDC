@@ -31,3 +31,5 @@ tests/host/test_lost_line
 tests/host/test_lost_line.exe
 tests/host/test_line_follow
 tests/host/test_line_follow.exe
+tests/host/test_tuning
+tests/host/test_tuning.exe

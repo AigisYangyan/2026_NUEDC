@@ -17,11 +17,6 @@
 extern "C" {
 #endif
 
-/* TODO(V19)：u8 是全局命名空间污染，应改回 uint8_t。
- * 未在 P9.T2 处理：u8 在整条 VOFA 链路广泛使用，替换属跨模块 churn，
- * 随 VOFA Service 阶段一并处理。 */
-typedef uint8_t u8;
-
 #define VOFA_PROTOCOL_FIREWATER 0
 #define VOFA_PROTOCOL_JUSTFLOAT 1
 
