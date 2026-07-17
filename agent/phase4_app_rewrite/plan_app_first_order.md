@@ -543,4 +543,12 @@ void Scheduler_Run(uint32_t now_ms);
 
 ### 11.5 契约修订记录
 
-（无）
+- **修订 1（2026-07-17，本提交，审计后处置——采纳审计建议 ②）**：§11.2 `Scheduler_EnterEntry`
+  语义补充嵌套转移规则：**旧条目 on_exit 内嵌套调用 EnterEntry 时，嵌套转移胜出，
+  外层进入放弃并返回 false**（守卫：LeaveEntry 返回后若活动条目已非空即放弃）。
+  原因：审计建议级 finding——原实现中该路径产生「孤儿 on_enter」（嵌套进入的条目
+  收到 on_enter 后被外层无条件覆盖活动索引，永远等不到配对 on_exit）；enter/exit
+  配对是未来 Task 挂安全停止逻辑的锚点，配对破坏 = 停止路径被静默绕过，失败模型
+  真实（Task 在 on_exit 里链式进入下一条目）且可测。E03 追加 1 条必含用例
+  （on_exit 内嵌套 Enter：外层 false、嵌套条目保持活动、无孤儿 on_enter），
+  预期总数相应 ≥198（185 基线 + ≥13）。
