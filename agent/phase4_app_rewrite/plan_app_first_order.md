@@ -57,7 +57,7 @@
 | S04 | 人机输入/显示服务（Key/OLED 包装） | `app/service/hmi/` | menu 对 Key/OLED 的直调、task_groups UI 泵送 | V14 的基础 | `DONE`（契约 f8311c8；代码 2dac572；审计处置 ad5ca08。E01 0 命中 / E02 无越界 / E03 185 PASS 0 FAIL＝173 基线+12 / E04 exit 0、0 诊断、hmi.o 经 linkInfo.xml 确证进链） |
 | S05 | 云台/视觉服务群（platform_2d 下沉：瞄准收敛/轨迹发生/运动前馈/视觉接入） | `app/service/`（契约时拆分） | vision_bus/vision_coord/stepmotor_bus/2DPlatform | stepmotor_bus 违规群 | 排队（S07 后预制，**不再等赛题**——§12；前馈依赖 M01） |
 | SCH01 | 调度器重写 | `app/scheduler/` | task_scheduler.c、run_registry.c | V13 残余（g_eSysFlagManage） | `DONE`（Q1 定案 74d421e；契约 56ced13，修订 c6bcc4a；代码 e801caf；审计处置 6bfe3f4。E01 0 命中 / E02 无越界 / E03 200 PASS 0 FAIL＝185 基线+15 / E04 exit 0、0 诊断、scheduler.o 经 linkInfo.xml 确证进链。V13 残余本体仍待 T01 删旧文件时关闭） |
-| UI01 | 菜单重写（含分问选择/参数表——大纲 P0-D） | `app/ui/` | menu_core/menu_pages | V14 | **下一项**（SCH01+S04 已 DONE，阻塞已清） |
+| UI01 | 菜单重写（含分问选择/参数表——大纲 P0-D） | `app/ui/menu/` | menu_core/menu_pages（冻结不删，T01 删除） | V14（替代面 UI01 建成，本体 T01 关闭——见 §13 裁定） | **契约冻结（§13，本提交），施工中** |
 | M01 | 里程计+航向 unwrap（Middleware 纯算法：编码器 Δ→x,y,θ；imu.h 明示 unwrap 归此层） | `middleware/odometry/`（契约时定拆分） | task1 姿态/里程零散逻辑（冻结不迁移，重建） | — | 排队（UI01 后） |
 | S06 | motion 语义运动服务（直行 N cm/定角转/圆弧/定点停；IMU 航向保持可插拔） | `app/service/motion/` | task1 直行/转弯编排 | — | 排队（M01 后） |
 | M02 | 循迹元素检测（可注册检测器：十字/直角弯/断线/终点横线…，特征+置信度计数） | `middleware/track_elements/` | — | — | 排队（S06 后） |
@@ -617,3 +617,109 @@ void Scheduler_Run(uint32_t now_ms);
    各契约冻结时把可主机化的部分写进证据行，场地实测归用户。
 6. 施工纪律不变：每模块仍走 embedded-closed-loop（契约冻结→TDD→证据→审计→拓扑），
    新 Middleware 归 §8.2 data-chain 检查域，S05/S06 涉电机步进归 §8.1 motor-safety 检查域。
+
+## 13. UI01 契约（menu 菜单重写：分问选择 + 参数表）——冻结
+
+- **task_id**: UI01-menu
+- **goal**: 新建 `app/ui/menu/`：赛场生存用板载控制面板（大纲 P0-D「封箱禁烧录」）——
+  在 hmi 面板与 scheduler 条目表之上的导航/选择/参数编辑外壳。两项能力：
+  **分问选择**（RUN_LIST 列出 scheduler 条目，选中即 `Scheduler_EnterEntry`，激活期 BACK 停止）
+  与**参数表**（PARAM_LIST/PARAM_EDIT，经调用者提供的整数取/设访问器就地调参，供无上位机连接的封箱现场）。
+  匹配 `Scheduler` 的 `background_step` 钩子签名（`scheduler.h` 已明示「UI/菜单泵送位」），
+  由 SYS01/T01 装配时注册——**UI01 只交付构件，零调用者是预期状态**（V07/S04 同款过渡态）。
+- **V14 处置（裁定，2026-07-18）**：旧 `app/ui/oled/menu_core.*`/`menu_pages.*` **不删除、继续冻结**——
+  其调用者 `task_groups.c:231/235`、`sys_init.c:72` 是冻结文件（§1/§15.4 禁触碰），删旧菜单会破坏构建。
+  故 UI01 = 建成 V14 替代面（新 `app/ui/menu/**`，零调用者），旧菜单与新菜单**过渡期双实现登记拓扑**；
+  V14 本体的删除与形式关闭随 T01 整体替换（同 V03/V07/V13 残余/V15 收尾）。计划表 §3「UI01 关闭 V14」
+  应理解为「UI01 建成 V14 替代、T01 删旧关闭」；此裁定与 S04 §10「V14 本体在 UI01 关闭…UI01/T01 阶段删除、
+  过渡期双实现、不强行接线」的操作意图一致，收工时向用户报告该措辞张力。
+- **接口辩护**（菜单能做什么）：能列出并选择运行条目、能启动/停止一个条目、能列出并就地调整一组
+  命名参数、能报告当前所处界面、能被周期泵送以消费输入与按需渲染。仅此成为公共面。
+
+### 13.1 allowed_files（无 glob）
+
+| 文件 | 动作 |
+|---|---|
+| `hc-team/app/ui/menu/menu.h` / `.c` | 新建（公共面 + 顶层界面状态机 + RUN_LIST/RUN_ACTIVE + 泵送/渲染编排） |
+| `hc-team/app/ui/menu/menu_param.h` / `.c` | 新建（参数表子视图：PARAM_LIST/PARAM_EDIT + 整数取设 + int32→dec 格式化，私有子模块） |
+| `tests/host/test_menu.c` | 新建 |
+| `tests/host/Makefile` | 追加 test_menu 目标/clean/.PHONY |
+| `.gitignore` | 追加 test_menu / test_menu.exe |
+| `Debug/makefile` | 登记 menu.o、menu_param.o（ORDERED_OBJS、两处 -include、clean） |
+| `agent/phase4_app_rewrite/plan_app_first_order.md` | 状态回写 + 本契约 |
+
+forbidden_files：`hc-team/app/ui/oled/**`（冻结旧菜单，零触碰）、`hc-team/app/service/**`
+（含 hmi，只调用不修改）、`hc-team/app/scheduler/**`（只调用不修改）、
+`hc-team/app/{tasks,system}/**`、`hc-team/driver/**`、`hc-team/middleware/**`、
+tests/host 既有 `test_*.c` 与 `fake_*.c`（fake_board_gpio 已有按键电平/边沿注入面，
+fake_i2c_port 已有 OLED 字节抓取面 + 自带可设定 `Clock_NowMs`）。
+
+### 13.2 公共接口（最小面）
+
+```c
+typedef enum {
+    MENU_SCREEN_RUN_LIST = 0,   /* 分问选择：scheduler 条目 +（有参数时）「参数」尾项 */
+    MENU_SCREEN_RUN_ACTIVE,     /* 某条目激活中：菜单让出整屏显示，仅响应 BACK 停止 */
+    MENU_SCREEN_PARAM_LIST,     /* 参数表浏览 */
+    MENU_SCREEN_PARAM_EDIT,     /* 单参数就地调整 */
+} Menu_Screen;
+
+typedef struct {
+    const char *name;            /* ASCII 参数名（显示用），不得为 NULL */
+    int32_t   (*get)(void);      /* 读当前值（整数口径；单位/精度/限幅由参数拥有者定，菜单不复做） */
+    void      (*set)(int32_t v); /* 写新值（经拥有它的 Service API 应用；限幅归拥有者） */
+    int32_t     step;            /* 每次 UP/DOWN 的调整增量 */
+} Menu_Param_T;
+
+void Menu_Init(const Menu_Param_T *params, uint8_t param_count);
+    /* 复位导航状态为 RUN_LIST + dirty；不触碰任何硬件/Service。
+     * params==NULL 配 count=0 合法（无「参数」尾项）；表生命周期由调用方保证覆盖使用期。 */
+void Menu_Tick(uint32_t now_ms);
+    /* 匹配 background_step 签名。每拍：① Hmi_Update()（面板泵送，hmi 自门控 5ms）；
+     * ② Hmi_PollInput() 取一个语义事件 → 依当前 screen 转移/编辑/切换 scheduler 条目；
+     * ③ 非 RUN_ACTIVE 且 dirty 且 Hmi_IsDisplayReady() 为真 → 经 Hmi_PrintLine 渲染当前屏并清 dirty。
+     * now_ms 预留以匹配钩子签名，当前菜单为事件驱动、不做时间门控（门控归 hmi/scheduler）。 */
+Menu_Screen Menu_GetScreen(void);   /* 当前界面（查询/渲染/测试所需，同 Scheduler_GetActiveEntry 先例） */
+```
+
+- **界面状态机**（转移表随 .c 注释交付）：
+  - RUN_LIST：项 = scheduler 条目（`Scheduler_GetEntryCount/GetEntryName` 实时查询，**不缓存副本**）+
+    （param_count>0 时）尾项「参数」。UP/DOWN 移动光标（环绕），3 行可视窗口随光标滚动；
+    ENTER 落在条目 i → `Scheduler_EnterEntry(i)`（成功则 →RUN_ACTIVE）；ENTER 落在「参数」→ →PARAM_LIST；
+    BACK/空表 → no-op（根界面）。
+  - RUN_ACTIVE：**菜单不写任何 Hmi 行——整屏显示所有权完全归激活条目的 on_step**（避免双写者冲突，
+    与 V21 双泵同构的显示所有权隔离）；仅 BACK → `Scheduler_LeaveEntry()` → →RUN_LIST（置 dirty 重绘）；
+    其余事件在激活期被菜单丢弃（当前无条目消费输入；如未来条目需输入，归 T01 再裁）。
+  - PARAM_LIST：项 = 参数名（`MenuParam` 子视图持有调用者表指针）；UP/DOWN 移光标（环绕，同款窗口）；
+    ENTER → PARAM_EDIT（聚焦该参数）；BACK → RUN_LIST。
+  - PARAM_EDIT：显示 name + 当前值（`get()` 经 int32→dec 格式化）；UP → `set(get()+step)`；
+    DOWN → `set(get()-step)`；调整后回读 `get()` 重显（**菜单不存值副本、不限幅**——回读即反映拥有者限幅）；
+    ENTER/BACK → PARAM_LIST。
+- **单一所有者声明**：运行条目枚举与 enter/exit 转移序唯一在 `scheduler.c`（菜单只调 Enter/Leave/查询，
+  不复算转移）；语义输入映射与行式显示唯一在 `hmi.c`（菜单只调 PollInput/Update/PrintLine/IsDisplayReady）；
+  参数值存储与限幅唯一在调用者 accessor 背后的拥有 Service（菜单零值副本、零限幅）。
+  本模块唯一拥有：**导航界面状态机 + 光标/滚动窗口 + 参数编辑焦点 + int32→dec 显示格式化**。
+- **头不暴露 Driver 类型**（§3.4，同 hmi/scheduler）：公共面只用 `Menu_Screen`/`Menu_Param_T`/`Hmi_Input`
+  间接（`Hmi_Input` 是 Service 类型，合法）；不出现 `Key_Id_e`（正是 V14 要消除的暴露）。
+- **前置条件**：SYS01/T01 装配层在 `Menu_Init` 前完成 `Scheduler_Init`（条目表已登记）、`Hmi_Init`，
+  并在主循环把 `Menu_Tick` 注册为 `Scheduler` 背景钩子（或直接周期调用）；参数表由装配层提供，
+  其 accessor 内部调各拥有 Service 的公共 API。UI01 不做此接线（零调用者预期）。
+
+### 13.3 preserved_behavior
+
+- `app/ui/oled/**`（冻结旧菜单）、`app/service/**`、`app/scheduler/**`、其余 `app/**`、
+  `driver/**`、`middleware/**` 零改动；主机既有 200 用例全过；固件行为不变
+  （menu.o/menu_param.o 进链接但零调用者）。
+
+### 13.4 证据行（≤6，恰 1 条固件构建行）
+
+| 行 | 名称 | 命令 | 预期 |
+|---|---|---|---|
+| E01 | 依赖纯净 | Grep `driver/\|middleware/\|app/tasks/\|app/system/\|ti_msp_dl_config\|ti/driverlib`（path=`hc-team/app/ui/menu`，`#include` 行） | 0 命中（`app/service/hmi/hmi.h` 与 `app/scheduler/scheduler.h` 是合法同层/Service 依赖，不在告警集） |
+| E02 | 范围审计 | `git status` + `git diff --stat` 对照 §13.1 | 无 allowed_files 之外的改动（尤其零触碰 `app/ui/oled/**`） |
+| E03 | 主机测试 | PowerShell：`rtk proxy make -C tests/host all` | ≥212 PASS / 0 FAIL（200 基线 + ≥12 新用例），链接组成=真实 `menu.c`+`menu_param.c`+`hmi.c`+`key.c`+`oled_hardware_i2c.c`+`scheduler.c` + `fake_board_gpio.c` + `fake_i2c_port.c`（条目表与参数 accessor 在 test_menu.c 内以 spy 定义）。必含：Init 静默（零 I2C 事务、零按键读）；显示未就绪时 Tick 不绘制且保持 dirty、就绪后首拍渲染 RUN_LIST；RUN_LIST 上/下光标环绕 + 条目数>3 时滚动窗口保持光标可视；ENTER 条目→`Scheduler_EnterEntry` 被调且 GetActiveEntry 命中 + screen=RUN_ACTIVE；RUN_ACTIVE 期菜单零绘制（多拍无条目绘制时 I2C 事务计数不变）；BACK→`Scheduler_LeaveEntry` 被调 + 回 RUN_LIST 重绘；有参数时「参数」尾项存在、无参数时不存在；ENTER「参数」→PARAM_LIST；PARAM_EDIT UP=`set(get()+step)`/DOWN=`set(get()-step)` 且回读重显；菜单不存值副本（外部改背后变量→下次进 EDIT 显示新值）、菜单不限幅（越界 set 由 accessor 反映，菜单不夹）；int32→dec 格式化含负值/零/多位；BACK 逐级回退（EDIT→LIST→RUN_LIST）；空条目表+空参数表 Tick 不崩 |
+| E04 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 diagnostics、menu.o 与 menu_param.o 经 linkInfo.xml 确证进入 .out 链接 |
+
+### 13.5 契约修订记录
+
+- （待施工中如发现证据行有误，在此单独提交追加，绝不与满足它的代码同一提交。）
