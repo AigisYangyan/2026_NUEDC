@@ -90,6 +90,11 @@ class PID_API {
   +Pid_GetTelemetry(const Pid_T*, Pid_Telemetry_T*)
 }
 
+class TrackError_API {
+  <<middleware:track_error>>
+  +TrackError_FromDarkBitmap(const TrackError_Config_T*, dark_bitmap, out_error_mm*) bool
+}
+
 class Service_Layer {
   <<app:service>>
   +NO_ACTIVE_SOURCE_API

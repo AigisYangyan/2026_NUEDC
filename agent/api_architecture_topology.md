@@ -1,6 +1,6 @@
 # NUEDC API 平台架构拓扑图（2026_Diansai · MSPM0G3519）
 
-最后复核：2026-07-17（M01：PID 重写为调用者持有上下文的纯算法模块，V13 partially closed、V15 PID 一支消除）  
+最后复核：2026-07-17（M02：新增 Middleware `TrackError_FromDarkBitmap` 循迹误差估计器，零调用者预期状态）  
 适用工程：`2026_Diansai`（MSPM0G3519，LQFP-100，SDK 2.11.00.07；由旧工程 `NUEDC`/G3507 移植，见 `agent/MIGRATION_G3507_TO_G3519.md`）  
 事实来源：当前工作区 `hc-team/**/*.c`、`hc-team/**/*.h`、仓库根 `board.syscfg`  
 状态：当前实现拓扑，不是目标架构示意图  
@@ -93,6 +93,19 @@ flowchart LR
   class VofaParse violation
 ```
 
+### 5.4 灰度与循迹误差（planned，2026-07-17 M02 起零调用者预期状态）
+
+```mermaid
+flowchart LR
+  GrayPins[GRAY 12 channel GPIO] --> GrayHw[gray_hw one DL_GPIO_readPins]
+  GrayHw --> GrayPort[GrayPort_API]
+  GrayPort --> Gray[Gray_ReadDarkBitmap]
+  Gray -.->|planned, by value, no caller yet| TrackError[TrackError_FromDarkBitmap]
+  TrackError -.->|planned| FutureService[future Service track error consumer]
+```
+
+M02 只交付 `TrackError_FromDarkBitmap` 本体，未接线到 `Gray_ReadDarkBitmap`；虚线表示计划中的数据流，不是已存在的调用边（§15.1 零调用者预期状态）。`bit0_is_left` 是位序左右的唯一修正点（`driver/gray/gray.h` 位序警告的落点），`pitch_mm` 是机械安装事实，两者均无默认值、由未来接线者提供。存量债 `app/tasks/track_follow/Calculate_Track_Error`（V03）与本模块语义不等价（int16 ±55 + 丢线记忆回退 ±27 vs. float mm + 丢线返回 false），移交细节见 `agent/phase3_middleware_rewrite/plan_middleware_first_order.md` §5.2。
+
 ## 6. 交叉依赖与风险登记
 
 | ID | 当前交叉/风险 | 证据位置 | 违反规则 | 计划归属 |
@@ -100,6 +113,7 @@ flowchart LR
 | V01 | ~~Runtime SysTick 调用 App Scheduler~~ **closed 2026-07-13** | `driver/clock/clock.c` 拥有 SysTick；`task_scheduler.c` 主循环按 elapsed 推进 | Driver 不得反向调用 App | Phase 2 P1 |
 | V02 | **closed 2026-07-16（P5 R02/R06）**：Runtime UART callback 表与 `Set*Callback`/`Send*`/`Busy` 接口已删除，IRQ/DMA 改为固定分发到 `board_uart` 角色 Driver | `mspm0_runtime.h/.c`、`sys_init.c`、`driver/board_uart/*`；R02 零命中，R06 clean 构建与 map 复核 | Driver 不得调用上层注册回调 | Phase 2 P5 |
 | V03 | App 直接调用 SysConfig、NVIC、DL HAL **partially closed 2026-07-16（P5 R03）** | `sys_init.c` 已改为调用 `Board_Init()`/`Board_EnableInterrupts()`；`tasks/platform_2d/vision_bus.c`、`tasks/platform_2d/stepmotor_bus.c`、`tasks/uart_stress/uart_stress.c` 已清零；`tasks/track_follow/track_follow.c` 仍直接调用 `__enable_irq` 或包含 `ti/driverlib` | App 不得包含 DL HAL | Phase 2 P1 及后续模块 |
+| V03-DUP | **登记 2026-07-17（M02）**：`track_follow.c` 内 `Calculate_Track_Error`（V03 存量债）与新 Middleware `TrackError_FromDarkBitmap`（`middleware/track_error/`）语义不等价的过渡态双实现——旧版 int16 ±55 + 丢线记忆回退 ±27，新版 float mm + 丢线返回 false。本轮零改动旧实现，所有权在上层重置删除 `track_follow.c` 时移交新模块（同 D12 先例） | `hc-team/app/tasks/track_follow/track_follow.c`（旧）、`hc-team/middleware/track_error/track_error.c`（新） | 同一数据变换只允许一个所有者（过渡期内并存，非新增违规，随 V03 关闭时刻一并消除） | 上层重置删除 `track_follow.c` 时消除 |
 | V04 | **closed 2026-07-16（P3.T2 E04/E05）**：Motor 头不再包含 pid.h，`Motor_T`/`p_pid`/`g_tMotors` 已删除 | 依赖扫描零命中；`motor.h` 仅标准类型与自有枚举 | Driver 不应暴露 Middleware 内部对象 | Phase 2 P3 |
 | V05 | **closed 2026-07-16（P2F E04/E05）**：Encoder 不再写 `g_tMotors`，deprecated API 与公开参数表已删除 | `Encoder_Update()`/`Encoder_GetSnapshot()`；依赖扫描零命中 | 模块不得修改其他模块全局 | Phase 2 P2-FIX |
 | V06 | **closed 2026-07-16（P3.T2 E04）**：`encoder_sign` 随 `Motor_T` 删除；Runtime 正交判向 + Encoder `s_direction_sign` 单点修正 | 依赖扫描零命中 | 同一数据处理必须只有一个所有者 | Phase 2 P2-FIX/P3 |
@@ -139,6 +153,7 @@ flowchart LR
 | Driver | EMM42 | `driver/step_motor/emm42.c/.h`（纯协议组包，无 TI 头。2026-07-17 P9.T2：13 个 App 实现的声明已迁出，本头此后只声明 `emm42.c` 自己实现的符号 —— V18 关闭） |
 | Driver | VOFA UART | `driver/uart_vofa/uart_vofa.c/.h` |
 | Middleware | PID | `middleware/pid/pid.c/.h`（2026-07-17 M01 重写：调用者持有上下文的纯算法模块，`Pid_Init/Pid_Reset/Pid_SetGains/Pid_SetLimits/Pid_UpdateIncremental/Pid_UpdatePositional/Pid_GetTelemetry`；无模块级实例，无 Driver/DL HAL/App 引用） |
+| Middleware | Track Error | `middleware/track_error/track_error.c/.h`（2026-07-17 M02 新建：无状态纯函数 `TrackError_FromDarkBitmap()`，加权重心量化深色位图→带符号横向误差 mm；仅依赖 `<stdbool.h>`/`<stdint.h>`，无 Driver/DL HAL/App 引用。零外部调用者 —— §15.1 预期状态；与存量 `app/tasks/track_follow/Calculate_Track_Error`（V03）双实现并存，语义不等价，移交细节见 phase3 计划表 §5.2） |
 | App System | Main/Init | `app/system/main.c`、`sys_init.c` |
 | App Scheduler | Scheduler/Registry/VOFA | `app/scheduler/task_scheduler.*`、`run_registry.*`、`vofa_register.*` |
 | App UI | Menu | `app/ui/oled/menu_core.*`、`menu_pages.*` |
@@ -219,3 +234,4 @@ flowchart LR
 | 2026-07-17 | **Driver 层验收封包**：`arch-auditor` 评审 5 条 findings 全为文档/注释陈述错误，已处置——① `mspm0_runtime.c:8` 头注释修正 QEI timer 归属（实际 QEI_LEFT=TIMG9、QEI_RIGHT=TIMG8，单源 `board.syscfg`）；② `board.h:20` 注释 `Motor_StartPwm()`→`Motor_Init()`；③ `oledfont.h` 删除无用 `#include "ti_msp_dl_config.h"`（头内无 TI 符号）；④ 新增 `docs/driver层验收封包报告.md`；⑤ `docs/driver层总汇报.md` §6 边界清单补列 `board_gpio.c`。均为注释/文档修正，**API 面零变化** | 补一条漏画的边：`BoardGpio_API --> DL_HAL`（`board_gpio.c` 实测 `#include "ti_msp_dl_config.h"` + `<ti/driverlib/dl_gpio.h>`，`BoardGpio_GetKeyRawLevels` 内直调 `DL_GPIO_readPins`；此前类图只画到 `Runtime_API` 的过渡边，缺这条——不是新违规，Driver→DL HAL 允许且 `board_gpio.c` 本就是该模块 TI 边界文件，纯拓扑补边）。其余已复核，无拓扑变化 | 主机测试 109 PASS / 0 FAIL；固件 clean 重建 exit 0/诊断 0；`board_gpio.c` 源码核实 `#include` 行 10/12/13/15 与 `DL_GPIO_readPins` 调用行 19 |
 | 2026-07-17 | **网表对照 + QEI 左右命名对调**（用户裁定，仅 `board.syscfg` 改动）：硬件组网表证实 U33/U34 插座上电机与编码器左右命名交叉，裁定固件改名吸收——QEI1.`$name` `QEI_LEFT`→`QEI_RIGHT`（物理仍为 TIMG9/PB7/PB9，= U34 = 右轮）、QEI2.`$name` `QEI_RIGHT`→`QEI_LEFT`（物理仍为 TIMG8/PB10/PB11，= U33 = 左轮）。**与 2026-07-16 QEI/灰度引脚重映射一行记录的归属方向相反**（该行历史事实不回改，按惯例保留）；`mspm0_runtime.c:8-10` 头注释同步新归属，零代码 API 改动。契约见 `docs/给硬件组的修改方案.md` §5，提交 `6943172` | 复核 `agent/topology/driver.md`（Encoder_API 类块、5.1 数据流边 `EncGPIO→QEI→RawCount→BoardGpio→Encoder`）与索引 §1/§5/§6/§7：均不含左右↔timer 绑定的具体陈述（只提「TIMG8 TIMG9 硬件 QEI 计数器」这一通用事实），**故拓扑边无需改动**——左右命名由 syscfg `$name` 单源吸收，符合既有「无 API 边变化」结论的同一模式；**已复核，拓扑边无变化** | 生成头 `QEI_LEFT_INST=TIMG8`、`QEI_RIGHT_INST=TIMG9`（独立复读过）；主机测试 109 PASS / 0 FAIL；固件构建 0 警告 0 错误；`git status hc-team tests` 除 `mspm0_runtime.c` 头注释外为空 |
 | 2026-07-17 | **M01：PID 全量重写**（契约 `0062332`，代码 `3ab13fe`）。`middleware/pid/pid.c/.h` 改为调用者持有上下文的纯算法模块：删除旧 `pid_Init/pid_closeloop_angle/pid_closeloop_motor/pid_closeloop_track/pid_formula_positional/pid_formula_incremental/pid_out_limit` 及 5 个 `g_t*PID` 全局（`g_tAnglePID`/`g_tLeftMotorPID`/`g_tRightMotorPID`/`g_tTrackPID`/`g_tPositionPID`），新增 `Pid_Init/Pid_Reset/Pid_SetGains/Pid_SetLimits/Pid_UpdateIncremental/Pid_UpdatePositional/Pid_GetTelemetry` + `Pid_Config_T`/`Pid_Telemetry_T`/`Pid_T`（运行时字段私有，调用者不得直读写）。上游机械适配：`sys_init.c` 删除 PID 初始化调用（无模块级实例可初始化）；`vofa_register.c` 不再 `#include pid.h`，调参持久化改走模块内 static ctx；`speed_loop.c`/`task1.c` 各持有 `static Pid_T s_left_pid/s_right_pid`，`task_groups.c` 持有 `s_vofa_left_pid/s_vofa_right_pid`（惰性初始化）；`2DPlatform_LaserStrike.c` 的 `StepperAxisRuntime_t` 内嵌 `Pid_T`，改走 `Pid_SetGains/Pid_SetLimits/Pid_UpdatePositional/Pid_GetTelemetry`。`tests/host/test_pid.c` 13 用例全走新 API，`test_encoder` 目标直接链接 `pid.c` | `agent/topology/app.md` 与 `driver.md` 的 `PID_API` 类块换成新 7 个符号；删除边 `System_API --> PID_API : init`、`VofaRegister_API ..> PID_API`（V15 该支消除）与启动图节点 `MiddlewareInit[PID init]`；`TaskGroups_API ..> PID_API`/`SpeedLoop_API --> PID_API`/`Task1_API --> PID_API`/`Platform2D_API --> PID_API` 保留（V07 未关，仅 API 名随符号更新）；索引 §5.1 数据流改为「Consumers 各自持有 `Pid_T`，按值传 target/feedback (m/s)，返回限幅后 out（±1000 PWM 尺度），遥测经 `Pid_GetTelemetry`」，并注明 `Pid_T.cfg.out_limit` 是限幅唯一所有者、`Motor_SetOutput` 是拒收校验非二次钳位；V13 该行症状改为 partially closed（PID 支已关，残余 `g_eSysFlagManage`/`TrackN` 随上层重置处置），并修正历史登记名漂移（`g_PID_instances` 从未存在于源码，更正为实际的 5 个 `g_t*PID`）；§7 覆盖清单 `middleware/pid` 行更新为 M01 状态 | 施工方 + `arch-auditor` 双重确认：全仓扫描旧 5 个 `g_t*PID` 全局符号零命中；`grep -rln pid.h hc-team` 仅剩 5 个真实消费者（`speed_loop.c`/`task1.c`/`task_groups.c`/`2DPlatform_LaserStrike.c`/`pid.c` 自身），`sys_init.c`/`vofa_register.c` 已确认不再引用；`pid.h` 源码核实类型/API 与本行描述逐字一致 |
+| 2026-07-17 | **M02：循迹误差估计器**（契约 `77e5926`，E02 修订 `76656dd`，allowed_files 修订 `100ecdb`，代码 `f07601d`）。新增 Middleware `middleware/track_error/track_error.c/.h`：唯一公共 API `TrackError_FromDarkBitmap(const TrackError_Config_T*, uint16_t dark_bitmap, float *out_error_mm)`——无状态纯函数，加权重心量化，坐标 `(index−5.5)×pitch_mm`（index 按车左→车右，+误差=线右偏），丢线（低 12 位全 0）返回 false 不写输出；配置 `TrackError_Config_T{ pitch_mm, bit0_is_left }`，`bit0_is_left` 是位序左右唯一修正点（`gray.h` 警告落点，待 H2 实测定值），`pitch_mm` 为机械安装事实无默认值；仅依赖 `<stdbool.h>`/`<stdint.h>`，无 Driver/App 引用，零外部调用者（§15.1 预期状态）。评审后一行修正（未随本次提交）：`TRACK_ERROR_CENTER_INDEX` 由字面量 `5.5f` 改为 `((float)(TRACK_ERROR_CHANNEL_COUNT - 1u) / 2.0f)`，消除路数与中心值两个编码点 | `agent/topology/app.md` 新增 `TrackError_API` 类块（无入边/出边，与 M01 前 `PID_API` 同型）；索引 §5 新增 5.4 灰度与循迹误差数据流（虚线标注 planned，未接线到 `Gray_ReadDarkBitmap`）；§6 新增 `V03-DUP`（登记与存量 `track_follow.c::Calculate_Track_Error` 的过渡态双实现，语义不等价，移交时机=上层重置删除该文件）；§7 覆盖清单新增 Middleware Track Error 行 | 施工方 + `arch-auditor` 双重确认：主机测试 128 PASS / 0 FAIL（117 基线 + 11 新增）；固件 clean 构建 0 诊断，`track_error.o` 实测进链接；Middleware 纯净扫描（无 Driver/App/TI 头）零命中；App 零引用扫描零命中（`task1.c` 既有 `s_track_error` 变量名巧合，与本模块不相干，已收窄证据模式排除） |

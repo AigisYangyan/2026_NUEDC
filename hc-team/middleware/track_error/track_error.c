@@ -11,8 +11,8 @@
 /* 位图有效位掩码：仅低 TRACK_ERROR_CHANNEL_COUNT 位参与量化 */
 #define TRACK_ERROR_BITMAP_MASK ((uint16_t)((1u << TRACK_ERROR_CHANNEL_COUNT) - 1u))
 
-/* 阵列中心的 index 坐标：(12-1)/2 */
-#define TRACK_ERROR_CENTER_INDEX 5.5f
+/* 阵列中心的 index 坐标，由路数推导（12 路 => 5.5），路数与中心只有一个编码点 */
+#define TRACK_ERROR_CENTER_INDEX ((float)(TRACK_ERROR_CHANNEL_COUNT - 1u) / 2.0f)
 
 bool TrackError_FromDarkBitmap(const TrackError_Config_T *config,
                                uint16_t dark_bitmap,
