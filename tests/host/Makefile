@@ -33,8 +33,10 @@ IMU_TEST_SRC = test_imu.c
 GRAY_DRIVER_SRC = ../../hc-team/driver/gray/gray.c
 FAKE_GRAY_PORT_SRC = fake_gray_port.c
 GRAY_TEST_SRC = test_gray.c
+TRACK_ERROR_SRC = ../../hc-team/middleware/track_error/track_error.c
+TRACK_ERROR_TEST_SRC = test_track_error.c
 
-all: test_encoder run test_pid run_pid test_motor run_motor test_key run_key test_uart_fifo run_uart_fifo test_vofa_rx run_vofa_rx test_stepmotor_uart run_stepmotor_uart test_oled run_oled test_imu run_imu test_gray run_gray
+all: test_encoder run test_pid run_pid test_motor run_motor test_key run_key test_uart_fifo run_uart_fifo test_vofa_rx run_vofa_rx test_stepmotor_uart run_stepmotor_uart test_oled run_oled test_imu run_imu test_gray run_gray test_track_error run_track_error
 
 test_encoder: $(DRIVER_SRC) $(ENCODER_OWNER_SRC) $(FAKE_SRC) $(MOTOR_DRIVER_SRC) $(MOTOR_FAKE_SRC) $(PID_SRC) $(TEST_SRC)
 	$(CC) $(CFLAGS) -o $@ $(DRIVER_SRC) $(ENCODER_OWNER_SRC) $(FAKE_SRC) $(MOTOR_DRIVER_SRC) $(MOTOR_FAKE_SRC) $(PID_SRC) $(TEST_SRC) $(GC_LDFLAGS) -lm
@@ -90,6 +92,12 @@ test_gray: $(GRAY_DRIVER_SRC) ../../hc-team/driver/gray/gray.h ../../hc-team/dri
 run_gray: test_gray
 	./test_gray
 
+test_track_error: $(TRACK_ERROR_SRC) ../../hc-team/middleware/track_error/track_error.h $(TRACK_ERROR_TEST_SRC)
+	$(CC) $(CFLAGS) -o $@ $(TRACK_ERROR_SRC) $(TRACK_ERROR_TEST_SRC) $(GC_LDFLAGS) -lm
+
+run_track_error: test_track_error
+	./test_track_error
+
 test_oled: $(OLED_DRIVER_SRC) $(FAKE_I2C_PORT_SRC) $(OLED_TEST_SRC)
 	$(CC) $(CFLAGS) -o $@ $(OLED_DRIVER_SRC) $(FAKE_I2C_PORT_SRC) $(OLED_TEST_SRC) $(GC_LDFLAGS) -lm
 
@@ -118,9 +126,11 @@ clean:
 	cmd.exe /D /C "if exist test_imu del /Q /F test_imu"
 	cmd.exe /D /C "if exist test_gray.exe del /Q /F test_gray.exe"
 	cmd.exe /D /C "if exist test_gray del /Q /F test_gray"
+	cmd.exe /D /C "if exist test_track_error.exe del /Q /F test_track_error.exe"
+	cmd.exe /D /C "if exist test_track_error del /Q /F test_track_error"
 else
 clean:
-	rm -f test_encoder test_encoder.exe test_pid test_pid.exe test_motor test_motor.exe test_key test_key.exe test_uart_fifo test_uart_fifo.exe test_vofa_rx test_vofa_rx.exe test_stepmotor_uart test_stepmotor_uart.exe test_oled test_oled.exe test_imu test_imu.exe test_gray test_gray.exe
+	rm -f test_encoder test_encoder.exe test_pid test_pid.exe test_motor test_motor.exe test_key test_key.exe test_uart_fifo test_uart_fifo.exe test_vofa_rx test_vofa_rx.exe test_stepmotor_uart test_stepmotor_uart.exe test_oled test_oled.exe test_imu test_imu.exe test_gray test_gray.exe test_track_error test_track_error.exe
 endif
 
-.PHONY: all run run_pid run_motor run_key run_uart_fifo run_vofa_rx run_stepmotor_uart run_oled run_imu run_gray clean
+.PHONY: all run run_pid run_motor run_key run_uart_fifo run_vofa_rx run_stepmotor_uart run_oled run_imu run_gray run_track_error clean

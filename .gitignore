@@ -23,3 +23,5 @@ tests/host/test_imu
 tests/host/test_imu.exe
 tests/host/test_gray
 tests/host/test_gray.exe
+tests/host/test_track_error
+tests/host/test_track_error.exe

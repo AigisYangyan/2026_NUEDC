@@ -49,6 +49,7 @@ ORDERED_OBJS += \
 "./hc-team/driver/step_motor/emm42.o" \
 "./hc-team/driver/uart_vofa/uart_vofa.o" \
 "./hc-team/middleware/pid/pid.o" \
+"./hc-team/middleware/track_error/track_error.o" \
 $(GEN_CMDS__FLAG) \
 -Wl,-ldevice.cmd.genlibs \
 -Wl,-llibc.a \
@@ -86,6 +87,7 @@ RMDIR := RMDIR /S/Q
 -include hc-team/driver/step_motor/subdir_vars.mk
 -include hc-team/driver/uart_vofa/subdir_vars.mk
 -include hc-team/middleware/pid/subdir_vars.mk
+-include hc-team/middleware/track_error/subdir_vars.mk
 -include subdir_rules.mk
 -include hc-team/app/scheduler/subdir_rules.mk
 -include hc-team/app/system/subdir_rules.mk
@@ -112,6 +114,7 @@ RMDIR := RMDIR /S/Q
 -include hc-team/driver/step_motor/subdir_rules.mk
 -include hc-team/driver/uart_vofa/subdir_rules.mk
 -include hc-team/middleware/pid/subdir_rules.mk
+-include hc-team/middleware/track_error/subdir_rules.mk
 -include objects.mk
 
 ifneq ($(MAKECMDGOALS),clean)
@@ -237,9 +240,9 @@ all: $(OBJS) $(GEN_CMDS)
 clean:
 	-$(RM) $(GEN_MISC_FILES__QUOTED)$(BIN_OUTPUTS__QUOTED)$(GEN_FILES__QUOTED)$(EXE_OUTPUTS__QUOTED)
 	-$(RM) "ti_msp_dl_config.o" "startup_mspm0g351x_ticlang.o" "hc-team\app\scheduler\run_registry.o" "hc-team\app\scheduler\task_scheduler.o" "hc-team\app\scheduler\vofa_register.o" "hc-team\app\system\main.o" "hc-team\app\system\sys_init.o" "hc-team\app\tasks\gray_test\gray_test.o" "hc-team\app\tasks\platform_2d\2DPlatform_LaserStrike.o" "hc-team\app\tasks\platform_2d\stepmotor_bus.o" "hc-team\app\tasks\platform_2d\vision_bus.o" "hc-team\app\tasks\platform_2d\vision_coord.o" "hc-team\app\tasks\speed_loop\speed_loop.o" "hc-team\app\tasks\task1\task1.o" "hc-team\app\tasks\task_groups.o" "hc-team\app\tasks\track_follow\track_follow.o" "hc-team\app\tasks\uart_stress\uart_stress.o" "hc-team\app\tasks\uart_test\uart_test.o" "hc-team\app\ui\oled\menu_core.o" "hc-team\app\ui\oled\menu_pages.o" "hc-team\driver\board_uart\imu_uart.o" "hc-team\driver\board_uart\stepmotor_uart.o" "hc-team\driver\board_uart\vision_uart.o" "hc-team\driver\board_uart\vofa_uart.o" "hc-team\driver\board\board.o" "hc-team\driver\board_gpio\board_gpio.o" "hc-team\driver\clock\clock.o" "hc-team\driver\encoder\encoder.o" "hc-team\driver\gray\gray.o" "hc-team\driver\gray\gray_hw.o" "hc-team\driver\imu\imu.o" "hc-team\driver\key\key.o" 
-	-$(RM) "hc-team\driver\motor\motor.o" "hc-team\driver\motor\motor_hw.o" "hc-team\driver\mspm0_runtime\mspm0_runtime.o" "hc-team\driver\oled\oled_hardware_i2c.o" "hc-team\driver\step_motor\emm42.o" "hc-team\driver\uart_vofa\uart_vofa.o" "hc-team\middleware\pid\pid.o" 
+	-$(RM) "hc-team\driver\motor\motor.o" "hc-team\driver\motor\motor_hw.o" "hc-team\driver\mspm0_runtime\mspm0_runtime.o" "hc-team\driver\oled\oled_hardware_i2c.o" "hc-team\driver\step_motor\emm42.o" "hc-team\driver\uart_vofa\uart_vofa.o" "hc-team\middleware\pid\pid.o" "hc-team\middleware\track_error\track_error.o"
 	-$(RM) "ti_msp_dl_config.d" "startup_mspm0g351x_ticlang.d" "hc-team\app\scheduler\run_registry.d" "hc-team\app\scheduler\task_scheduler.d" "hc-team\app\scheduler\vofa_register.d" "hc-team\app\system\main.d" "hc-team\app\system\sys_init.d" "hc-team\app\tasks\gray_test\gray_test.d" "hc-team\app\tasks\platform_2d\2DPlatform_LaserStrike.d" "hc-team\app\tasks\platform_2d\stepmotor_bus.d" "hc-team\app\tasks\platform_2d\vision_bus.d" "hc-team\app\tasks\platform_2d\vision_coord.d" "hc-team\app\tasks\speed_loop\speed_loop.d" "hc-team\app\tasks\task1\task1.d" "hc-team\app\tasks\task_groups.d" "hc-team\app\tasks\track_follow\track_follow.d" "hc-team\app\tasks\uart_stress\uart_stress.d" "hc-team\app\tasks\uart_test\uart_test.d" "hc-team\app\ui\oled\menu_core.d" "hc-team\app\ui\oled\menu_pages.d" "hc-team\driver\board_uart\imu_uart.d" "hc-team\driver\board_uart\stepmotor_uart.d" "hc-team\driver\board_uart\vision_uart.d" "hc-team\driver\board_uart\vofa_uart.d" "hc-team\driver\board\board.d" "hc-team\driver\board_gpio\board_gpio.d" "hc-team\driver\clock\clock.d" "hc-team\driver\encoder\encoder.d" "hc-team\driver\gray\gray.d" "hc-team\driver\gray\gray_hw.d" "hc-team\driver\imu\imu.d" "hc-team\driver\key\key.d" 
-	-$(RM) "hc-team\driver\motor\motor.d" "hc-team\driver\motor\motor_hw.d" "hc-team\driver\mspm0_runtime\mspm0_runtime.d" "hc-team\driver\oled\oled_hardware_i2c.d" "hc-team\driver\step_motor\emm42.d" "hc-team\driver\uart_vofa\uart_vofa.d" "hc-team\middleware\pid\pid.d" 
+	-$(RM) "hc-team\driver\motor\motor.d" "hc-team\driver\motor\motor_hw.d" "hc-team\driver\mspm0_runtime\mspm0_runtime.d" "hc-team\driver\oled\oled_hardware_i2c.d" "hc-team\driver\step_motor\emm42.d" "hc-team\driver\uart_vofa\uart_vofa.d" "hc-team\middleware\pid\pid.d" "hc-team\middleware\track_error\track_error.d"
 	-@echo 'Finished clean'
 	-@echo ' '
 
