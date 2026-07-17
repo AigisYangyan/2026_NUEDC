@@ -197,11 +197,14 @@ PWM2.ccp0PinConfig.$name                = "ti_driverlib_gpio_GPIOPinGeneric8";
 PWM2.peripheral.$assign                 = "TIMA1";
 PWM2.peripheral.ccp0Pin.$assign         = "PB2";
 
-/* QEI_LEFT = 左轮编码器。2026-07-16 迁出核心板晶振脚：
- * 原 PA7/PA6 中的 PA6 = SYSCTL.HFXOUT（高频晶振输出），核心板实焊晶振，不可作数字输入。
- * 迁至 PB7(A相)/PB9(B相)，二者是 TIMG9 的 CCP0/CCP1，故实例随之由 TIMG8 改 TIMG9。
- * $name 继续与物理左轮绑定，QEI_LEFT_INST 宏自动指向 TIMG9，encoder.c 无需感知。 */
-QEI1.$name                              = "QEI_LEFT";
+/* QEI_RIGHT = 右轮编码器（驾驶员视角，沿车头前进方向看）。
+ * 引脚史：2026-07-16 迁出核心板晶振脚（原 PA7/PA6，PA6=SYSCTL.HFXOUT 实焊晶振），
+ * 迁至 PB7(A相)/PB9(B相)，二者是 TIMG9 的 CCP0/CCP1。
+ * 命名史：2026-07-17 依硬件组网表由 QEI_LEFT 改名 QEI_RIGHT ——
+ * PB7/PB9 走线到 U34 插座，而 U34 的电机线是 A 桥(AO1/AO2)=MOTOR_RIGHT；
+ * 按「U34=右轮」的安装定义（docs/给硬件组的修改方案.md §4/§5 契约），
+ * 编码器命名随插座对调。左右语义由 $name 承载，encoder.c 走宏零改动。 */
+QEI1.$name                              = "QEI_RIGHT";
 QEI1.peripheral.$assign                 = "TIMG9";
 QEI1.peripheral.ccp0Pin.$assign         = "PB7";
 QEI1.peripheral.ccp1Pin.$assign         = "PB9";
@@ -214,11 +217,13 @@ QEI1.ccp1PinConfig.onlyInternalResistor = scripting.forceWrite(false);
 QEI1.ccp1PinConfig.passedPeripheralType = scripting.forceWrite("Digital");
 QEI1.ccp1PinConfig.$name                = "ti_driverlib_gpio_GPIOPinGeneric15";
 
-/* QEI_RIGHT = 右轮编码器。2026-07-16 迁出核心板晶振脚：
- * 原 PA3 = SYSCTL.LFXIN（低频晶振输入）、PA2 = SYSCTL.ROSC（振荡器外接电阻），均不可作数字输入。
- * 迁至 PB10(A相)/PB11(B相)，二者是 TIMG8 的 CCP0/CCP1，故实例随之由 TIMG9 改 TIMG8。
- * 与 QEI_LEFT 的 timer 归属互换，但左右语义由 $name 承载，不产生静默对调。 */
-QEI2.$name                              = "QEI_RIGHT";
+/* QEI_LEFT = 左轮编码器（驾驶员视角，沿车头前进方向看）。
+ * 引脚史：2026-07-16 迁出核心板晶振脚（原 PA3=SYSCTL.LFXIN、PA2=SYSCTL.ROSC），
+ * 迁至 PB10(A相)/PB11(B相)，二者是 TIMG8 的 CCP0/CCP1。
+ * 命名史：2026-07-17 依硬件组网表由 QEI_RIGHT 改名 QEI_LEFT ——
+ * PB10/PB11 走线到 U33 插座，而 U33 的电机线是 B 桥(BO1/BO2)=MOTOR_LEFT；
+ * 「U33=左轮」定义下编码器命名随插座对调（docs/给硬件组的修改方案.md §4/§5 契约）。 */
+QEI2.$name                              = "QEI_LEFT";
 QEI2.peripheral.$assign                 = "TIMG8";
 QEI2.peripheral.ccp0Pin.$assign         = "PB10";
 QEI2.peripheral.ccp1Pin.$assign         = "PB11";
