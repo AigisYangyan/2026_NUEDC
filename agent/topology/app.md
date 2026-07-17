@@ -19,12 +19,23 @@ class System_API {
 }
 
 class Scheduler_API {
-  <<app:scheduler>>
+  <<app:scheduler, OLD, frozen SCH01>>
   +Sys_EnterRunEntry()
   +Sys_LeaveRunEntry()
   +Sys_GetActiveRunEntry()
   +TaskTimeSliceManage()
   +g_eSysFlagManage
+}
+
+class SchedulerEntry_API {
+  <<app:scheduler, NEW SCH01>>
+  +Scheduler_Init(entries, entry_count, background_step)
+  +Scheduler_GetEntryCount()
+  +Scheduler_GetEntryName(index)
+  +Scheduler_EnterEntry(index) bool
+  +Scheduler_LeaveEntry()
+  +Scheduler_GetActiveEntry() int16_t
+  +Scheduler_Run(now_ms)
 }
 
 class Clock_API { <<driver>> }
@@ -274,6 +285,12 @@ System_API --> VisionBus_API : init
 Scheduler_API --> Clock_API : active elapsed query
 Scheduler_API --> RunRegistry_API : resolve active entry
 Scheduler_API --> TaskGroups_API : dispatch active group
+
+%% SchedulerEntry_API (SCH01, new) has zero real edges today: E01 scan 0 hits
+%% (no include of clock.h/Driver/Middleware/Service), zero callers (S15.1/2 expected state).
+%% Q1-decided future wiring (not yet code): System reads Clock_NowMs() and passes
+%% now_ms into Scheduler_Run(now_ms) as a plain parameter — Scheduler_Run itself
+%% never calls Clock_API. No edge drawn until System_API actually calls it.
 RunRegistry_API --> SpeedLoop_API : lifecycle
 RunRegistry_API --> GrayTest_API : lifecycle
 RunRegistry_API --> UartTest_API : lifecycle
