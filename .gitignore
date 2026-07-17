@@ -33,3 +33,5 @@ tests/host/test_line_follow
 tests/host/test_line_follow.exe
 tests/host/test_tuning
 tests/host/test_tuning.exe
+tests/host/test_hmi
+tests/host/test_hmi.exe
