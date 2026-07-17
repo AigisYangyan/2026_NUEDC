@@ -37,3 +37,5 @@ tests/host/test_hmi
 tests/host/test_hmi.exe
 tests/host/test_scheduler
 tests/host/test_scheduler.exe
+tests/host/test_menu
+tests/host/test_menu.exe
