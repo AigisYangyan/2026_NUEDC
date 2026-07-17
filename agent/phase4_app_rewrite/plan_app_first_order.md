@@ -42,7 +42,7 @@
 | S01 | chassis 底盘速度环服务 | `app/service/chassis/` | speed_loop.c、task1 速度部分、task_groups 采样所有权 | V07（部分）、V10（部分） | `DONE`（契约 bffdecf，修订 926bac0；代码 8a611d5；审计处置 69c29fa。E01 0 命中 / E02 无越界 / E03 140 PASS 0 FAIL＝128 基线+12 / E04 exit 0、0 诊断、chassis.o 进链接） |
 | S02 | line_follow 循迹服务（外环+丢线策略） | `app/service/line_follow/` | track_follow.c、task1 循迹部分、gray_test | V03、V03-DUP、V07（部分） | `DONE`（契约 6dfdc85，修订 88010fd；代码 bb4825c；审计处置 53e9967。E01 0 命中 / E02 无越界 / E03 159 PASS 0 FAIL＝140 基线+19 / E04 exit 0、0 诊断、两 .o 进链接。Q5 关闭：丢线策略显式重建于 lost_line） |
 | S03 | 遥测/调参链路服务（VOFA） | `app/service/tuning/` | vofa_register.c | V15（替代已建成，旧边待 T01）、V19（closed） | `DONE`（契约 ed4f416，修订 57b54de；代码 d0e4996；审计处置 5a4f089。E01 0 命中 / E02 无越界 / E03 173 PASS 0 FAIL＝159 基线+14 / E04 exit 0、0 诊断、两 .o 经 linkInfo.xml 确证进链 / E05 `u8` 0 命中。Q2 定案入 §5） |
-| S04 | 人机输入/显示服务（Key/OLED 包装） | `app/service/`（契约时定名） | menu 对 Key/OLED 的直调 | V14 的基础 | 待定契约 |
+| S04 | 人机输入/显示服务（Key/OLED 包装） | `app/service/hmi/` | menu 对 Key/OLED 的直调、task_groups UI 泵送 | V14 的基础 | 契约冻结（§10） |
 | S05 | 云台/视觉服务群（platform_2d 下沉） | `app/service/`（契约时拆分） | vision_bus/vision_coord/stepmotor_bus/2DPlatform | stepmotor_bus 违规群 | 赛题明确后 |
 | SCH01 | 调度器重写 | `app/scheduler/` | task_scheduler.c、run_registry.c | V13 残余（g_eSysFlagManage） | 待 S 层主体 |
 | UI01 | 菜单重写 | `app/ui/` | menu_core/menu_pages | V14 | 待 SCH01+S04 |
@@ -356,3 +356,93 @@ Tuning_Profile Tuning_GetActiveProfile(void);
   2. E03 追加两条必含用例（审计 F1/F2）：重进前积压的 RX 命令不生效（排空验证）；
      激活态传入无效 profile 等效 Exit（刹车 + 回 NONE + 此后静默）。
      E03 预期总数相应 ≥173（新用例 +2）。
+
+## 10. S04 契约（hmi 人机输入/显示服务）——冻结
+
+- **task_id**: S04-hmi
+- **goal**: 新建 `app/service/hmi/`：人机输入/显示服务，包装 Key/OLED 两个 Driver，成为
+  上层（未来 UI01 菜单、SCH01/T01）唯一的人机接口面：**语义输入事件**（上/下/确认/返回）
+  + **行式文本显示**（4 行×16 列、16px 字模）+ 显示就绪查询 + 周期推进（按键扫描节奏
+  + OLED 非阻塞初始化泵送）。K1..K4→语义动作映射从 `menu_core.c menu_key_from_id()` 下沉
+  至本服务（**唯一映射点**）。本模块是 V14 的关闭基础；V14 本体在 UI01 关闭——旧
+  `menu_core/menu_pages` 直调 Driver 与 UI 头暴露 `Key_Id_e` 是冻结债，UI01/T01 阶段删除，
+  过渡期双实现登记拓扑（V07 同款过渡态：新 Service 零调用者，旧 `task_groups.c
+  Task_UiService5ms` 泵送路径继续冻结，不强行接线）。
+- **接口辩护**（器件能做什么）：人机面板能报告用户输入动作（四个语义键的单次按下事件）、
+  能按行显示 ASCII 文本、能清屏、能报告显示就绪、能被周期推进。仅此成为公共面。
+  （`Key_IsPressed` 电平态全 App 零消费者——不包装、不进公共面。）
+
+### 10.1 allowed_files（无 glob）
+
+| 文件 | 动作 |
+|---|---|
+| `hc-team/app/service/hmi/hmi.h` / `.c` | 新建 |
+| `tests/host/test_hmi.c` | 新建 |
+| `tests/host/Makefile` | 追加 test_hmi 目标/clean/.PHONY |
+| `.gitignore` | 追加 test_hmi / test_hmi.exe |
+| `Debug/makefile` | 登记 hmi.o（ORDERED_OBJS、两处 -include、clean） |
+| `agent/phase4_app_rewrite/plan_app_first_order.md` | 状态回写 |
+
+forbidden_files：`hc-team/app/service/{chassis,line_follow,tuning}/**`、
+`hc-team/app/{tasks,scheduler,system,ui}/**`、`hc-team/driver/**` 全部、`hc-team/middleware/**`、
+tests/host 既有 `test_*.c` 与 `fake_*.c`（fake_board_gpio 已有按键电平/边沿注入面，
+fake_i2c_port 已有 I2C 抓取面 + 自带可设定 `Clock_NowMs`）。
+
+### 10.2 公共接口（最小面）
+
+```c
+typedef enum {
+    HMI_INPUT_NONE = 0,
+    HMI_INPUT_UP,      /* 板载 K1 */
+    HMI_INPUT_DOWN,    /* 板载 K2 */
+    HMI_INPUT_ENTER,   /* 板载 K3 */
+    HMI_INPUT_BACK,    /* 板载 K4 */
+} Hmi_Input;
+
+#define HMI_DISPLAY_ROWS 4u    /* 64px / 16px 字模 */
+#define HMI_DISPLAY_COLS 16u   /* 128px / 8px 字宽 */
+
+void Hmi_Init(void);            /* 门控基准/私有状态复位；不触碰 Key/OLED 硬件 */
+void Hmi_Update(void);          /* 自门控 HMI_UPDATE_PERIOD_MS=5（Clock_NowMs 无符号减法，
+                                   沿用旧 5ms UI 任务节奏）；到期执行：
+                                   OLED 未就绪 → OLED_Process()；Key_Scan() */
+Hmi_Input Hmi_PollInput(void);  /* 取出一个待处理语义输入事件；无 → HMI_INPUT_NONE
+                                   （内部映射 Key_PollPressEvent，事件读清语义透传） */
+bool Hmi_IsDisplayReady(void);
+bool Hmi_PrintLine(uint8_t row, const char *text);
+    /* row 0..3（页地址 = row×2，16px 字模）；ASCII；超长截断至 16 列；
+       不足 16 列行尾空格填满（整行所有权，行级覆写无残影——旧 menu 靠整屏 Clear 防残影，
+       本服务改为行级保证）；未就绪/row 越界/NULL → false 且零绘制事务。 */
+bool Hmi_ClearDisplay(void);    /* 未就绪 → false */
+```
+
+- **单一所有者声明**：去抖/单次事件锁存归 `key.c`（KEY_*_DEBOUNCE_TICKS×5ms≈20ms 等效
+  不变，扫描周期沿用旧值）；页寻址/字模/总线恢复/等待上限归 `oled_hardware_i2c.c`；
+  边沿位图归 BoardGpio/GROUP1 ISR。本服务唯一拥有：**语义映射 + 泵送节奏 + 行式显示语义**，
+  零复做下层保护。
+- 头文件不暴露 `Key_Id_e`/`Oled_Status_e`（§3.4，与 chassis/line_follow/tuning 同构）。
+- **前置条件**：System 装配层已完成 `Key_Init()`、`OLED_Init()`（含底层 I2C/Clock 初始化）；
+  GROUP1 ISR 照常置按键边沿位图。本服务无电机/功率路径，无 §8.1 安全项。
+
+### 10.3 preserved_behavior
+
+- `driver/**`、`middleware/**`、其余 `app/**` 零改动；主机既有 173 用例全过；
+  固件行为不变（hmi.o 进链接但零调用者）。
+
+### 10.4 证据行（≤6，恰 1 条固件构建行）
+
+| 行 | 名称 | 命令 | 预期 |
+|---|---|---|---|
+| E01 | 依赖纯净 | Grep `app/tasks/|app/scheduler/|app/ui/|app/system/|ti_msp_dl_config|ti/driverlib`（path=`hc-team/app/service/hmi`，`#include` 行） | 0 命中 |
+| E02 | 范围审计 | `git status` + `git diff --stat` 对照 §10.1 | 无 allowed_files 之外的改动 |
+| E03 | 主机测试 | PowerShell：`rtk proxy make -C tests/host all` | ≥185 PASS / 0 FAIL（173 基线 + ≥12 新用例），必含：Init 静默（零 I2C 事务、零按键电平读取）；未到期 Update 无扫描效果 + 5ms 到期才推进；泵送至显示就绪翻转 IsDisplayReady；就绪前 PrintLine/Clear 返回 false 且零绘制事务；K1..K4→UP/DOWN/ENTER/BACK 全映射（含 ≥4 拍去抖真实路径）；按住不重复出事件；空队列 Poll→NONE；PrintLine 越界/NULL→false；超长截断；行尾空格填满（整行 16 列全写）；ClearDisplay 事务发生 |
+| E04 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 diagnostics、hmi.o 进入 .out 链接 |
+
+- **主机测试链接组成**（事实登记）：test_hmi = 真实 `hmi.c` + 真实 `key.c` + 真实
+  `oled_hardware_i2c.c` + `fake_board_gpio.c` + `fake_i2c_port.c`。**不链接 `fake_clock.c`**：
+  `fake_i2c_port.c` 自带 `Clock_NowMs` 定义（`FakeI2cPort_SetNowMs` 注入），同链会重定义符号；
+  本测试时间注入统一走 `FakeI2cPort_SetNowMs`。
+
+### 10.5 契约修订记录
+
+（无）
