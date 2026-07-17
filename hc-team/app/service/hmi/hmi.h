@@ -61,7 +61,9 @@ bool Hmi_IsDisplayReady(void);
  *         行级覆写无残影）。
  * @param  row   行号 0..3。
  * @param  text  ASCII 字符串。
- * @return true = 已绘制；false = 未就绪/row 越界/text 为 NULL（零绘制事务）。
+ * @return true = 整行已绘制；false = 未就绪/row 越界/text 为 NULL（此三类
+ *         拒绝路径零绘制事务），或运行期总线错误（此时行内容不确定——
+ *         逐字符事务可能中途失败；行级覆写幂等，重试整行即可恢复）。
  */
 bool Hmi_PrintLine(uint8_t row, const char *text);
 
