@@ -35,3 +35,5 @@ tests/host/test_tuning
 tests/host/test_tuning.exe
 tests/host/test_hmi
 tests/host/test_hmi.exe
+tests/host/test_scheduler
+tests/host/test_scheduler.exe

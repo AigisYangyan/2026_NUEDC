@@ -48,8 +48,10 @@ TUNING_TEST_SRC = test_tuning.c
 HMI_SRC = ../../hc-team/app/service/hmi/hmi.c
 HMI_TEST_SRC = test_hmi.c
 KEY_DRIVER_SRC = ../../hc-team/driver/key/key.c
+SCHEDULER_SRC = ../../hc-team/app/scheduler/scheduler.c
+SCHEDULER_TEST_SRC = test_scheduler.c
 
-all: test_encoder run test_pid run_pid test_motor run_motor test_key run_key test_uart_fifo run_uart_fifo test_vofa_rx run_vofa_rx test_stepmotor_uart run_stepmotor_uart test_oled run_oled test_imu run_imu test_gray run_gray test_track_error run_track_error test_chassis run_chassis test_lost_line run_lost_line test_line_follow run_line_follow test_tuning run_tuning test_hmi run_hmi
+all: test_encoder run test_pid run_pid test_motor run_motor test_key run_key test_uart_fifo run_uart_fifo test_vofa_rx run_vofa_rx test_stepmotor_uart run_stepmotor_uart test_oled run_oled test_imu run_imu test_gray run_gray test_track_error run_track_error test_chassis run_chassis test_lost_line run_lost_line test_line_follow run_line_follow test_tuning run_tuning test_hmi run_hmi test_scheduler run_scheduler
 
 test_encoder: $(DRIVER_SRC) $(ENCODER_OWNER_SRC) $(FAKE_SRC) $(MOTOR_DRIVER_SRC) $(MOTOR_FAKE_SRC) $(PID_SRC) $(TEST_SRC)
 	$(CC) $(CFLAGS) -o $@ $(DRIVER_SRC) $(ENCODER_OWNER_SRC) $(FAKE_SRC) $(MOTOR_DRIVER_SRC) $(MOTOR_FAKE_SRC) $(PID_SRC) $(TEST_SRC) $(GC_LDFLAGS) -lm
@@ -141,6 +143,12 @@ test_hmi: $(HMI_SRC) ../../hc-team/app/service/hmi/hmi.h $(KEY_DRIVER_SRC) $(FAK
 run_hmi: test_hmi
 	./test_hmi
 
+test_scheduler: $(SCHEDULER_SRC) ../../hc-team/app/scheduler/scheduler.h $(SCHEDULER_TEST_SRC)
+	$(CC) $(CFLAGS) -o $@ $(SCHEDULER_SRC) $(SCHEDULER_TEST_SRC) $(GC_LDFLAGS)
+
+run_scheduler: test_scheduler
+	./test_scheduler
+
 test_oled: $(OLED_DRIVER_SRC) $(FAKE_I2C_PORT_SRC) $(OLED_TEST_SRC)
 	$(CC) $(CFLAGS) -o $@ $(OLED_DRIVER_SRC) $(FAKE_I2C_PORT_SRC) $(OLED_TEST_SRC) $(GC_LDFLAGS) -lm
 
@@ -181,9 +189,11 @@ clean:
 	cmd.exe /D /C "if exist test_tuning del /Q /F test_tuning"
 	cmd.exe /D /C "if exist test_hmi.exe del /Q /F test_hmi.exe"
 	cmd.exe /D /C "if exist test_hmi del /Q /F test_hmi"
+	cmd.exe /D /C "if exist test_scheduler.exe del /Q /F test_scheduler.exe"
+	cmd.exe /D /C "if exist test_scheduler del /Q /F test_scheduler"
 else
 clean:
-	rm -f test_encoder test_encoder.exe test_pid test_pid.exe test_motor test_motor.exe test_key test_key.exe test_uart_fifo test_uart_fifo.exe test_vofa_rx test_vofa_rx.exe test_stepmotor_uart test_stepmotor_uart.exe test_oled test_oled.exe test_imu test_imu.exe test_gray test_gray.exe test_track_error test_track_error.exe test_chassis test_chassis.exe test_lost_line test_lost_line.exe test_line_follow test_line_follow.exe test_tuning test_tuning.exe test_hmi test_hmi.exe
+	rm -f test_encoder test_encoder.exe test_pid test_pid.exe test_motor test_motor.exe test_key test_key.exe test_uart_fifo test_uart_fifo.exe test_vofa_rx test_vofa_rx.exe test_stepmotor_uart test_stepmotor_uart.exe test_oled test_oled.exe test_imu test_imu.exe test_gray test_gray.exe test_track_error test_track_error.exe test_chassis test_chassis.exe test_lost_line test_lost_line.exe test_line_follow test_line_follow.exe test_tuning test_tuning.exe test_hmi test_hmi.exe test_scheduler test_scheduler.exe
 endif
 
-.PHONY: all run run_pid run_motor run_key run_uart_fifo run_vofa_rx run_stepmotor_uart run_oled run_imu run_gray run_track_error run_chassis run_lost_line run_line_follow run_tuning run_hmi clean
+.PHONY: all run run_pid run_motor run_key run_uart_fifo run_vofa_rx run_stepmotor_uart run_oled run_imu run_gray run_track_error run_chassis run_lost_line run_line_follow run_tuning run_hmi run_scheduler clean
