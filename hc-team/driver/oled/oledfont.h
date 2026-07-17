@@ -9,9 +9,7 @@
  *   故只补此约束说明，未改结构。
  */
 #ifndef __OLEDFONT_H
-#define __OLEDFONT_H 
-
-#include "ti_msp_dl_config.h"
+#define __OLEDFONT_H
 
 /************************************6*8的点阵************************************/
 const unsigned char asc2_0806[][6] ={

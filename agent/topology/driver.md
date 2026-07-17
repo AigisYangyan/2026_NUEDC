@@ -173,6 +173,7 @@ class PID_API {
 Clock_API --> DL_HAL : SysTick
 Board_API --> DL_HAL : SysConfig NVIC global IRQ
 BoardGpio_API --> Runtime_API : transitional raw counts and key edge bitmap
+BoardGpio_API --> DL_HAL : DL_GPIO_readPins for key raw levels
 Runtime_API --> Clock_API : bounded millisecond delay
 Runtime_API --> DL_HAL : GPIO UART DMA
 Runtime_API --> VisionUart_API : fixed UART RX dispatch

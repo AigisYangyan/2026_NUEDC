@@ -151,7 +151,9 @@ Driver 头对外宣称 Driver 提供这些能力，实则不提供 —— 单独
 
 - **依赖方向**：`App -> Middleware -> Driver -> DL HAL`，Driver 不反向调用上层（V01/V02/V08 均已关闭）
 - **TI HAL 边界**：每个模块的 TI 依赖都收在指定边界文件里（`*_hw.c` / `board.c` / `clock.c` /
-  `mspm0_runtime.c` / 各 `board_uart` 角色 `.c` / `gray_hw.c` / `oled_hardware_i2c.c`）。
+  `mspm0_runtime.c` / `board_gpio.c` / 各 `board_uart` 角色 `.c` / `gray_hw.c` / `oled_hardware_i2c.c`）
+  （封包审计补记：本清单原漏列 `board_gpio.c`，它在 `BoardGpio_GetKeyRawLevels` 直调
+  `DL_GPIO_readPins`，与本文 §1 D13 行「TI HAL 位置 = board_gpio.c」一致）。
   `encoder`/`key`/`motor.c`/`imu`/`gray.c`/`emm42` 六者零 TI 依赖，因而可主机测试
 - **ISR 纪律**：ISR 只做搬运/置位/计数，解析一律在任务态（V09 关闭）
 - **单一数据所有者**：编码器方向 `encoder.c:41` 唯一；PWM 频率 syscfg 单源；灰度去抖归器件

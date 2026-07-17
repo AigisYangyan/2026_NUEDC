@@ -5,7 +5,8 @@
  *
  * Owns GROUP1 (keys), DMA, and the fixed board UART IRQ symbols.
  * Encoder counting moved from GROUP1 software edge-counting (G3507) to the
- * two hardware QEI timers (G3519: QEI_LEFT=TIMG8, QEI_RIGHT=TIMG9).
+ * two hardware QEI timers (G3519: QEI_LEFT=TIMG9, QEI_RIGHT=TIMG8,
+ * single source of truth: board.syscfg; code only uses QEI_*_INST macros).
  * SysTick is now owned by driver/clock.
  */
 #include "driver/mspm0_runtime/mspm0_runtime.h"

@@ -17,7 +17,7 @@ extern "C" {
  * @brief Perform the one-time board peripheral initialization.
  * @note Must be called before any Driver that uses SysConfig-generated
  *       peripherals. Leaves all PWM/compare outputs at their safe reset
- *       values; Motor PWM counters are started separately by Motor_StartPwm().
+ *       values; Motor PWM counters are started separately by Motor_Init().
  */
 void Board_Init(void);
 
