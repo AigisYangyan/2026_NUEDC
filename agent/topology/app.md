@@ -1,0 +1,328 @@
+# 拓扑分层文件：Middleware 与 App API 类图（§3）、启动与调度逻辑图（§4）
+
+本文件是 `agent/api_architecture_topology.md`（拓扑索引，唯一入口）的分层部分，承载 §3 与 §4。
+阅读规则（§1）、数据流（§5）、风险登记（§6）、覆盖清单（§7）、执行前后检查（§8/§9）与更新日志（§10）都在索引文件。
+章节编号沿用原单文件，不重排 —— `§3`/`§4` 锚点被 AGENTS.md、agent 定义与历史冻结契约引用。
+维护义务与索引文件一体生效：Middleware/App API 或启动调度变化必须同步本图，并在索引文件 §10 追加日志（AGENTS.md §14）。
+
+## 3. Middleware 与 App API 类图
+
+```mermaid
+classDiagram
+direction LR
+
+class System_API {
+  <<app:system>>
+  +main()
+  +SysInit()
+  +SysRun()
+}
+
+class Scheduler_API {
+  <<app:scheduler>>
+  +Sys_EnterRunEntry()
+  +Sys_LeaveRunEntry()
+  +Sys_GetActiveRunEntry()
+  +TaskTimeSliceManage()
+  +g_eSysFlagManage
+}
+
+class Clock_API { <<driver>> }
+class Board_API { <<driver>> }
+class BoardGpio_API { <<driver>> }
+
+class RunRegistry_API {
+  <<app:scheduler>>
+  +RunRegistry_FindById()
+  +RunRegistry_BuildMenuItems()
+  +g_run_entries
+}
+
+class VofaRegister_API {
+  <<app:scheduler>>
+  +VofaRegister_Init()
+  +VofaRegister_EnterProfile()
+  +VofaRegister_ExitProfile()
+  +VofaRegister_GetActiveProfile()
+  +VofaRegister_GetXxxCtx()
+}
+
+class Menu_API {
+  <<app:ui>>
+  +Menu_Init()
+  +Menu_HandleKey()
+  +Menu_RenderIfDirty()
+  +Menu_SetCurrentPage()
+  +Menu_RequestRedraw()
+  +Menu_IsDirty()
+  +Menu_GetCurrentPage()
+  +MenuPages_Init()
+}
+
+class TaskGroups_API {
+  <<app:tasks>>
+  +Task_UiService5ms()
+  +Task_EncoderSpeedSample()
+  +Task_MotorPidControl()
+  +Task_StepmotorBusService5ms()
+  +Task_VisionBusService5ms()
+  +Task_VisionTrack10ms()
+  +Task_VisionControl5ms()
+  +Task_VisionTelemetry10ms()
+  +Task_VofaService()
+  +Task_SpeedLoop_Xxx()
+  +Task_UartTest_Xxx()
+  +Task_GrayTest_Xxx()
+  +Task_UartStress_Xxx()
+  +Task_Debug_Xxx()
+  +Task_Task1_Xxx()
+  +g_TaskGroups
+}
+
+class PID_API {
+  <<middleware:pid>>
+  +pid_Init()
+  +pid_closeloop_angle()
+  +pid_closeloop_motor(left_target_mps, right_target_mps, left_feedback_mps, right_feedback_mps, p_left_out, p_right_out)
+  +pid_closeloop_track()
+  +pid_formula_positional()
+  +pid_formula_incremental()
+  +pid_out_limit()
+  +g_PID_instances
+}
+
+class Service_Layer {
+  <<app:service>>
+  +NO_ACTIVE_SOURCE_API
+}
+
+class SpeedLoop_API {
+  <<app:task>>
+  +SpeedLoop_Init()
+  +SpeedLoop_Enter_Exit()
+  +SpeedLoop_Sample10ms()
+  +SpeedLoop_Control10ms()
+  +SpeedLoop_Telemetry20ms()
+}
+
+class Task1_API {
+  <<app:task>>
+  +Task1_Init()
+  +Task1_Enter_Exit()
+  +Task1_Sample10ms()
+  +Task1_Control10ms()
+  +Task1_Telemetry20ms()
+}
+
+class TrackFollow_API {
+  <<app:task>>
+  +Track_UpdateSample()
+  +Track_GetBitmap()
+  +TrackN_To_BitmapString()
+  +Calculate_Track_Error()
+  +TrackN
+}
+
+class GrayTest_API {
+  <<app:task>>
+  +GrayTest_Init()
+  +GrayTest_Enter_Exit()
+  +GrayTest_SampleAndTelemetry10ms()
+}
+
+class UartTest_API {
+  <<app:task>>
+  +UartTest_Init()
+  +UartTest_Enter_Exit()
+  +UartTest_Telemetry10ms()
+}
+
+class UartStress_API {
+  <<app:task>>
+  +UartStress_Init()
+  +UartStress_Enter_Exit()
+  +UartStress_Tick5ms()
+}
+
+class VisionBus_API {
+  <<app:task>>
+  +VisionBus_Init()
+  +VisionBus_Service5ms()
+}
+
+class VisionCoord_API {
+  <<app:task>>
+  +VisionCoord_Init()
+  +VisionCoord_HandleFrame()
+  +VisionCoord_GetLatest()
+  +VisionCoord_GetState()
+  +VisionCoord_GetStateUpdateMeta()
+  +VisionCoord_GetTopic()
+}
+
+class StepMotorBus_API {
+  <<app:task>>
+  +StepmotorBus_Init()
+  +StepmotorBus_Service5ms()
+  +StepmotorBus_RequestBypass()
+  +StepmotorBus_SetBypass()
+  +StepmotorBus_SetControlGate()
+  +StepmotorBus_ResetDiagCounters()
+  +StepmotorBus_GetControlErrorCount()
+  +StepmotorBus_GetLastReturnCode()
+  +StepmotorBus_ClearControlFrames()
+  +StepmotorBus_IsControlPathIdle()
+  +StepmotorBus_GetLastSpeedRpm()
+  +StepmotorBus_GetLastSpeedRaw()
+}
+
+class Platform2D_API {
+  <<app:task>>
+  +VisionHdl_Init()
+  +VisionHdl_Enter_Exit()
+  +VisionHdl_Run10ms()
+  +VisionHdl_Control5ms()
+  +VisionHdl_Telemetry10ms()
+  +StepperTestX_Enter_Exit()
+  +StepperTestY_Enter_Exit()
+  +DebugSmooth_Xxx()
+  +DebugVisionData_Xxx()
+}
+
+class Runtime_API { <<driver>> }
+class VisionUart_API { <<driver>> }
+class VofaUart_API { <<driver>> }
+class StepmotorUart_API { <<driver>> }
+class Motor_API { <<driver>> }
+class Encoder_API { <<driver>> }
+class Key_API { <<driver>> }
+class Gray_API { <<driver>> }
+class GrayPort_API { <<driver>> }
+class OLED_API { <<driver>> }
+class Emm42_API { <<driver>> }
+class VofaDriver_API { <<driver>> }
+class ImuUart_API { <<driver>> }
+class DL_HAL { <<external>> }
+
+System_API --> Scheduler_API : starts scheduler
+System_API --> Board_API : board init and interrupt enable
+System_API --> Clock_API : clock init
+System_API --> Runtime_API : UART DMA init (transitional)
+System_API --> Motor_API : init and stop
+System_API --> Encoder_API : init
+System_API --> Key_API : init
+System_API --> OLED_API : init
+System_API --> PID_API : init
+System_API --> VofaRegister_API : init
+System_API --> StepMotorBus_API : init
+System_API --> VisionBus_API : init
+
+Scheduler_API --> Clock_API : active elapsed query
+Scheduler_API --> RunRegistry_API : resolve active entry
+Scheduler_API --> TaskGroups_API : dispatch active group
+RunRegistry_API --> SpeedLoop_API : lifecycle
+RunRegistry_API --> GrayTest_API : lifecycle
+RunRegistry_API --> UartTest_API : lifecycle
+RunRegistry_API --> UartStress_API : lifecycle
+RunRegistry_API --> Platform2D_API : lifecycle
+RunRegistry_API --> Task1_API : lifecycle
+
+Menu_API --> RunRegistry_API : builds pages
+Menu_API --> Scheduler_API : enter and leave
+Menu_API ..> Key_API : VIOLATION UI calls Driver
+Menu_API ..> OLED_API : VIOLATION UI calls Driver
+
+TaskGroups_API --> Menu_API : UI task
+TaskGroups_API --> SpeedLoop_API
+TaskGroups_API --> Task1_API
+TaskGroups_API --> GrayTest_API
+TaskGroups_API --> UartTest_API
+TaskGroups_API --> UartStress_API
+TaskGroups_API --> VisionBus_API
+TaskGroups_API --> Platform2D_API
+TaskGroups_API --> StepMotorBus_API
+TaskGroups_API ..> PID_API : VIOLATION Task calls Middleware
+TaskGroups_API ..> Motor_API : VIOLATION Task calls Driver
+TaskGroups_API ..> Encoder_API : VIOLATION Task calls Driver
+TaskGroups_API --> Clock_API : encoder elapsed time
+TaskGroups_API ..> VofaDriver_API : VIOLATION Task calls Driver
+
+SpeedLoop_API --> Encoder_API : sample and feedback
+SpeedLoop_API --> PID_API : control
+SpeedLoop_API --> Motor_API : output
+SpeedLoop_API --> VofaRegister_API : telemetry context
+SpeedLoop_API --> VofaDriver_API : telemetry send
+
+Task1_API --> Clock_API : time
+Task1_API --> Encoder_API : sample
+Task1_API --> TrackFollow_API : track sample
+Task1_API --> PID_API : control
+Task1_API --> Motor_API : output
+Task1_API --> VofaRegister_API
+Task1_API --> VofaDriver_API
+
+GrayTest_API --> TrackFollow_API
+GrayTest_API --> VofaRegister_API
+GrayTest_API --> VofaDriver_API
+UartTest_API --> VofaRegister_API
+UartTest_API --> VofaDriver_API
+UartStress_API --> StepMotorBus_API : exclusive pause and resume
+UartStress_API ..> StepmotorUart_API : VIOLATION Task calls Driver
+
+VisionBus_API --> Clock_API : time
+VisionBus_API --> VisionCoord_API : parsed frames
+VisionBus_API --> VisionUart_API : pull buffered bytes
+Platform2D_API --> VisionCoord_API : coordinates
+Platform2D_API --> StepMotorBus_API : transport state
+Gray_API --> GrayPort_API : one port read, then scatter
+GrayPort_API --> DL_HAL : GPIO_LINE_SENSOR = GPIOB, single DL_GPIO_readPins for all 12
+Platform2D_API --> Emm42_API : commands
+Platform2D_API --> PID_API : axis control
+Platform2D_API --> VofaRegister_API
+Platform2D_API --> VofaDriver_API
+StepMotorBus_API --> StepmotorUart_API : shared UART queue and ack
+StepMotorBus_API --> Runtime_API : bounded wait helper
+StepMotorBus_API --> Clock_API : time
+StepMotorBus_API --> Emm42_API : frame packing
+TrackFollow_API ..> DL_HAL : VIOLATION App reads GPIO
+VisionCoord_API --> Clock_API : state update time
+
+VofaRegister_API ..> VofaDriver_API : VIOLATION direct Driver profile registration
+VofaRegister_API ..> PID_API : VIOLATION binds Middleware globals
+VofaRegister_API ..> TrackFollow_API : VIOLATION exposes task state
+Service_Layer ..> SpeedLoop_API : TARGET not implemented
+```
+
+## 4. 当前启动与调度逻辑图
+
+```mermaid
+flowchart TD
+  Main[main.c main] --> SysInit[sys_init.c SysInit]
+  SysInit --> BoardInit[Board_Init]
+  SysInit --> ClockInit[Clock_Init]
+  SysInit --> RuntimeInit[Runtime UART DMA fixed dispatch]
+  SysInit --> DriverInit[OLED Key Motor Encoder VOFA BoardUart]
+  SysInit --> MiddlewareInit[PID init]
+  SysInit --> AppInit[Menu Run profiles Tasks Vision StepMotor]
+  SysInit --> BoardIRQ[Board_EnableInterrupts]
+  Main --> SysRun[SysRun]
+  SysRun --> SchedulerLoop[TaskStartSchedule loop]
+
+  SysTick[SysTick Handler] -->|1 ms| TickMs[s_tick_ms++]
+  SchedulerLoop -->|query elapsed| TickMs
+  SchedulerLoop -->|advance| TimeSlice[TaskTimeSliceManage]
+  TimeSlice --> ActiveGroup[Resolve active TaskGroup]
+  ActiveGroup --> TaskFlags[Run enabled task functions]
+  TaskFlags --> UIGroup[UI group]
+  TaskFlags --> FeatureGroups[Speed Gray UART Vision Task1 groups]
+
+  RuntimeInit --> FixedDispatch[Runtime fixed IRQ DMA fanout]
+  DMAIRQ[DMA and UART IRQ] --> FixedDispatch
+  FixedDispatch --> RoleDrivers[VisionUart VofaUart StepmotorUart]
+
+  classDef violation fill:#ffd6d6,stroke:#b00020,color:#700018
+  class FixedDispatch violation
+```
+
+当前交叉点：App 仍有局部任务直接调用 Driver 或 DL HAL；Runtime ISR 已不再通过回调进入 App/VOFA 解析，但仍是过渡期固定分发层。
+

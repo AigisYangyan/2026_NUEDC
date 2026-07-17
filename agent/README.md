@@ -1,6 +1,6 @@
 # agent/ 目录索引与项目脉络
 
-更新：2026-07-16。本文件是 `agent/` 的导航图：先看这里，再进具体计划。架构现状的唯一权威是 `api_architecture_topology.md`（AGENTS.md §14 强制维护）。
+更新：2026-07-16。本文件是 `agent/` 的导航图：先看这里，再进具体计划。架构现状的唯一权威是 `api_architecture_topology.md`（索引）+ `topology/{driver,app}.md`（分层类图，2026-07-17 拆分）（AGENTS.md §14 强制维护）。
 
 ## 1. 已完成的脉络（时间线）
 
@@ -30,7 +30,10 @@
 ```text
 agent/
 ├── README.md                          ← 本文件（导航 + 脉络）
-├── api_architecture_topology.md       ← 架构现状唯一权威，编码前必读、编码后必更
+├── api_architecture_topology.md       ← 架构现状唯一权威（索引：§1、§5–§10），编码前必读、编码后必更
+├── topology/
+│   ├── driver.md                      ← §2 Driver API 类图（2026-07-17 由单文件拆出，编号未重排）
+│   └── app.md                         ← §3 Middleware/App 类图 + §4 启动调度图
 ├── MIGRATION_G3507_TO_G3519.md        ← G3507→G3519 移植配方（2026-07-16 由 docs/ 移入；AGENTS.md 引用）
 ├── phase1_DL_HAL/                     ← 纯历史归档（G3507 时期），只读
 └── phase2_driver_rewrite/
