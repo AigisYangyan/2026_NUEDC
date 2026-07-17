@@ -450,3 +450,97 @@ bool Hmi_ClearDisplay(void);    /* 未就绪 → false */
   中途 I2C 超时会半行绘制后返回 false）。处置为文档级：把「零绘制事务」承诺限定于
   参数/就绪拒绝路径，补充「总线错误时行内容不确定，行级覆写幂等、重试整行恢复」。
   代码逻辑不改（主机 fake 总线不失败故 E03 无法覆盖该路径；真实恢复策略归 UI01 调用者）。
+
+## 11. SCH01 契约（scheduler 运行条目调度器重写）——冻结
+
+- **task_id**: SCH01-scheduler
+- **goal**: 新建 `app/scheduler/scheduler.{h,c}`：运行条目（run entry）调度器——条目表登记 +
+  进入/离开/重启/查询 + **单活动条目不变量** + 每拍泵送（背景钩子 + 活动条目 step）。
+  时间来源按 **Q1 定案**参数注入：`Scheduler_Run(uint32_t now_ms)`，本模块不含 `clock.h`，
+  `now_ms` 原值透传给全部钩子——Task/UI 层因矩阵禁调 Driver，**此参数是它们唯一合法时间来源**。
+  吸收旧 `task_scheduler.c`/`run_registry.c` 的「Enter/Leave/GetActive + 条目枚举（菜单渲染）」
+  职责；**时间片框架（TimCount/TimRload/任务组三态 switch）不重建**——新 Service 全部
+  Clock 自门控，条目 step 每拍无条件调用即可。旧四文件继续冻结，T01 删除时关闭 V13 残余；
+  本模块以「头文件零 extern 变量 + 状态全私有」建立 V13 替代前提。
+  **单活动条目不变量**同时是本轮拓扑核对新发现「双泵风险」（line_follow 与 tuning 各自
+  恒推 `Chassis_Update()`，源码无所有权互斥）的结构性排除手段——条目间互斥由调度器保证，
+  收工时由 topo-updater 登记该新风险条目及缓解措施。
+- **接口辩护**（调度器能做什么）：能登记一组命名运行条目、能进入/离开/重启条目并查询
+  当前条目与名称（未来 UI01 菜单渲染所需，替代 `RunRegistry_BuildMenuItems`）、
+  能被喂时驱动一拍。仅此成为公共面。
+- **背景钩子辩护**（非投机）：旧系统 UI 任务组在 IDLE_PAGE 与 RUNNING 两态均运行
+  （菜单在条目运行中仍须响应 BACK 键触发 Leave，§5.3 数据流既有事实）——背景钩子是
+  该已证实需求的最小承载，UI01 是已知消费者。
+
+### 11.1 allowed_files（无 glob）
+
+| 文件 | 动作 |
+|---|---|
+| `hc-team/app/scheduler/scheduler.h` / `.c` | 新建 |
+| `tests/host/test_scheduler.c` | 新建 |
+| `tests/host/Makefile` | 追加 test_scheduler 目标/clean/.PHONY |
+| `.gitignore` | 追加 test_scheduler / test_scheduler.exe |
+| `Debug/makefile` | 登记 scheduler.o（ORDERED_OBJS、两处 -include、clean） |
+| `agent/phase4_app_rewrite/plan_app_first_order.md` | 状态回写 |
+
+forbidden_files：`hc-team/app/scheduler/task_scheduler.*`、`run_registry.*`、`vofa_register.*`
+（同目录冻结旧文件，零触碰）、`hc-team/app/service/**`、`hc-team/app/{tasks,system,ui}/**`、
+`hc-team/driver/**`、`hc-team/middleware/**`、tests/host 既有 `test_*.c` 与 `fake_*.c`
+（本测试为纯逻辑，不链接任何 fake——含 fake_clock）。
+
+### 11.2 公共接口（最小面）
+
+```c
+#define SCHEDULER_ENTRY_NONE (-1)
+
+typedef struct {
+    const char *name;                  /* ASCII 条目名，菜单渲染用；不得为 NULL */
+    void (*on_enter)(void);            /* NULL 允许（跳过） */
+    void (*on_step)(uint32_t now_ms);  /* NULL 允许；活动期每拍无条件调用 */
+    void (*on_exit)(void);             /* NULL 允许 */
+} Scheduler_Entry_T;
+
+void Scheduler_Init(const Scheduler_Entry_T *entries, uint8_t entry_count,
+                    void (*background_step)(uint32_t now_ms));
+    /* 登记条目表（调用方保证表生命周期覆盖使用期）+ 可选背景钩子；活动条目复位为无。
+     * entries==NULL 或 count==0 → 合法空表（Enter 恒 false）。不触碰任何硬件/Service。 */
+uint8_t Scheduler_GetEntryCount(void);
+const char *Scheduler_GetEntryName(uint8_t index);   /* 越界 → NULL */
+bool Scheduler_EnterEntry(uint8_t index);
+    /* 越界/空表 → false 零副作用。有效：先 on_exit(旧活动条目，若有)，再置活动，
+     * 再 on_enter(新)。同索引重进 = 重启（同样 exit→enter 序）。 */
+void Scheduler_LeaveEntry(void);       /* 有活动：on_exit + 清活动；无活动：no-op */
+int16_t Scheduler_GetActiveEntry(void); /* 活动索引或 SCHEDULER_ENTRY_NONE */
+void Scheduler_Run(uint32_t now_ms);
+    /* ① background_step(now_ms)（非 NULL 时，无条件先行）；
+     * ② 随后解析活动条目并调其 on_step(now_ms)——背景钩子内 EnterEntry 的
+     *    首拍 step 同拍生效（确定性语义，非竞态）。
+     * 钩子内允许调 Enter/Leave（菜单切换、条目自终止），立即生效：
+     * on_step 内 LeaveEntry → 本条目 on_exit 即刻执行，本拍不再有条目 step。 */
+```
+
+- **状态全私有**：`scheduler.h` 零 `extern` 变量（V13 替代前提）；表指针/计数/活动索引
+  均 `static`，仅经 getter 暴露。无三态系统状态枚举——「无活动条目」即旧 IDLE 语义。
+- **零依赖**：`scheduler.c` 只含标准头（stdint/stdbool/stddef）与自身头。矩阵允许
+  Scheduler→Service，但本设计不需要——条目钩子由 Task/UI 层（同层受控）在 T01/UI01 提供，
+  Service 的 Init/泵送编排是钩子内容，不是调度器机制。
+- **单一所有者**：run-entry 转移序（exit→enter）唯一实现点在 `Scheduler_EnterEntry`；
+  钩子提供者不得自行补第二份转移逻辑。
+
+### 11.3 preserved_behavior
+
+- 同目录旧四文件、其余 `app/**`、`driver/**`、`middleware/**` 零改动；主机既有 185 用例
+  全过；固件行为不变（scheduler.o 进链接但零调用者，Scheduler_* 符号与旧 Sys_* 无冲突）。
+
+### 11.4 证据行（≤6，恰 1 条固件构建行）
+
+| 行 | 名称 | 命令 | 预期 |
+|---|---|---|---|
+| E01 | 依赖纯净 | Grep `app/tasks/\|app/ui/\|app/system/\|app/service/\|driver/\|middleware/\|ti_msp_dl_config\|ti/driverlib`（path=`hc-team/app/scheduler`，glob `scheduler.*`，`#include` 行） | 0 命中 |
+| E02 | 范围审计 | `git status` + `git diff --stat` 对照 §11.1 | 无 allowed_files 之外的改动 |
+| E03 | 主机测试 | PowerShell：`rtk proxy make -C tests/host all` | ≥197 PASS / 0 FAIL（185 基线 + ≥12 新用例），必含：Init 前/空表 Run 与 Enter 安全（零钩子调用、Enter false）；未激活 Run 仅背景钩子且 now_ms 原值透传；Enter 转移序 exit→enter 恰一次；同索引重启；越界 Enter false 零副作用；Leave 后仅背景、重复 Leave no-op；on_step 内自终止（on_exit 即刻、本拍无后续 step、下拍无条目 step）；背景钩子内 Enter 同拍首步；NULL 钩子容忍；无背景钩子 Init 时 Run 仅条目 step；背景先于条目的顺序记录；GetEntryName 越界 NULL |
+| E04 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 diagnostics、scheduler.o 经 linkInfo.xml 确证进入 .out 链接 |
+
+### 11.5 契约修订记录
+
+（无）
