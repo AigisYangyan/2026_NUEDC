@@ -64,7 +64,11 @@ const char *Scheduler_GetEntryName(uint8_t index);
 /**
  * @brief  进入条目：先 on_exit(旧活动条目，若有)，再置活动，再 on_enter(新)。
  *         同索引重进 = 重启（同样 exit→enter 序）。
- * @return true = 已进入；false = index 越界或空表（零副作用）。
+ *         嵌套转移规则（契约修订 1）：旧条目 on_exit 内再调 EnterEntry 时，
+ *         嵌套转移胜出，外层进入放弃并返回 false——保 enter/exit 严格配对，
+ *         不产生「收到 on_enter 却永远等不到 on_exit」的孤儿条目。
+ * @return true = 已进入；false = index 越界/空表（零副作用），或外层进入
+ *         被 on_exit 内的嵌套转移取代。
  */
 bool Scheduler_EnterEntry(uint8_t index);
 

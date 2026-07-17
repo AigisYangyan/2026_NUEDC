@@ -39,6 +39,11 @@ bool Scheduler_EnterEntry(uint8_t index)
         return false;
     }
     Scheduler_LeaveEntry(); /* 转移序唯一实现点：先退旧（含同索引重启） */
+    if (s_active != SCHEDULER_ENTRY_NONE) {
+        /* 旧条目 on_exit 内已嵌套 Enter：嵌套转移胜出，外层放弃——
+         * 保 enter/exit 严格配对（未来 Task 安全停止逻辑的锚点） */
+        return false;
+    }
     s_active = (int16_t)index;
     if (s_entries[index].on_enter != NULL) {
         s_entries[index].on_enter();

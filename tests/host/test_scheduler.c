@@ -111,6 +111,18 @@ static const Scheduler_Entry_T s_entries_self_term[] = {
     { "EntryS", NULL, self_term_step, self_term_exit },
 };
 
+/* on_exit 内嵌套 Enter（Task 收场后链式进入下一条目的形态，契约修订 1）。 */
+static void x_exit_chains_enter(void)
+{
+    log_call("X_exit", 0u);
+    (void)Scheduler_EnterEntry(1u); /* 嵌套进入 EntryB */
+}
+
+static const Scheduler_Entry_T s_entries_chain[] = {
+    { "EntryX", NULL, NULL, x_exit_chains_enter },
+    { "EntryB", b_enter, b_step, b_exit },
+};
+
 #define ENTRY_AB_COUNT \
     ((uint8_t)(sizeof(s_entries_ab_null) / sizeof(s_entries_ab_null[0])))
 
@@ -300,6 +312,26 @@ static bool test_entry_name_and_count_getters(void)
     return true;
 }
 
+/* 契约修订 1：on_exit 内嵌套 Enter → 嵌套转移胜出，外层 false，
+ * 无孤儿 on_enter（每个 on_enter 都保有配对 on_exit 的机会）。 */
+static bool test_exit_hook_nested_enter_wins_outer_aborts(void)
+{
+    Scheduler_Init(s_entries_chain, 2u, NULL);
+    log_reset();
+    (void)Scheduler_EnterEntry(0u); /* 活动 = EntryX（全 NULL 除 on_exit） */
+    log_reset();
+    ASSERT_FALSE(Scheduler_EnterEntry(0u)); /* 重进触发 X_exit → 嵌套进 B */
+    ASSERT_EQ_INT(2, s_call_count);
+    ASSERT_LOG(0, "X_exit", 0u);
+    ASSERT_LOG(1, "B_enter", 0u); /* 无外层条目的孤儿 on_enter */
+    ASSERT_EQ_INT(1, (int)Scheduler_GetActiveEntry()); /* 嵌套转移保持 */
+    log_reset();
+    Scheduler_Run(6u);
+    ASSERT_EQ_INT(1, s_call_count);
+    ASSERT_LOG(0, "B_step", 6u);
+    return true;
+}
+
 /* Init 重置活动条目：带活动条目时重新 Init，活动清空且不触发旧 on_exit
  * （Init 是装配级复位，不是运行级转移——转移语义唯一实现点在 Enter/Leave）。 */
 static bool test_reinit_clears_active_without_exit_hook(void)
@@ -347,6 +379,8 @@ int main(void)
     run_test("test_init_without_background", test_init_without_background);
     run_test("test_entry_name_and_count_getters",
              test_entry_name_and_count_getters);
+    run_test("test_exit_hook_nested_enter_wins_outer_aborts",
+             test_exit_hook_nested_enter_wins_outer_aborts);
     run_test("test_reinit_clears_active_without_exit_hook",
              test_reinit_clears_active_without_exit_hook);
 
