@@ -39,17 +39,17 @@ static uint8_t run_list_total(void)
     return total;
 }
 
-/* 整行项：焦点前缀 + ASCII 文本（hmi 截断到 16 列并空格填满）。 */
+/* 整行项：焦点前缀 + ASCII 文本（hmi 截断到 16 列并空格填满）。
+ * text 由契约保证非 NULL（scheduler.h 条目名 / menu.h 参数名 / "Params" 字面量），
+ * 不在此逐层兜底——契约破坏应在拥有者侧断言（§8.3：无失败模型的防御分支应删）。 */
 static void render_item(uint8_t row, bool focused, const char *text)
 {
     char buf[HMI_DISPLAY_COLS + 1u];
     uint8_t pos = 0u;
 
     buf[pos++] = focused ? '>' : ' ';
-    if (text != NULL) {
-        while ((*text != '\0') && (pos < HMI_DISPLAY_COLS)) {
-            buf[pos++] = *text++;
-        }
+    while ((*text != '\0') && (pos < HMI_DISPLAY_COLS)) {
+        buf[pos++] = *text++;
     }
     buf[pos] = '\0';
     (void)Hmi_PrintLine(row, buf);

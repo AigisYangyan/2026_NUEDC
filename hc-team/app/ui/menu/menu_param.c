@@ -51,17 +51,16 @@ void MenuParam_FormatValue(int32_t value, char *buf, size_t cap)
     buf[pos] = '\0';
 }
 
-/* 整行项：焦点前缀 + ASCII 文本（hmi 截断到 16 列并空格填满）。 */
+/* 整行项：焦点前缀 + ASCII 文本（hmi 截断到 16 列并空格填满）。
+ * text 由契约保证非 NULL（menu.h 参数名 name 不得为 NULL），不逐层兜底（§8.3）。 */
 static void render_item(uint8_t row, bool focused, const char *text)
 {
     char buf[HMI_DISPLAY_COLS + 1u];
     uint8_t pos = 0u;
 
     buf[pos++] = focused ? '>' : ' ';
-    if (text != NULL) {
-        while ((*text != '\0') && (pos < HMI_DISPLAY_COLS)) {
-            buf[pos++] = *text++;
-        }
+    while ((*text != '\0') && (pos < HMI_DISPLAY_COLS)) {
+        buf[pos++] = *text++;
     }
     buf[pos] = '\0';
     (void)Hmi_PrintLine(row, buf);
