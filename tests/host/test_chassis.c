@@ -24,6 +24,7 @@ extern int FakeMotorHw_GetBrakeCount(void);
 extern uint16_t FakeMotorHw_GetDutyPermille(Motor_Id id);
 extern bool FakeMotorHw_IsBrakeActive(Motor_Id id);
 extern void FakeBoardGpio_SetRaw(int32_t left, int32_t right);
+extern void FakeBoardGpio_SetSnapshotFail(bool fail);
 extern void FakeClock_Set(uint32_t now_ms);
 extern void FakeClock_Advance(uint32_t delta_ms);
 
@@ -278,6 +279,33 @@ static int test_target_reflected_in_telemetry(void)
     return 0;
 }
 
+/* 安全项：持续采样失败 → 不刷新电机命令，Driver 命令超时（100ms）把输出归零 */
+static int test_sampling_failure_timeout_stops(void)
+{
+    int i;
+
+    setup();
+    Chassis_SetSpeedGains(CHASSIS_SIDE_LEFT, 100.0f, 0.0f, 0.0f);
+    Chassis_SetSpeedGains(CHASSIS_SIDE_RIGHT, 100.0f, 0.0f, 0.0f);
+    Chassis_SetTargetMps(1.0f, 1.0f);
+    FakeClock_Advance(10u);
+    Chassis_Update();
+    TEST_ASSERT_TRUE(FakeMotorHw_GetDutyPermille(MOTOR_LEFT) > 0u);
+    TEST_ASSERT_TRUE(FakeMotorHw_GetDutyPermille(MOTOR_RIGHT) > 0u);
+
+    FakeBoardGpio_SetSnapshotFail(true);
+    /* 300ms 持续失败：远超 Driver 100ms 命令超时 + slew 收敛时间 */
+    for (i = 0; i < 30; i++) {
+        FakeClock_Advance(10u);
+        Chassis_Update();
+    }
+    FakeBoardGpio_SetSnapshotFail(false);
+    TEST_ASSERT_TRUE(FakeMotorHw_GetDutyPermille(MOTOR_LEFT) == 0u);
+    TEST_ASSERT_TRUE(FakeMotorHw_GetDutyPermille(MOTOR_RIGHT) == 0u);
+    printf("PASS: test_sampling_failure_timeout_stops\n");
+    return 0;
+}
+
 int main(void)
 {
     int failures = 0;
@@ -293,6 +321,7 @@ int main(void)
     failures += test_reinit_clears_history();
     failures += test_clock_wrap_still_updates();
     failures += test_target_reflected_in_telemetry();
+    failures += test_sampling_failure_timeout_stops();
 
     if (failures != 0) {
         printf("%d chassis test(s) failed.\n", failures);

@@ -49,10 +49,8 @@ void Chassis_Init(void)
     for (side = CHASSIS_SIDE_LEFT; side < CHASSIS_SIDE_COUNT; side++) {
         Pid_Init(&s_pid[side], &k_pid_cfg);
         s_target_mps[side] = 0.0f;
-        s_snapshot.speed_mps[side] = 0.0f;
-        s_snapshot.total_pulses[side] = 0;
-        s_snapshot.delta_pulses[side] = 0;
     }
+    s_snapshot = (Encoder_Snapshot){ 0 }; /* 快照下标空间是 Encoder_Id，整体清零避免混用 */
     s_period_base_ms = Clock_NowMs();
 }
 

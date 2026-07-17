@@ -62,7 +62,11 @@ void Chassis_SetTargetMps(float left_mps, float right_mps);
  */
 void Chassis_Update(void);
 
-/** 确定性停止：目标清零 + PID 复位 + 全部电机刹车。可随时从正常控制流调用。 */
+/**
+ * @brief  确定性停止：目标清零 + PID 复位 + 全部电机刹车。可随时从正常控制流调用。
+ * @note   机械刹车态只维持到下一次到期的 Chassis_Update（届时转为目标 0 的闭环）。
+ *         需要持续驻车时，调用方停止推进 Update 即可让刹车真值表保持。
+ */
 void Chassis_Stop(void);
 
 /**

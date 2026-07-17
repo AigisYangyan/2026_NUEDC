@@ -11,11 +11,18 @@ static BoardEncoderRawSnapshot s_fake_raw = { 0, 0 };
 static uint8_t s_fake_key_levels = 0u;
 static uint8_t s_fake_key_edges = 0u;
 static int s_key_raw_read_count = 0;
+static bool s_snapshot_fail = false;
 
 void FakeBoardGpio_SetRaw(int32_t left, int32_t right)
 {
     s_fake_raw.left = left;
     s_fake_raw.right = right;
+}
+
+/* 采样失败注入：默认关闭，不影响未调用它的既有测试 */
+void FakeBoardGpio_SetSnapshotFail(bool fail)
+{
+    s_snapshot_fail = fail;
 }
 
 void FakeBoardGpio_ResetKeys(void)
@@ -52,7 +59,7 @@ int FakeBoardGpio_GetKeyLevelReadCount(void)
 
 bool BoardGpio_GetEncoderRawSnapshot(BoardEncoderRawSnapshot *out)
 {
-    if (out == NULL) {
+    if (out == NULL || s_snapshot_fail) {
         return false;
     }
     *out = s_fake_raw;
