@@ -22,7 +22,12 @@
 
 ## 2. 编排顺序与理由
 
-**顺序：A00 → S01 → S02 → S03 → S04 → SCH01 → UI01 → T01；SYS01 随各阶段增量推进。**
+**原顺序：A00 → S01 → S02 → S03 → S04 → SCH01 → UI01 → T01；SYS01 随各阶段增量推进。**
+
+**修订顺序（2026-07-18，依 §12 赛前能力预制编排；A00–SCH01 已全部 DONE）：**
+**UI01 → M01 里程计/航向 → S06 motion 语义运动 → M02 循迹元素检测 → S02b 循迹深化**
+**（含 M03 速度规划）→ S07 分段路线执行 → S05 云台/视觉服务群 → T01（赛题公布后）；**
+**SYS01 仍随各阶段增量推进。**
 
 1. **依赖方向强制 Service 先行**：依赖矩阵里 Task/Scheduler/UI 只允许调 Service——
    先有 Service，上层才有东西可写。这也是用户裁定的重心。
@@ -33,6 +38,13 @@
 4. **S04 / SCH01 / UI01 靠后**：菜单项与生命周期编排的形状取决于 Service 能力面。
 5. **T01 最后**：赛题 Task 是多环触发+逻辑编排的最终消费者；写它时一次性替换并删除
    旧 `tasks/**`，避免中途断链（构建始终保持绿）。
+6. **赛前能力预制插入 UI01 与 T01 之间（2026-07-18 修订）**：T01 等赛题公布，
+   等待期用于补齐赛题统计（§12）指出的能力缺口——顺序服从数据依赖：
+   M01 里程计先于 S06（语义运动的位姿来源）与 S05（云台运动前馈的输入）；
+   循迹深化（M02/S02b/M03）先于 S07（段切换以元素事件为触发源）；
+   S05 排最后一个预制块（体量最大、且 Q7 帧解析归属需契约裁定）。
+   UI01 提到最前：阻塞已清（SCH01+S04 DONE）、封箱裁定下按键+OLED 分问菜单是
+   赛场生存必备、也是其后每个预制模块上板验证的入口。
 
 ## 3. 模块状态表
 
@@ -43,11 +55,16 @@
 | S02 | line_follow 循迹服务（外环+丢线策略） | `app/service/line_follow/` | track_follow.c、task1 循迹部分、gray_test | V03、V03-DUP、V07（部分） | `DONE`（契约 6dfdc85，修订 88010fd；代码 bb4825c；审计处置 53e9967。E01 0 命中 / E02 无越界 / E03 159 PASS 0 FAIL＝140 基线+19 / E04 exit 0、0 诊断、两 .o 进链接。Q5 关闭：丢线策略显式重建于 lost_line） |
 | S03 | 遥测/调参链路服务（VOFA） | `app/service/tuning/` | vofa_register.c | V15（替代已建成，旧边待 T01）、V19（closed） | `DONE`（契约 ed4f416，修订 57b54de；代码 d0e4996；审计处置 5a4f089。E01 0 命中 / E02 无越界 / E03 173 PASS 0 FAIL＝159 基线+14 / E04 exit 0、0 诊断、两 .o 经 linkInfo.xml 确证进链 / E05 `u8` 0 命中。Q2 定案入 §5） |
 | S04 | 人机输入/显示服务（Key/OLED 包装） | `app/service/hmi/` | menu 对 Key/OLED 的直调、task_groups UI 泵送 | V14 的基础 | `DONE`（契约 f8311c8；代码 2dac572；审计处置 ad5ca08。E01 0 命中 / E02 无越界 / E03 185 PASS 0 FAIL＝173 基线+12 / E04 exit 0、0 诊断、hmi.o 经 linkInfo.xml 确证进链） |
-| S05 | 云台/视觉服务群（platform_2d 下沉） | `app/service/`（契约时拆分） | vision_bus/vision_coord/stepmotor_bus/2DPlatform | stepmotor_bus 违规群 | 赛题明确后 |
+| S05 | 云台/视觉服务群（platform_2d 下沉：瞄准收敛/轨迹发生/运动前馈/视觉接入） | `app/service/`（契约时拆分） | vision_bus/vision_coord/stepmotor_bus/2DPlatform | stepmotor_bus 违规群 | 排队（S07 后预制，**不再等赛题**——§12；前馈依赖 M01） |
 | SCH01 | 调度器重写 | `app/scheduler/` | task_scheduler.c、run_registry.c | V13 残余（g_eSysFlagManage） | `DONE`（Q1 定案 74d421e；契约 56ced13，修订 c6bcc4a；代码 e801caf；审计处置 6bfe3f4。E01 0 命中 / E02 无越界 / E03 200 PASS 0 FAIL＝185 基线+15 / E04 exit 0、0 诊断、scheduler.o 经 linkInfo.xml 确证进链。V13 残余本体仍待 T01 删旧文件时关闭） |
-| UI01 | 菜单重写 | `app/ui/` | menu_core/menu_pages | V14 | 待 SCH01+S04 |
+| UI01 | 菜单重写（含分问选择/参数表——大纲 P0-D） | `app/ui/` | menu_core/menu_pages | V14 | **下一项**（SCH01+S04 已 DONE，阻塞已清） |
+| M01 | 里程计+航向 unwrap（Middleware 纯算法：编码器 Δ→x,y,θ；imu.h 明示 unwrap 归此层） | `middleware/odometry/`（契约时定拆分） | task1 姿态/里程零散逻辑（冻结不迁移，重建） | — | 排队（UI01 后） |
+| S06 | motion 语义运动服务（直行 N cm/定角转/圆弧/定点停；IMU 航向保持可插拔） | `app/service/motion/` | task1 直行/转弯编排 | — | 排队（M01 后） |
+| M02 | 循迹元素检测（可注册检测器：十字/直角弯/断线/终点横线…，特征+置信度计数） | `middleware/track_elements/` | — | — | 排队（S06 后） |
+| S02b | line_follow 深化：元素事件面 + M03 速度规划（`middleware/speed_plan`，直道加速/入弯减速）接入 | `app/service/line_follow/` | — | — | 排队（M02 后；S02 契约修订流程） |
+| S07 | route 分段路线执行服务（段表驱动：FOLLOW_UNTIL(元素)/STRAIGHT/TURN/ARC——新题=换段表） | `app/service/route/` | task1 分段状态机 | — | 排队（S02b 后；范围 Q6 契约裁定） |
 | SYS01 | 装配入口更新 | `app/system/` | sys_init.c 增量改造 | — | 随各阶段 |
-| T01 | 赛题 Task（薄编排）+ 旧 tasks 整体删除 | `app/tasks/` | 全部旧 `tasks/**` | V03/V07/V13 残余/V15 全关，baseline 清空 | **最后** |
+| T01 | 赛题 Task（薄编排）+ 旧 tasks 整体删除 | `app/tasks/` | 全部旧 `tasks/**` | V03/V07/V13 残余/V15 全关，baseline 清空 | **最后**（赛题公布后） |
 
 ## 4. 通用施工规则（每模块适用）
 
@@ -74,6 +91,11 @@
 | Q3 | 赛题（电赛小题）具体定义与 Task 编排内容，待用户给题。 | T01 契约 |
 | Q4 | ~~`arch-baseline.txt` vofa_register.c→pid.h 滞后行~~ **已关闭（S03 复核 2026-07-17）**：该行已不在 baseline 中（A00 chore 已清）；现存第 9 行 vofa_register.c→uart_vofa.h 与代码事实一致，属冻结违规如实登记。 | A00 随手 chore |
 | Q5 | ~~S02 丢线策略需显式重建~~ **已关闭（S02）**：`lost_line` 子模块=方向记忆+固定回退+有界超时（超时上限是新增安全项，旧实现没有）。 | S02 契约 |
+| Q6 | S07 分段路线执行器的范围：段类型集合、段表由谁持有（T01 传入 vs S07 内建）、元素事件与里程事件哪个是主触发源。原则已定：多环触发+逻辑编排归 Service，T01 只装配段表——具体形状契约时定，不预支。 | S07 契约 |
+| Q7 | 视觉帧解析归属：Q2 先例是「字节流解析归 Driver（uart_vofa），分发应用归 Service」——vision 同构方案 = 新建 `driver/uart_vision` 帧解析（吸收冻结的 vision_bus 职责），坐标→角度映射归 Middleware，收敛/触发归 Service。是否照搬待 S05 契约核对协议差异后定。 | S05 契约 |
+| Q8 | 双机协同（大纲 P2-B：双车蓝牙）与测距/避障（P3）：本仓库无对应硬件与 Driver，硬件未定案。登记为余力项，赛题/硬件明确后再立项，不预支协议设计。 | 赛题后 |
+| Q9 | 声光提示（大纲 P0-D：buzzer/LED 时序）：Driver 库存无 buzzer；题目普遍要求声光。硬件确认引脚后补小 Driver + 上层包装（归属 hmi 扩展 or 独立，届时定）。 | 硬件定案后 |
+| Q10 | PID 特性缺口（大纲 P0-B 要求积分分离/死区/微分先行；现库有增量/位置/双限幅/微分滤波）：**按需契约时补**，不预支——首个真实需求最可能出现在 S05 云台收敛环或 S06 航向环，届时以契约修订进 `middleware/pid`。 | 需求出现时 |
 
 ## 6. S01 契约（chassis 底盘速度环服务）——冻结
 
@@ -552,3 +574,46 @@ void Scheduler_Run(uint32_t now_ms);
   真实（Task 在 on_exit 里链式进入下一条目）且可测。E03 追加 1 条必含用例
   （on_exit 内嵌套 Enter：外层 false、嵌套条目保持活动、无孤儿 on_enter），
   预期总数相应 ≥198（185 基线 + ≥13）。
+
+## 12. 赛前能力预制编排（2026-07-18，依 `docs/电赛纯控制题_应用层框架开发plan.md` v2）
+
+### 12.1 输入定位与层映射
+
+- 该 docs 报告是**需求侧输入**（2021–2025 纯控制题统计、模块频次、命题规律）；
+  本计划表仍是执行侧唯一权威，架构权威仍是 AGENTS.md。
+- 层映射：报告 L1 HAL ≈ 本工程 Driver（phase2 已完成）、L2 算法 ≈ Middleware、
+  L3 应用框架 ≈ App Service、L4 应用任务 ≈ App Task。
+- **冲突裁定（两处，AGENTS.md 优先）**：①报告「L3→L1 必须经 L2」严于依赖矩阵
+  （Service→Driver 允许）——从矩阵，不新增禁令；②报告主控写 G3507/STM32 双实现——
+  本仓库目标是 G3519 单板，云台/视觉端协处理器代码**不在本仓库范围**（届时另立仓库或目录，
+  经 UART 协议对接，协议归 S05 契约）。
+
+### 12.2 差距核对表（报告模块 → 工程现状 → 处置）
+
+| 报告模块 | 工程现状 | 缺口与处置 |
+|---|---|---|
+| P0-A HAL | Driver 层 phase2 全绿（encoder QEI/motor/gray 12 路/imu 串口单轴/emm42/oled/key/uart 群） | 无缺口；STM32 双实现范围外（§12.1） |
+| P0-B PID | `middleware/pid`：增量/位置、双限幅、微分滤波、NaN 回退 | 积分分离/死区/微分先行按需补（Q10），不预支 |
+| P0-C 底盘运动 | S01 速度环 DONE；imu Driver 已备（yaw+yaw_rate，unwrap 明示归 Middleware） | **缺里程计（M01）与语义运动接口（S06）**——报告 `chassis_straight/turn/arc` 的对应物 |
+| P0-D 赛场生存 | S03 调参（VOFA≈报告的串口波形）、S04 hmi DONE | **缺菜单+参数表（UI01，下一项）**；声光 Driver 缺口（Q9） |
+| P1-A 循迹框架四层 | 感知层（gray+track_error）与执行层（S02 外环+S01 内环）已有 | **缺元素识别层（M02）、速度规划（M03）、段级状态机（S07）**；S02 事件面经 S02b 契约修订补 |
+| P1-B 云台框架 | Driver 侧齐备（emm42、vision_uart、imu 500Hz 前馈档）；25E 旧实现冻结在 platform_2d 可作参照 | **S05 整群缺**：坐标映射/收敛判定/搜索/轨迹发生/运动前馈；前馈输入=车端里程计→依赖 M01 |
+| P2-A 视觉协议 | vision_uart 字节层已有；帧解析在冻结的 vision_bus | 归属按 Q2 先例，S05 契约定（Q7） |
+| P2-B 双机协同 / P3 测距避障等 | 无硬件无 Driver | 余力项（Q8），不预支 |
+
+### 12.3 编排依据（报告命题规律 → 排序决策）
+
+1. 「赛题=循迹车×(云台/视觉/协同/避障) 模块重组」→ 能力模块在 T01 之前全部预制，
+   T01 保持薄编排（用户既有裁定不变）；**S05 由『赛题明确后』改为赛前预制**——
+   23E/25E 连续两届国赛本科大题含云台，等题=最大单块风险。
+2. 「循迹形态扩展链 + 时间指标收紧」→ 循迹深化（M02 元素/M03 速度规划）频次最高
+   （7/9 题），排在云台群之前。
+3. 「行进间耦合任务（25E 发挥）」→ 前馈通道数据方向：M01 里程计 → S05 云台，
+   决定 M01 必须先行。
+4. 「封箱禁烧录」→ UI01 菜单+参数表是赛场生存件且阻塞已清，最先做；
+   同时成为其后每个预制模块上板验证的入口（硬件验证用户自理不变）。
+5. 报告里程碑 M1/M2「重构 24H/25E 进框架回归」在本工程的对应物：24H 场地（半圆+8 字）
+   与 25E 正方形是 S06/S02b/S07 的验收参照场景；25E 云台打靶是 S05 的验收参照——
+   各契约冻结时把可主机化的部分写进证据行，场地实测归用户。
+6. 施工纪律不变：每模块仍走 embedded-closed-loop（契约冻结→TDD→证据→审计→拓扑），
+   新 Middleware 归 §8.2 data-chain 检查域，S05/S06 涉电机步进归 §8.1 motor-safety 检查域。
