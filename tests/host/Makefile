@@ -35,8 +35,11 @@ FAKE_GRAY_PORT_SRC = fake_gray_port.c
 GRAY_TEST_SRC = test_gray.c
 TRACK_ERROR_SRC = ../../hc-team/middleware/track_error/track_error.c
 TRACK_ERROR_TEST_SRC = test_track_error.c
+CHASSIS_SRC = ../../hc-team/app/service/chassis/chassis.c
+FAKE_CLOCK_SRC = fake_clock.c
+CHASSIS_TEST_SRC = test_chassis.c
 
-all: test_encoder run test_pid run_pid test_motor run_motor test_key run_key test_uart_fifo run_uart_fifo test_vofa_rx run_vofa_rx test_stepmotor_uart run_stepmotor_uart test_oled run_oled test_imu run_imu test_gray run_gray test_track_error run_track_error
+all: test_encoder run test_pid run_pid test_motor run_motor test_key run_key test_uart_fifo run_uart_fifo test_vofa_rx run_vofa_rx test_stepmotor_uart run_stepmotor_uart test_oled run_oled test_imu run_imu test_gray run_gray test_track_error run_track_error test_chassis run_chassis
 
 test_encoder: $(DRIVER_SRC) $(ENCODER_OWNER_SRC) $(FAKE_SRC) $(MOTOR_DRIVER_SRC) $(MOTOR_FAKE_SRC) $(PID_SRC) $(TEST_SRC)
 	$(CC) $(CFLAGS) -o $@ $(DRIVER_SRC) $(ENCODER_OWNER_SRC) $(FAKE_SRC) $(MOTOR_DRIVER_SRC) $(MOTOR_FAKE_SRC) $(PID_SRC) $(TEST_SRC) $(GC_LDFLAGS) -lm
@@ -98,6 +101,12 @@ test_track_error: $(TRACK_ERROR_SRC) ../../hc-team/middleware/track_error/track_
 run_track_error: test_track_error
 	./test_track_error
 
+test_chassis: $(CHASSIS_SRC) ../../hc-team/app/service/chassis/chassis.h $(DRIVER_SRC) $(FAKE_SRC) $(MOTOR_DRIVER_SRC) $(MOTOR_FAKE_SRC) $(PID_SRC) $(FAKE_CLOCK_SRC) $(CHASSIS_TEST_SRC)
+	$(CC) $(CFLAGS) -o $@ $(CHASSIS_SRC) $(DRIVER_SRC) $(FAKE_SRC) $(MOTOR_DRIVER_SRC) $(MOTOR_FAKE_SRC) $(PID_SRC) $(FAKE_CLOCK_SRC) $(CHASSIS_TEST_SRC) $(GC_LDFLAGS) -lm
+
+run_chassis: test_chassis
+	./test_chassis
+
 test_oled: $(OLED_DRIVER_SRC) $(FAKE_I2C_PORT_SRC) $(OLED_TEST_SRC)
 	$(CC) $(CFLAGS) -o $@ $(OLED_DRIVER_SRC) $(FAKE_I2C_PORT_SRC) $(OLED_TEST_SRC) $(GC_LDFLAGS) -lm
 
@@ -128,9 +137,11 @@ clean:
 	cmd.exe /D /C "if exist test_gray del /Q /F test_gray"
 	cmd.exe /D /C "if exist test_track_error.exe del /Q /F test_track_error.exe"
 	cmd.exe /D /C "if exist test_track_error del /Q /F test_track_error"
+	cmd.exe /D /C "if exist test_chassis.exe del /Q /F test_chassis.exe"
+	cmd.exe /D /C "if exist test_chassis del /Q /F test_chassis"
 else
 clean:
-	rm -f test_encoder test_encoder.exe test_pid test_pid.exe test_motor test_motor.exe test_key test_key.exe test_uart_fifo test_uart_fifo.exe test_vofa_rx test_vofa_rx.exe test_stepmotor_uart test_stepmotor_uart.exe test_oled test_oled.exe test_imu test_imu.exe test_gray test_gray.exe test_track_error test_track_error.exe
+	rm -f test_encoder test_encoder.exe test_pid test_pid.exe test_motor test_motor.exe test_key test_key.exe test_uart_fifo test_uart_fifo.exe test_vofa_rx test_vofa_rx.exe test_stepmotor_uart test_stepmotor_uart.exe test_oled test_oled.exe test_imu test_imu.exe test_gray test_gray.exe test_track_error test_track_error.exe test_chassis test_chassis.exe
 endif
 
-.PHONY: all run run_pid run_motor run_key run_uart_fifo run_vofa_rx run_stepmotor_uart run_oled run_imu run_gray run_track_error clean
+.PHONY: all run run_pid run_motor run_key run_uart_fifo run_vofa_rx run_stepmotor_uart run_oled run_imu run_gray run_track_error run_chassis clean

@@ -25,3 +25,5 @@ tests/host/test_gray
 tests/host/test_gray.exe
 tests/host/test_track_error
 tests/host/test_track_error.exe
+tests/host/test_chassis
+tests/host/test_chassis.exe
