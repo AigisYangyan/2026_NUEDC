@@ -1,6 +1,6 @@
 # 计划：P8B —— IMU 链路提速至 230400 + 500 Hz
 
-状态：`pending`
+状态：`ACCEPTED`（2026-07-17 自闭环施工 + 验收）
 日期：2026-07-17
 流程：单 agent 自闭环（`.agents/skills/embedded-closed-loop`）。**本契约在写任何生产代码前提交**。
 前置：P8（`plan_p8_imu_rewrite.md`，`ACCEPTED`，提交 `5b7e15a`）。
@@ -45,6 +45,27 @@ IMU RX 为**逐字节中断，无 DMA**。Cortex-M0+ @80 MHz，按每字节约 1
 
 **用户判断成立**：500 Hz 仅耗 0.63% CPU。FIFO 128 字节在 500 Hz 下仍有 25.6 ms 余量，
 远宽于 10 ms 任务周期 → **不动 FIFO 容量**（避免无依据的改动）。
+
+## 0.3 验收记录（2026-07-17）
+
+契约冻结于 `92e11f5`，早于任何生产代码改动。
+
+| ID | 结果 | 观察到的后置条件 |
+|---|---|---|
+| E01 | PASS | clean 固件构建 exit 0；`: (warning\|error\|remark)` 命中 **0** |
+| E02 | PASS | 主机 9 套件 **101 PASS / 0 FAIL**（P8 基线 98 + 新增 3） |
+| E03 | PASS | `Debug/ti_msp_dl_config.h:223` `UART_IMU_BAUD_RATE` = **230400** |
+| E04 | PASS | `imu_uart.c` 中 `115200` **0 命中** —— TX 超时算式已按 230400 重算，无旧常量残留 |
+| E05 | PASS | `IMU_OUTPUT_RATE_1000\|0x0Eu` 在 `driver/imu/` **0 命中** —— 未暴露 1000 Hz |
+| E06 | PASS | 生成物 diff 仅 `UART_IMU` 波特率相关 6 行；`QEI\|PWM_DRIVE` 漂移 **0** |
+
+**停止条件均未触发**：既有枚举 `IMU_OUTPUT_RATE_10/50/100/200_HZ` 的寄存器映射
+（0x06/0x08/0x09/0x0B）逐一复核未变，500 Hz(0x0D) 追加在**末尾**；
+施工前主机基线复跑 98/0，无漂移。
+
+**新增用例 3 项**中有一项是**针对本次改动的回归防护**：
+`test_existing_rate_codes_unchanged()` 把 200 Hz→0x0B 的映射钉死 ——
+若日后有人把新档插进枚举中间，既有取值会静默漂移到别的寄存器编码上，该用例必然失败。
 
 ## 1. 变更清单
 

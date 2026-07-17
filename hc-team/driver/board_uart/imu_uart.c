@@ -9,8 +9,8 @@
 #include <ti/driverlib/dl_uart.h>
 #endif
 
-/* 器件在 200 Hz 输出速率下发两种帧共 2000 B/s。128 字节可容纳约 64 ms 的数据，
- * 远宽于任何合理的 Imu_Update() 周期。溢出不是安全事件：计数后丢字节，
+/* 器件在 500 Hz 输出速率下发两种帧共 5000 B/s。128 字节可容纳约 25.6 ms 的数据，
+ * 仍宽于 10 ms 量级的任务周期。溢出不是安全事件：计数后丢字节，
  * 解析器靠滑动窗口自行重同步。 */
 #define IMU_UART_RX_FIFO_SIZE 128u
 
@@ -120,11 +120,11 @@ bool ImuUart_TryWrite(const uint8_t *data, uint32_t length)
 #else
     {
         uint32_t index = 0u;
-        /* UART_IMU 为 115200 baud（board.syscfg 单源）。一个字节 10/115200 s
-         * = 86.8 us。每字节的有界轮询等 2 个字节时间，向上取整 174 us
-         * -> 80 MHz 系统时钟下约 13920 个周期。 */
+        /* UART_IMU 为 230400 baud（board.syscfg 单源）。一个字节 10/230400 s
+         * = 43.4 us。每字节的有界轮询等 2 个字节时间，向上取整 87 us
+         * -> 80 MHz 系统时钟下约 6960 个周期。 */
         uint32_t byte_deadline_cycles =
-            ((80u * 2u * 10u * 1000u) + 115200u - 1u) / 115200u;
+            ((80u * 2u * 10u * 1000u) + 230400u - 1u) / 230400u;
 
         for (index = 0u; index < length; index++) {
             uint32_t remaining_cycles = byte_deadline_cycles;

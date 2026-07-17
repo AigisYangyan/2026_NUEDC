@@ -339,11 +339,13 @@ UART3.DMA_CHANNEL_RX.peripheral.$assign = "DMA_CH1";
 scripting.suppress("Source Increment is controlled by the Source Address Direction configurable\\.", UART3.DMA_CHANNEL_TX, "srcIncDec");
 
 UART4.$name                            = "UART_IMU";
-/* 单轴 IMU 模组出厂波特率为 115200（数据手册模组参数表；示例工程
- * IMU_NEW_EXAMPLE/GyroPID/empty.syscfg 亦为 115200 且实测可用）。
- * 230400 是已更换掉的旧 IMU 遗留值；且手册 BAUD 寄存器表把 0x0006 同时
- * 标注为 115200 与 230400，230400 的编码无可靠记载，不做试错。 */
-UART4.targetBaudRate                   = 115200;
+/* 单轴 IMU 模组：用户 2026-07-17 裁定链路提速至 230400 + 500 Hz（P8B）。
+ * 依据是云台前馈延迟 —— 180°/s 转弯时 200 Hz 的 5 ms 数据龄带来 0.90° 指向
+ * 误差，是器件自身 0.2° 航向精度的 4.5 倍；500 Hz 压到 0.36°，同量级。
+ * 500 Hz @230400 = 21.7% 线路占用、5000 次/秒逐字节中断（约 0.63% CPU）。
+ * 模组出厂为 115200，**须由用户用厂商上位机改成 230400**：手册 BAUD 表把
+ * 0x0006 同时标注为 115200 与 230400，230400 编码无可靠记载，固件不下发该命令。 */
+UART4.targetBaudRate                   = 230400;
 UART4.enableFIFO                       = true;
 /* IMU 无 DMA 通道，RX 走逐字节中断：阈值取 1 才能让每个字节都触发。 */
 UART4.enabledInterrupts                = ["RX"];

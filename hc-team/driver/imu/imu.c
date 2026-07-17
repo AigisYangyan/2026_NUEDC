@@ -240,12 +240,14 @@ bool Imu_ZeroYaw(void)
 
 bool Imu_SetOutputRate(Imu_OutputRate_t rate)
 {
-    /* 器件 RRATE 寄存器编码，下标与 Imu_OutputRate_t 一一对应。 */
+    /* 器件 RRATE 寄存器编码，下标与 Imu_OutputRate_t 一一对应。
+     * 只增不改：新档追加在末尾，否则既有取值会静默映射到别的编码上。 */
     static const uint8_t rate_code[] = {
         0x06u, /* IMU_OUTPUT_RATE_10_HZ */
         0x08u, /* IMU_OUTPUT_RATE_50_HZ */
         0x09u, /* IMU_OUTPUT_RATE_100_HZ */
         0x0Bu, /* IMU_OUTPUT_RATE_200_HZ */
+        0x0Du, /* IMU_OUTPUT_RATE_500_HZ */
     };
 
     if ((uint32_t)rate >= (sizeof(rate_code) / sizeof(rate_code[0]))) {

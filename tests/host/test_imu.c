@@ -330,6 +330,42 @@ static void test_set_output_rate_sends_expected_code(void)
                 "imu set output rate 200Hz sends register code 0x0B");
 }
 
+static void test_set_output_rate_500hz_sends_expected_code(void)
+{
+    uint8_t log[32];
+    uint32_t len = 0u;
+    /* 500 Hz 的 RRATE 编码为 0x0D，寄存器地址 0x02。 */
+    const uint8_t expected[] = {
+        0x55u, 0xAAu, 0x13u, 0x8Eu, 0x5Fu,
+        0x55u, 0xAAu, 0x02u, 0x0Du, 0x00u,
+        0x55u, 0xAAu, 0x00u, 0x00u, 0x00u,
+    };
+
+    reset_all();
+    expect_true(Imu_SetOutputRate(IMU_OUTPUT_RATE_500_HZ) != false,
+                "imu set output rate 500Hz reports success");
+
+    len = FakeUartPort_CopyImuTxLog(log, sizeof(log));
+    expect_true((len == sizeof(expected)) &&
+                    (memcmp(log, expected, sizeof(expected)) == 0),
+                "imu set output rate 500Hz sends register code 0x0D");
+}
+
+/* 新增 500 Hz 档必须追加在枚举末尾：若插在中间，既有取值会静默漂移到别的
+ * 寄存器编码上。本用例把 200 Hz 的映射钉死，使那种漂移必然被测出来。 */
+static void test_existing_rate_codes_unchanged(void)
+{
+    uint8_t log[32];
+    const uint8_t expected_200hz[] = {0x55u, 0xAAu, 0x02u, 0x0Bu, 0x00u};
+
+    reset_all();
+    (void)Imu_SetOutputRate(IMU_OUTPUT_RATE_200_HZ);
+    (void)FakeUartPort_CopyImuTxLog(log, sizeof(log));
+
+    expect_true(memcmp(&log[5], expected_200hz, sizeof(expected_200hz)) == 0,
+                "imu 200Hz still maps to 0x0B after adding 500Hz");
+}
+
 static void test_set_output_rate_rejects_out_of_range(void)
 {
     uint8_t log[32];
@@ -389,6 +425,8 @@ int main(void)
     test_age_ms_resets_on_new_frame();
     test_zero_yaw_sends_unlock_zero_save();
     test_set_output_rate_sends_expected_code();
+    test_set_output_rate_500hz_sends_expected_code();
+    test_existing_rate_codes_unchanged();
     test_set_output_rate_rejects_out_of_range();
     test_rx_overflow_surfaced_in_diag();
     test_null_out_is_safe();
