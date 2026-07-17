@@ -302,7 +302,10 @@ preserved_behavior：
 - E01 expected: 0 命中（新模块与 pid 同样纯净）
 - E01 negative_check: 不得为绕过扫描把硬件符号藏进宏/字符串
 
-- E02 command: Grep `TrackError_|track_error` in `hc-team/app/`
+- E02 command: Grep `TrackError_|track_error\.h|middleware/track_error` in `hc-team/app/`
+  （**修订 2026-07-17**：原模式 `TrackError_|track_error` 误伤 task1.c 既有局部变量
+  `s_track_error`（V03 债，先于本契约存在，与新模块无关）。修订后只匹配对新模块
+  API/头文件/路径的真实引用，意图不变：App 零引用）
 - E02 expected: 0 命中（零调用者=预期状态；出现任何命中即违反 §15.2 类比）
 - E02 postcondition: task1/track_follow 现行链路零改动（diff 佐证）
 
