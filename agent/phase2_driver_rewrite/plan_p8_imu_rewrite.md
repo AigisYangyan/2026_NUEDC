@@ -1,9 +1,29 @@
 # 计划：P8 —— 新单轴 IMU 驱动重写（面向小车底盘）
 
-状态：`pending`
+状态：`ACCEPTED`（2026-07-17 自闭环施工 + 验收）
 日期：2026-07-17
-流程：单 agent 自闭环（`.agents/skills/embedded-closed-loop`）。**本契约在写任何生产代码前提交**，
-验收比对本文冻结的 E 行。
+流程：单 agent 自闭环（`.agents/skills/embedded-closed-loop`）。**本契约在写任何生产代码前提交**（`f0ef8f0`），
+验收比对本文冻结的 E 行。契约期间修订 2 次，均单独提交（§0.1 `27e50d7`、§0.2 `93bf75f`）。
+
+## 0.0 验收记录（2026-07-17）
+
+| ID | 结果 | 观察到的后置条件 |
+|---|---|---|
+| E01 | PASS | clean 固件构建 exit 0；`: (warning\|error\|remark)` 命中 **0**。非空转：`imu.o` 实测被编译、`Debug/2026_Diansai.out` 实测被重链 |
+| E02 | PASS | `hc-team/driver/imu/` 中 `ti_msp_dl_config\|DL_\|delay_cycles` **0 命中** —— IMU 层零 TI 依赖，违规边 `IMU_API --> DL_HAL : exposed TI header` **已关闭并从拓扑删除** |
+| E03 | PASS | 旧器件 API 全工程 **0 命中**（模式经 §0.2 修订）；`git ls-files` 施工前 **2** → 施工后 **0** |
+| E04 | PASS | 主机 9 套件 **98 PASS / 0 FAIL**（76 基线 + 22 新增），gcc `-Wall -Wextra` 0 告警 |
+| E05 | PASS | `UART_IMU_BAUD_RATE` = **115200**；`SYSCFG_DL_UART_IMU_init()` 体内 `DL_UART_MAIN_INTERRUPT_RX` 命中 **1**（符号名经 §0.1 修订） |
+| E06 | PASS | 16 个变更文件全部落在 §5 `allowed_files`；`forbidden_files` **0 命中**；秘密扫描 **0 命中** |
+
+**停止条件均未触发**：`board.syscfg` 的 diff 只含 `UART_IMU` 一块（`QEI\|PWM_DRIVE\|Motor\|ENCODER` 命中 0）；
+SysConfig 重新生成的 diff 只有 `UART_IMU` 三处（波特率宏 / `DL_UART_MAIN_INTERRUPT_RX` / RX FIFO 阈值）；
+施工前主机基线复跑为 76/0，无漂移。
+
+**验收中的施工事故（记录在案，非静默修复）**：误用 `git stash --keep-index` 导致工作区改动被藏走、
+E03 修订提交为空、`stash pop` 冲突。已用 `git checkout stash@{0} -- .` 全量恢复并逐项核对
+（`board.syscfg` = 115200 + RX、契约 §0.2–§0.4 齐全），随后**重跑了全部 6 条 E 行** ——
+本表所有结果均取自恢复之后的实跑，非恢复前的旧结果。
 
 ## 0. 用户裁定（2026-07-17）
 

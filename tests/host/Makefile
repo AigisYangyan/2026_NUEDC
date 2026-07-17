@@ -27,8 +27,11 @@ STEPMOTOR_UART_TEST_SRC = test_stepmotor_uart.c
 OLED_DRIVER_SRC = ../../hc-team/driver/oled/oled_hardware_i2c.c
 OLED_TEST_SRC = test_oled.c
 FAKE_I2C_PORT_SRC = fake_i2c_port.c
+BOARD_UART_IMU_SRC = ../../hc-team/driver/board_uart/imu_uart.c
+IMU_DRIVER_SRC = ../../hc-team/driver/imu/imu.c
+IMU_TEST_SRC = test_imu.c
 
-all: test_encoder run test_pid run_pid test_motor run_motor test_key run_key test_uart_fifo run_uart_fifo test_vofa_rx run_vofa_rx test_stepmotor_uart run_stepmotor_uart test_oled run_oled
+all: test_encoder run test_pid run_pid test_motor run_motor test_key run_key test_uart_fifo run_uart_fifo test_vofa_rx run_vofa_rx test_stepmotor_uart run_stepmotor_uart test_oled run_oled test_imu run_imu
 
 test_encoder: $(DRIVER_SRC) $(ENCODER_OWNER_SRC) $(FAKE_SRC) $(MOTOR_DRIVER_SRC) $(MOTOR_FAKE_SRC) $(TEST_SRC)
 	$(CC) $(CFLAGS) -o $@ $(DRIVER_SRC) $(ENCODER_OWNER_SRC) $(FAKE_SRC) $(MOTOR_DRIVER_SRC) $(MOTOR_FAKE_SRC) $(TEST_SRC) $(GC_LDFLAGS) -lm
@@ -54,23 +57,29 @@ test_key: ../../hc-team/driver/key/key.c ../../hc-team/driver/key/key.h ../../hc
 run_key: test_key
 	./test_key
 
-test_uart_fifo: $(BOARD_UART_VISION_SRC) $(BOARD_UART_VOFA_SRC) $(BOARD_UART_STEPMOTOR_SRC) $(FAKE_UART_PORT_SRC) $(UART_FIFO_TEST_SRC)
-	$(CC) $(CFLAGS) -o $@ $(BOARD_UART_VISION_SRC) $(BOARD_UART_VOFA_SRC) $(BOARD_UART_STEPMOTOR_SRC) $(FAKE_UART_PORT_SRC) $(UART_FIFO_TEST_SRC) $(GC_LDFLAGS) -lm
+test_uart_fifo: $(BOARD_UART_VISION_SRC) $(BOARD_UART_VOFA_SRC) $(BOARD_UART_STEPMOTOR_SRC) $(BOARD_UART_IMU_SRC) $(FAKE_UART_PORT_SRC) $(UART_FIFO_TEST_SRC)
+	$(CC) $(CFLAGS) -o $@ $(BOARD_UART_VISION_SRC) $(BOARD_UART_VOFA_SRC) $(BOARD_UART_STEPMOTOR_SRC) $(BOARD_UART_IMU_SRC) $(FAKE_UART_PORT_SRC) $(UART_FIFO_TEST_SRC) $(GC_LDFLAGS) -lm
 
 run_uart_fifo: test_uart_fifo
 	./test_uart_fifo
 
-test_vofa_rx: $(BOARD_UART_VISION_SRC) $(BOARD_UART_VOFA_SRC) $(BOARD_UART_STEPMOTOR_SRC) $(VOFA_DRIVER_SRC) $(FAKE_UART_PORT_SRC) $(VOFA_RX_TEST_SRC)
-	$(CC) $(CFLAGS) -o $@ $(BOARD_UART_VISION_SRC) $(BOARD_UART_VOFA_SRC) $(BOARD_UART_STEPMOTOR_SRC) $(VOFA_DRIVER_SRC) $(FAKE_UART_PORT_SRC) $(VOFA_RX_TEST_SRC) $(GC_LDFLAGS) -lm
+test_vofa_rx: $(BOARD_UART_VISION_SRC) $(BOARD_UART_VOFA_SRC) $(BOARD_UART_STEPMOTOR_SRC) $(BOARD_UART_IMU_SRC) $(VOFA_DRIVER_SRC) $(FAKE_UART_PORT_SRC) $(VOFA_RX_TEST_SRC)
+	$(CC) $(CFLAGS) -o $@ $(BOARD_UART_VISION_SRC) $(BOARD_UART_VOFA_SRC) $(BOARD_UART_STEPMOTOR_SRC) $(BOARD_UART_IMU_SRC) $(VOFA_DRIVER_SRC) $(FAKE_UART_PORT_SRC) $(VOFA_RX_TEST_SRC) $(GC_LDFLAGS) -lm
 
 run_vofa_rx: test_vofa_rx
 	./test_vofa_rx
 
-test_stepmotor_uart: $(BOARD_UART_VISION_SRC) $(BOARD_UART_VOFA_SRC) $(BOARD_UART_STEPMOTOR_SRC) $(FAKE_UART_PORT_SRC) $(STEPMOTOR_UART_TEST_SRC)
-	$(CC) $(CFLAGS) -o $@ $(BOARD_UART_VISION_SRC) $(BOARD_UART_VOFA_SRC) $(BOARD_UART_STEPMOTOR_SRC) $(FAKE_UART_PORT_SRC) $(STEPMOTOR_UART_TEST_SRC) $(GC_LDFLAGS) -lm
+test_stepmotor_uart: $(BOARD_UART_VISION_SRC) $(BOARD_UART_VOFA_SRC) $(BOARD_UART_STEPMOTOR_SRC) $(BOARD_UART_IMU_SRC) $(FAKE_UART_PORT_SRC) $(STEPMOTOR_UART_TEST_SRC)
+	$(CC) $(CFLAGS) -o $@ $(BOARD_UART_VISION_SRC) $(BOARD_UART_VOFA_SRC) $(BOARD_UART_STEPMOTOR_SRC) $(BOARD_UART_IMU_SRC) $(FAKE_UART_PORT_SRC) $(STEPMOTOR_UART_TEST_SRC) $(GC_LDFLAGS) -lm
 
 run_stepmotor_uart: test_stepmotor_uart
 	./test_stepmotor_uart
+
+test_imu: $(BOARD_UART_VISION_SRC) $(BOARD_UART_VOFA_SRC) $(BOARD_UART_STEPMOTOR_SRC) $(BOARD_UART_IMU_SRC) $(IMU_DRIVER_SRC) $(FAKE_UART_PORT_SRC) $(IMU_TEST_SRC)
+	$(CC) $(CFLAGS) -o $@ $(BOARD_UART_VISION_SRC) $(BOARD_UART_VOFA_SRC) $(BOARD_UART_STEPMOTOR_SRC) $(BOARD_UART_IMU_SRC) $(IMU_DRIVER_SRC) $(FAKE_UART_PORT_SRC) $(IMU_TEST_SRC) $(GC_LDFLAGS) -lm
+
+run_imu: test_imu
+	./test_imu
 
 test_oled: $(OLED_DRIVER_SRC) $(FAKE_I2C_PORT_SRC) $(OLED_TEST_SRC)
 	$(CC) $(CFLAGS) -o $@ $(OLED_DRIVER_SRC) $(FAKE_I2C_PORT_SRC) $(OLED_TEST_SRC) $(GC_LDFLAGS) -lm
@@ -96,9 +105,11 @@ clean:
 	cmd.exe /D /C "if exist test_stepmotor_uart del /Q /F test_stepmotor_uart"
 	cmd.exe /D /C "if exist test_oled.exe del /Q /F test_oled.exe"
 	cmd.exe /D /C "if exist test_oled del /Q /F test_oled"
+	cmd.exe /D /C "if exist test_imu.exe del /Q /F test_imu.exe"
+	cmd.exe /D /C "if exist test_imu del /Q /F test_imu"
 else
 clean:
-	rm -f test_encoder test_encoder.exe test_pid test_pid.exe test_motor test_motor.exe test_key test_key.exe test_uart_fifo test_uart_fifo.exe test_vofa_rx test_vofa_rx.exe test_stepmotor_uart test_stepmotor_uart.exe test_oled test_oled.exe
+	rm -f test_encoder test_encoder.exe test_pid test_pid.exe test_motor test_motor.exe test_key test_key.exe test_uart_fifo test_uart_fifo.exe test_vofa_rx test_vofa_rx.exe test_stepmotor_uart test_stepmotor_uart.exe test_oled test_oled.exe test_imu test_imu.exe
 endif
 
-.PHONY: all run run_pid run_motor run_key run_uart_fifo run_vofa_rx run_stepmotor_uart run_oled clean
+.PHONY: all run run_pid run_motor run_key run_uart_fifo run_vofa_rx run_stepmotor_uart run_oled run_imu clean

@@ -15,6 +15,7 @@
 | G3507→G3519 迁移（2026-07-16，本仓库） | 工程移入 `2026_Diansai`：MSPM0G3519/LQFP-100、SDK 2.11、步进总线 UART2→UART7、编码器升级 TIMG8/TIMG9 硬件 QEI（公共 API 零变化，GROUP1 只剩按键）、MPU6050/I2C_IMU 移除、灰度 8→12 路 | 提交 `ccf3fee`…`fc86063`；配方见 `agent/MIGRATION_G3507_TO_G3519.md` |
 | Agent/skills 本地适配（2026-07-16） | AGENTS.md 入库并标注 G3519 工程事实；拓扑同步（删 MPU6050、QEI 数据流、V16 登记）；三个 REASONIX skills 注入本地事实；plan5 修订 5 | 提交 `a7446c6` |
 | 计划目录整理（2026-07-16） | 完成计划移入 `done/`，作废文档移入 `obsolete/`，新建 HT 派工计划与本索引 | 提交 `36d4d65` |
+| Phase 2 P8：新单轴 IMU 驱动重写（2026-07-17） | **器件已更换**（用户解除 P7 的 IMU 暂缓裁定）。新器件与旧 IMU 协议无交集：5 字节定长帧、内置 Kalman 解算、只出 Yaw 与 GyroZ。删除旧 `IMU.c/.h`(616 行/0x7E 九轴协议)，新增 `imu.c/.h`（解析+快照+新鲜度+诊断）；`imu_uart` 补 RX FIFO 并接线 UART3 IRQ；`board.syscfg` 的 `UART_IMU` 230400→**115200** 并开启 RX 中断 | `ACCEPTED`，`plan_p8_imu_rewrite.md`，E01–E06 全过，主机 **98 项**（+22），违规边 `IMU_API --> DL_HAL` **closed** |
 | Phase 2 P7：emm42 残渣清理（2026-07-17） | 巡查推翻原范围：**Step Motor 已于 P5 拆完**（`emm42.c` 已是纯组包），**IMU 无外部调用者且 RX 未接线**（`mspm0_runtime.c` 中 IMU 字样 0 处）。**IMU 部分经用户 2026-07-17 裁定推迟**（IMU 与 12 路灰度后续要改），已施工的 IMU 改动整体回退。实际交付：清除 emm42 未引用全局 `g_emm42_default_*` 与空壳 `Emm42_RunCommandTask` | `ACCEPTED`（范围收窄），`plan_p7_imu_stepmotor.md`，E01/E03/E05/E06 过、E02/E04 标 N/A（IMU 未施工），主机测试 76 项 |
 | Phase 2 HT.T1：`tests/host` 恢复 | 主机测试套件从旧仓库迁入 `2026_Diansai`，32 项基线全绿 | `CODEX_ACCEPTED`，V16 closed，提交 `d57b728` |
 | Phase 2 P6：I2C 屏幕收口 + EEPROM 删除 | `driver/eeprom/at24cxx.*` 死代码整体删除（含构建登记）；OLED 公共头由 10+ 符号收敛为 6 个显示能力接口，页寻址/字模/pow/总线恢复全部私有；`50000u` 魔数超时改为 `2 byte×9 bit/400 kHz ×2 = 90 µs → 1800 loops` 算式推导；新增主机 OLED 测试 15 项 | `CODEX_ACCEPTED`，V17 登记并同批次 closed，主机测试 76 项 |
@@ -50,10 +51,16 @@ agent/
    - **Q4（编码器⇄灰度对调）**：**硬件组是对的，固件是错的**。编码器原占的 PA3/PA6/PA2 分别是 `SYSCTL.LFXIN`/`HFXOUT`/`ROSC`，核心板为现成模块、晶振实焊，固件无法绕过 —— 这是引脚表比固件更接近物理事实的**唯一一处**。已按 `plan_qei_gray_pinmux.md` 施工并验收，表的 11 行冲突全消。
    - 「左右轮 timer 归属翻转导致静默对调」的风险**不存在**：syscfg `$name` 继续与物理轮子绑定，实例号是 Driver 以下私有事实（E04 证实驱动零改动）。
 6. **P7**（2026-07-17 `ACCEPTED`，范围收窄，`plan_p7_imu_stepmotor.md`）：原定「其余 Driver 拆分」，巡查后**两项均不成立** —— Step Motor 已于 P5 拆完；IMU 的问题不是耦合而是一行冗余头包含。**IMU 部分经用户裁定推迟**，仅交付 emm42 残渣清理。
-   - **★ IMU 与 12 路灰度：用户 2026-07-17 裁定暂不编写，后续会修改。** 动这两处前须先确认裁定是否解除。
-   - **IMU 重写时必须一并处理的两项**（本次已查明但未修）：① `IMU.h:5` 冗余 `ti_msp_dl_config.h` —— 违规边 `IMU_API --> DL_HAL` 的成因，且 `IMU.h` 公共接口并未使用该头任何东西；② **`IMU.c` 三处延时按 32MHz 计算，而 `CPUCLK=80MHz`，实际时长仅标称 40%**。正解：改用 `Mspm0Runtime_DelayMs()`（基于 `Clock_NowMs()`，不含频率假设，`IMU.c` 已包含该头）。因 IMU 是死代码，该缺陷从未暴露，**一启用即暴露**。
-   - IMU 现状：无任何外部调用者，RX 未接线（`mspm0_runtime.c` 中 IMU 字样 0 处），整条解析链路不可能被触发。
-7. **Service 层承接**（待规划）：关闭 V07/V10/V13/V14/V15（Task 直接编排 Driver/PID、Service 空缺、可写全局、UI 直调 Driver、VOFA 跨层注册）。
+   - **★ IMU 的「暂不编写」裁定已于 2026-07-17 由用户解除**（用户更换了 IMU 器件并要求重写）→ 见下方 P8。**12 路灰度的裁定仍然有效，动它前须先确认。**
+   - P7 记录的两项 IMU 缺陷（`IMU.h:5` 冗余头、三处 32MHz 延时假设）**随 P8 删除旧 `IMU.c/.h` 一并消失**，不再是未结项。
+7. **P8**（2026-07-17 `ACCEPTED`，`plan_p8_imu_rewrite.md`）：新单轴 IMU 驱动重写，面向小车底盘。
+   - **器件换了，不是改**：旧 0x7E 九轴多功能码协议 → 新 5 字节定长帧单轴模组。参考资料在 `hc-team/IMU_NEW_EXAMPLE/`（未纳入版本控制）。
+   - **器件内置 Kalman 解算** → 驱动**禁止**再做积分/滤波/方向反转/单位再换算（AGENTS.md §8.2 单一所有者）。旧驱动的 `IMU_Update_Yaw_Integration()` 是对裸陀螺的积分，对本器件属重复处理，已随旧文件删除且**不得迁移回来**。
+   - **航向角 unwrap 不在 Driver**：器件出 `[-180,180)`；连续多圈航向是数据处理，属 Middleware/Service。
+   - **未实现 BIAS_CAL（陀螺零偏校准）**：21 秒阻塞、一次性台架动作，可用厂家上位机完成。需要时另开派工。
+   - **★ 上板必测**：① 实测输出速率（`Imu_GetDiag().frame_count` 1 秒增量 ÷ 2）—— 出厂默认 10Hz 对底盘偏航闭环太慢，须用 `Imu_SetOutputRate()` 提到 100/200Hz；② 波特率裁定验证（若 `checksum_error_count` 暴涨而 `frame_count` 不涨 → 115200 判断错）；③ **航向角正方向**（车体转向 vs `yaw_deg` 增减），修正点只能有一个。
+   - **`Imu_ZeroYaw()` / `Imu_SetOutputRate()` 写器件 flash**，均为一次性动作，禁止放进周期任务。
+8. **Service 层承接**（待规划）：关闭 V07/V10/V13/V14/V15（Task 直接编排 Driver/PID、Service 空缺、可写全局、UI 直调 Driver、VOFA 跨层注册）。
 
 ## 3.1 待办（有裁定但未立计划）
 

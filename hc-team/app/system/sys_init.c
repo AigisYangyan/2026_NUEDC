@@ -37,6 +37,7 @@
 #include "driver/mspm0_runtime/mspm0_runtime.h"
 #include "middleware/pid/pid.h"
 #include "driver/encoder/encoder.h"
+#include "driver/imu/imu.h"
 #include "driver/key/key.h"
 #include "driver/motor/motor.h"
 #include "driver/oled/oled_hardware_i2c.h"
@@ -65,6 +66,7 @@ void SysInit(void)
     VofaUart_Init();
     StepmotorUart_Init();
     ImuUart_Init();
+    Imu_Init(); /* 只复位解析状态；不与器件通信，也不写器件 flash。 */
 
     OLED_Init();
     Key_Init();

@@ -47,6 +47,7 @@ void StepmotorUart_IsrTxDone(void);
 void VofaUart_IsrPushByte(uint8_t data);
 void VofaUart_IsrTxDone(void);
 void VisionUart_IsrPushByte(uint8_t data);
+void ImuUart_IsrPushByte(uint8_t data);
 
 static uint32_t runtime_dma_irq_mask(uint8_t dma_ch_num)
 {
@@ -363,4 +364,11 @@ void UART_HOST_LINK_INST_IRQHandler(void)
 void UART_VISION_INST_IRQHandler(void)
 {
     runtime_handle_uart_irq(UART_VISION_INST, VisionUart_IsrPushByte);
+}
+
+/* UART_IMU 是唯一不走 DMA 的接收角色：帧长仅 5 字节且速率不高，
+ * 逐字节中断搬运即可，无需为它占用一对 DMA 通道。 */
+void UART_IMU_INST_IRQHandler(void)
+{
+    runtime_handle_uart_irq(UART_IMU_INST, ImuUart_IsrPushByte);
 }

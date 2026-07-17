@@ -19,3 +19,5 @@ tests/host/test_stepmotor_uart
 tests/host/test_stepmotor_uart.exe
 tests/host/test_oled
 tests/host/test_oled.exe
+tests/host/test_imu
+tests/host/test_imu.exe

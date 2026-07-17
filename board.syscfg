@@ -339,9 +339,15 @@ UART3.DMA_CHANNEL_RX.peripheral.$assign = "DMA_CH1";
 scripting.suppress("Source Increment is controlled by the Source Address Direction configurable\\.", UART3.DMA_CHANNEL_TX, "srcIncDec");
 
 UART4.$name                            = "UART_IMU";
-UART4.targetBaudRate                   = 230400;
+/* 单轴 IMU 模组出厂波特率为 115200（数据手册模组参数表；示例工程
+ * IMU_NEW_EXAMPLE/GyroPID/empty.syscfg 亦为 115200 且实测可用）。
+ * 230400 是已更换掉的旧 IMU 遗留值；且手册 BAUD 寄存器表把 0x0006 同时
+ * 标注为 115200 与 230400，230400 的编码无可靠记载，不做试错。 */
+UART4.targetBaudRate                   = 115200;
 UART4.enableFIFO                       = true;
-UART4.rxFifoThreshold                  = "DL_UART_RX_FIFO_LEVEL_FULL";
+/* IMU 无 DMA 通道，RX 走逐字节中断：阈值取 1 才能让每个字节都触发。 */
+UART4.enabledInterrupts                = ["RX"];
+UART4.rxFifoThreshold                  = "DL_UART_RX_FIFO_LEVEL_ONE_ENTRY";
 UART4.txFifoThreshold                  = "DL_UART_TX_FIFO_LEVEL_1_4_EMPTY";
 UART4.peripheral.$assign               = "UART3";
 UART4.peripheral.rxPin.$assign         = "PA25";
