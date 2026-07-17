@@ -170,11 +170,25 @@ Verification:
   postcondition: `emm42.h` = **0**（施工前 13）；`stepmotor_bus.h` = **13**；声明总数守恒
   negative_check: 若 emm42.h ≠0 则倒置未修；若 stepmotor_bus.h ≠13 则搬丢了声明
 
-- **E05** command: `git status --porcelain --untracked-files=all hc-team/driver/motor/motor.h; grep -c 'Motor_Brake' hc-team/driver/motor/motor.h; test -d hc-team/driver/eeprom && echo EEPROM_EXISTS || echo EEPROM_GONE`
+- **E05** command: `grep -rcE 'Motor_Brake\b' hc-team/driver/motor/motor.h; test -d hc-team/driver/eeprom && echo EEPROM_EXISTS || echo EEPROM_GONE`
   expected_exit: `0`
-  postcondition: `motor.h` 中 `Motor_Brake` 命中 **0**（施工前 2）；输出 `EEPROM_GONE`
+  postcondition: `motor.h` 中 `Motor_Brake\b` 命中 **0**（施工前 1）；输出 `EEPROM_GONE`
   negative_check: `EEPROM_EXISTS` 即 REJECT
   > 删除类证据须先证在、后证亡：施工前已实测 `hc-team/driver/eeprom/` 存在且为空目录
+
+  > **★ 契约修订 1（2026-07-17，单独提交，量具错误第 5 次）**
+  > 原 E05 用裸模式 `Motor_Brake`，postcondition 写「命中 0」。**该行自冻结起就不可满足**：
+  > 裸 `Motor_Brake` 是 `Motor_BrakeAll` 的前缀，而 `Motor_BrakeAll` 是必须保留的公共 API。
+  > 只要它在，命中就永远 ≥1，与 `Motor_Brake` 是否删除无关。
+  > 已收紧为 `Motor_Brake\b`（词边界使其不匹配 `Motor_BrakeAll`），施工前实测 1、施工后 0。
+  > **这与 P8 的 `IMU_UART_` 裸前缀错误是同一类。**
+  >
+  > **根因比重复本身更重要**：P8 的教训是「模式必须在冻结前先对现有代码树跑一遍」，
+  > 而本次**跑了** —— 冻结前实测 `grep -c 'Motor_Brake' motor.h` 得 2，我据此写下「2 → 须 0」。
+  > 错在**只看了计数、没看命中的是哪几行**。那 2 行里有一行是 `Motor_BrakeAll`，
+  > 它注定不会消失。
+  > **修订后的教训：跑一遍不够，必须读它匹配到了什么。计数不是证据，命中的行才是。**
+  > 零命中类的证据行尤其如此 —— 「数字变小了」和「目标真的没了」是两回事。
 
 - **E06** command: `grep -l '@file' hc-team/driver/board_uart/stepmotor_uart.h hc-team/driver/board_uart/vision_uart.h hc-team/driver/board_uart/vofa_uart.h hc-team/driver/motor/motor_hw.h hc-team/driver/oled/oledfont.h hc-team/driver/board_uart/imu_uart.c hc-team/driver/board_uart/stepmotor_uart.c hc-team/driver/board_uart/vision_uart.c hc-team/driver/board_uart/vofa_uart.c | wc -l`
   expected_exit: `0`
