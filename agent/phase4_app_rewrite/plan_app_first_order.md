@@ -38,8 +38,8 @@
 
 | ID | 模块 | 新目录 | 吸收/替代的存量 | 关闭的债 | 状态 |
 |---|---|---|---|---|---|
-| A00 | 计划 + 裁定解除记录 | `agent/phase4_app_rewrite/` | — | — | 本轮 |
-| S01 | chassis 底盘速度环服务 | `app/service/chassis/` | speed_loop.c、task1 速度部分、task_groups 采样所有权 | V07（部分）、V10（部分） | **契约冻结（§6）** |
+| A00 | 计划 + 裁定解除记录 | `agent/phase4_app_rewrite/` | — | — | `DONE`（bffdecf + baseline chore c958a3f） |
+| S01 | chassis 底盘速度环服务 | `app/service/chassis/` | speed_loop.c、task1 速度部分、task_groups 采样所有权 | V07（部分）、V10（部分） | `DONE`（契约 bffdecf，修订 926bac0；代码 8a611d5；审计处置 69c29fa。E01 0 命中 / E02 无越界 / E03 140 PASS 0 FAIL＝128 基线+12 / E04 exit 0、0 诊断、chassis.o 进链接） |
 | S02 | line_follow 循迹服务（外环+丢线策略） | `app/service/line_follow/` | track_follow.c、task1 循迹部分、gray_test | V03、V03-DUP、V07（部分） | 待 S01 |
 | S03 | 遥测/调参链路服务（VOFA） | `app/service/`（契约时定名） | vofa_register.c | V15 | 待 S01/S02 |
 | S04 | 人机输入/显示服务（Key/OLED 包装） | `app/service/`（契约时定名） | menu 对 Key/OLED 的直调 | V14 的基础 | 待定契约 |

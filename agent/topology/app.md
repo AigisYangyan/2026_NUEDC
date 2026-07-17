@@ -95,9 +95,14 @@ class TrackError_API {
   +TrackError_FromDarkBitmap(const TrackError_Config_T*, dark_bitmap, out_error_mm*) bool
 }
 
-class Service_Layer {
+class Chassis_API {
   <<app:service>>
-  +NO_ACTIVE_SOURCE_API
+  +Chassis_Init()
+  +Chassis_SetSpeedGains(Chassis_Side, kp, ki, kd)
+  +Chassis_SetTargetMps(left_mps, right_mps)
+  +Chassis_Update()
+  +Chassis_Stop()
+  +Chassis_GetTelemetry(Chassis_Telemetry_T*)
 }
 
 class SpeedLoop_API {
@@ -292,7 +297,11 @@ VisionCoord_API --> Clock_API : state update time
 
 VofaRegister_API ..> VofaDriver_API : VIOLATION direct Driver profile registration
 VofaRegister_API ..> TrackFollow_API : VIOLATION exposes task state
-Service_Layer ..> SpeedLoop_API : TARGET not implemented
+
+Chassis_API --> Clock_API : 10ms period gate, unsigned-subtract elapsed
+Chassis_API --> Encoder_API : sole new-chain sampling owner, real elapsed
+Chassis_API --> Motor_API : SetOutput + Update
+Chassis_API --> PID_API : dual-axis Pid_UpdateIncremental, each side owns static Pid_T
 ```
 
 ## 4. 当前启动与调度逻辑图

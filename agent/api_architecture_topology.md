@@ -1,6 +1,6 @@
 # NUEDC API 平台架构拓扑图（2026_Diansai · MSPM0G3519）
 
-最后复核：2026-07-17（M02：新增 Middleware `TrackError_FromDarkBitmap` 循迹误差估计器，零调用者预期状态）  
+最后复核：2026-07-17（S01：App Service 层第一个模块 `chassis` 落地，§15 上层重置裁定解除；M02：新增 Middleware `TrackError_FromDarkBitmap` 循迹误差估计器，零调用者预期状态）  
 适用工程：`2026_Diansai`（MSPM0G3519，LQFP-100，SDK 2.11.00.07；由旧工程 `NUEDC`/G3507 移植，见 `agent/MIGRATION_G3507_TO_G3519.md`）  
 事实来源：当前工作区 `hc-team/**/*.c`、`hc-team/**/*.h`、仓库根 `board.syscfg`  
 状态：当前实现拓扑，不是目标架构示意图  
@@ -34,17 +34,32 @@ flowchart LR
   QEI --> RawCount[Runtime 16 位模差扩展 int32 累计]
   RawCount --> BoardGpio[BoardGpio_GetEncoderRawSnapshot]
   BoardGpio --> Encoder[Encoder_Update elapsed_ms]
-  Clock[Clock_NowMs] -->|elapsed ms| SampleOwner[TaskGroups unique encoder sampler]
-  SampleOwner -->|real elapsed| Encoder
-  Encoder -->|Encoder_Snapshot by value| Consumers[SpeedLoop and Task1, each owns static Pid_T]
-  Consumers -->|target and feedback mps by value| PID[Pid_UpdateIncremental per axis]
-  PID -->|limited out ±1000 PWM scale, by return value| Consumers
-  PID -.->|Pid_GetTelemetry snapshot| Consumers
-  Consumers --> MotorSet[Motor_SetOutput + Motor_Update slew/deadtime/timeout]
-  MotorSet --> TB6612[TB6612 GPIO and PWM]
+
+  Clock[Clock_NowMs] -->|elapsed ms| SampleOwnerOld[TaskGroups unique encoder sampler frozen legacy debt, T01 removes]
+  SampleOwnerOld -->|real elapsed| Encoder
+  Encoder -->|Encoder_Snapshot by value| ConsumersOld[SpeedLoop and Task1, each owns static Pid_T]
+  ConsumersOld -->|target and feedback mps by value| PIDOld[Pid_UpdateIncremental per axis]
+  PIDOld -->|limited out ±1000 PWM scale, by return value| ConsumersOld
+  PIDOld -.->|Pid_GetTelemetry snapshot| ConsumersOld
+  ConsumersOld --> MotorSetOld[Motor_SetOutput + Motor_Update slew/deadtime/timeout]
+
+  Clock -->|elapsed ms| Chassis[Chassis_Update 10ms gate, S01 new chain, zero callers]
+  Chassis -->|real elapsed| Encoder
+  Encoder -->|Encoder_Snapshot by value| Chassis
+  Chassis -->|target and feedback mps by value| PIDNew[Pid_UpdateIncremental per axis, Chassis owns static Pid_T]
+  PIDNew -->|limited out ±1000 PWM scale, by return value| Chassis
+  Chassis --> MotorSetNew[Motor_SetOutput + Motor_Update slew/deadtime/timeout]
+
+  MotorSetOld --> TB6612[TB6612 GPIO and PWM]
+  MotorSetNew --> TB6612
+
+  classDef frozen fill:#eeeeee,stroke:#888888,color:#555555
+  class SampleOwnerOld,ConsumersOld,PIDOld,MotorSetOld frozen
 ```
 
-必须检查的数据处理：QEI 硬件判向（G3519 起编码器不再产生 GPIO 中断，GROUP1 仅服务按键）、`Mspm0Runtime_GetEncoderCounts()` 的 16→32 位模差扩展（前提：两次读数间位移 < 32767 计数）、Encoder `s_direction_sign` 全链路唯一方向修正点、速度 `m/s`、PID 输出限幅和 Motor 硬件限幅。任何修改都要证明没有重复反向、滤波、缩放或限幅。QEI 方向约定与旧版软件判向可能镜像，上板方向/PPR 校准由用户自理（`agent/MIGRATION_G3507_TO_G3519.md` §4.3）。**限幅唯一所有者是 `Pid_T.cfg.out_limit`**（M01 后 Middleware 内收敛，2026-07-17）；`Motor_SetOutput` 对入参做拒收校验而非二次钳位（不构成重复限幅）。Consumers 各自持有 `static Pid_T`（SpeedLoop/Task1/TaskGroups 各一份），无跨消费者共享实例。
+必须检查的数据处理：QEI 硬件判向（G3519 起编码器不再产生 GPIO 中断，GROUP1 仅服务按键）、`Mspm0Runtime_GetEncoderCounts()` 的 16→32 位模差扩展（前提：两次读数间位移 < 32767 计数）、Encoder `s_direction_sign` 全链路唯一方向修正点、速度 `m/s`、PID 输出限幅和 Motor 硬件限幅。任何修改都要证明没有重复反向、滤波、缩放或限幅。QEI 方向约定与旧版软件判向可能镜像，上板方向/PPR 校准由用户自理（`agent/MIGRATION_G3507_TO_G3519.md` §4.3）。**限幅唯一所有者是 `Pid_T.cfg.out_limit`**（M01 后 Middleware 内收敛，2026-07-17）；`Motor_SetOutput` 对入参做拒收校验而非二次钳位（不构成重复限幅）。
+
+**过渡态双采样所有者（2026-07-17 S01 起）**：图中灰色节点是旧链（`TaskGroups`/`SpeedLoop`/`Task1`），冻结存量债，随上层重置 T01 整体删除；彩色节点是新链（`app/service/chassis`），是新架构下编码器采样节奏的唯一所有者，`Chassis_Init`/`Chassis_Update` 各自持有 `static Pid_T[CHASSIS_SIDE_COUNT]`，与旧链的 `static Pid_T` 互不共享实例。**两链当前不同时运行**——新链零调用者（S01 是 App Service 层第一个模块，尚无 Task 接线），旧链仍是唯一实际驱动电机的路径；采样所有权将在 T01（Task 层整体替换、旧链删除）时完成移交，移交前不构成「同一数据变换多个所有者」违规（同 M02 的 V03-DUP 处置先例）。
 
 ### 5.2 视觉与步进电机
 
@@ -117,10 +132,10 @@ M02 只交付 `TrackError_FromDarkBitmap` 本体，未接线到 `Gray_ReadDarkBi
 | V04 | **closed 2026-07-16（P3.T2 E04/E05）**：Motor 头不再包含 pid.h，`Motor_T`/`p_pid`/`g_tMotors` 已删除 | 依赖扫描零命中；`motor.h` 仅标准类型与自有枚举 | Driver 不应暴露 Middleware 内部对象 | Phase 2 P3 |
 | V05 | **closed 2026-07-16（P2F E04/E05）**：Encoder 不再写 `g_tMotors`，deprecated API 与公开参数表已删除 | `Encoder_Update()`/`Encoder_GetSnapshot()`；依赖扫描零命中 | 模块不得修改其他模块全局 | Phase 2 P2-FIX |
 | V06 | **closed 2026-07-16（P3.T2 E04）**：`encoder_sign` 随 `Motor_T` 删除；Runtime 正交判向 + Encoder `s_direction_sign` 单点修正 | 依赖扫描零命中 | 同一数据处理必须只有一个所有者 | Phase 2 P2-FIX/P3 |
-| V07 | TaskGroups/SpeedLoop/Task1 直接编排 Driver 与 PID | 对应 App task 文件 | Task 应只调 Service | Driver 完成后迁入 Service |
+| V07 | TaskGroups/SpeedLoop/Task1 直接编排 Driver 与 PID —— **S01 已提供替代路径**（2026-07-17）：新 `app/service/chassis` 以合法 Service→Driver/Middleware 依赖复刻同一能力，旧 Task 冻结存量债待 T01 整体删除时一并消除，本条本身保持 open（旧代码未删，违规仍在） | 对应 App task 文件；替代路径 `hc-team/app/service/chassis/chassis.c/.h` | Task 应只调 Service | Driver 完成后迁入 Service；T01 删除旧 Task 时关闭 |
 | V08 | **closed 2026-07-16（P5 R04）**：Emm42 Driver 改为纯协议组包，`extern` App transport 已删除 | `emm42.c`、`stepmotor_bus.c`；R04 零命中 | Driver 不得依赖 App 符号 | Phase 2 P5 |
 | V09 | **closed 2026-07-16（P5 R02）**：VOFA RX 仅在 `vofa_run()` 任务上下文解析，ISR 链只搬运到 `VofaUart` FIFO | `uart_vofa.c`、`driver/board_uart/vofa_uart.c`；R02 零命中且 `vofa_rx_isr` 删除 | ISR 只允许最小搬运/置位 | Phase 2 P5 |
-| V10 | Service 目录当前没有有效源 API | `hc-team/app/service/` | 缺少 Driver 与 Middleware 的业务桥 | Driver API 稳定后补齐 |
+| V10 | Service 目录当前没有有效源 API **partially closed 2026-07-17（S01）**：`app/service/chassis` 落地，Service→Driver/Middleware 合法业务桥首次出现；`app/service/` 内除 chassis 外仍无源 API，其余规划中的 Service（循迹/云台/VOFA 等）未开工，本条继续 open 直至全部补齐 | `hc-team/app/service/chassis/chassis.c/.h` | 缺少 Driver 与 Middleware 的业务桥 | Phase4 S02→S04 逐项补齐 |
 | V11 | **closed 2026-07-16（P3.T3 E09）**：左右 PWM 统一为 80 MHz/period 7999（10 kHz），compare 按同一 period 换算，比例一致 | `board.syscfg` 单源 + 生成配置 `CLK_FREQ=80000000`/`period=7999` ×2 + `motor_hw.c` 单一常量 | 电机硬件安全与单位口径不一致 | Phase 2 P3.T3 |
 | V12 | **closed 2026-07-16（P3.T1/T2 E01）**：`Motor_Update` 状态机实现 slew 限速、换向过零+5ms 死区、100ms 命令超时归零，主机 7 项测试覆盖 | `motor.c` 状态机 + `tests/host/test_motor.c` | 电机保护缺失 | Phase 2 P3 |
 | V13 | **partially closed 2026-07-17（M01/`3ab13fe`）**：PID 部分已关闭——`pid.c` 重写为调用者持有上下文的纯算法模块，5 个 `g_t*PID` 全局（`g_tAnglePID`/`g_tLeftMotorPID`/`g_tRightMotorPID`/`g_tTrackPID`/`g_tPositionPID`）连同旧公式/闭环函数全仓删除，改由消费者各自持有 `static Pid_T`。残余仅剩 Scheduler `g_eSysFlagManage` 与 TrackFollow `TrackN`，随上层重置处置。**登记名漂移已于 2026-07-17 修正**：本行与类图历史写的 `g_PID_instances` 从未存在于源码，已更正为实际（已删除的）5 个 `g_t*PID` 符号名 | `g_eSysFlagManage`、`TrackN`（PID 侧证据：全仓扫描旧 5 个全局符号零命中） | 模块状态必须私有，禁止跨模块直接写 | Scheduler/TrackFollow 随上层重置关闭 |
@@ -163,7 +178,8 @@ M02 只交付 `TrackError_FromDarkBitmap` 本体，未接线到 `Gray_ReadDarkBi
 | App Tasks | Track/Gray | `app/tasks/track_follow/*`、`gray_test/*` |
 | App Tasks | UART tests | `app/tasks/uart_test/*`、`uart_stress/*` |
 | App Tasks | Platform 2D | `app/tasks/platform_2d/2DPlatform_LaserStrike.*`、`stepmotor_bus.*`、`vision_bus.*`、`vision_coord.*` |
-| App Service | 预留层 | `app/service/` 当前无有效 `.c/.h` API |
+| App Service | Chassis（S01，2026-07-17 新建） | `app/service/chassis/chassis.c/.h`（公共面：`Chassis_Init/Chassis_SetSpeedGains/Chassis_SetTargetMps/Chassis_Update/Chassis_Stop/Chassis_GetTelemetry`；下游合法依赖 `driver/clock`、`driver/encoder`、`driver/motor`、`middleware/pid`；头文件零 include、不暴露 Driver 类型；零外部调用者 —— §15.1 预期状态，等 Task 层写成后接线） |
+| App Service | 其余规划层 | `app/service/`（除 chassis 外）当前无有效 `.c/.h` API，S02→S04 待补 |
 | Utils | 空目录 | `hc-team/utils/` 当前无有效 `.c/.h` API |
 
 新增源文件时必须先确定它属于哪个 API 包；无法归类时停止编码，不得把文件塞进 `utils` 或任意 task 目录。
@@ -235,3 +251,4 @@ M02 只交付 `TrackError_FromDarkBitmap` 本体，未接线到 `Gray_ReadDarkBi
 | 2026-07-17 | **网表对照 + QEI 左右命名对调**（用户裁定，仅 `board.syscfg` 改动）：硬件组网表证实 U33/U34 插座上电机与编码器左右命名交叉，裁定固件改名吸收——QEI1.`$name` `QEI_LEFT`→`QEI_RIGHT`（物理仍为 TIMG9/PB7/PB9，= U34 = 右轮）、QEI2.`$name` `QEI_RIGHT`→`QEI_LEFT`（物理仍为 TIMG8/PB10/PB11，= U33 = 左轮）。**与 2026-07-16 QEI/灰度引脚重映射一行记录的归属方向相反**（该行历史事实不回改，按惯例保留）；`mspm0_runtime.c:8-10` 头注释同步新归属，零代码 API 改动。契约见 `docs/给硬件组的修改方案.md` §5，提交 `6943172` | 复核 `agent/topology/driver.md`（Encoder_API 类块、5.1 数据流边 `EncGPIO→QEI→RawCount→BoardGpio→Encoder`）与索引 §1/§5/§6/§7：均不含左右↔timer 绑定的具体陈述（只提「TIMG8 TIMG9 硬件 QEI 计数器」这一通用事实），**故拓扑边无需改动**——左右命名由 syscfg `$name` 单源吸收，符合既有「无 API 边变化」结论的同一模式；**已复核，拓扑边无变化** | 生成头 `QEI_LEFT_INST=TIMG8`、`QEI_RIGHT_INST=TIMG9`（独立复读过）；主机测试 109 PASS / 0 FAIL；固件构建 0 警告 0 错误；`git status hc-team tests` 除 `mspm0_runtime.c` 头注释外为空 |
 | 2026-07-17 | **M01：PID 全量重写**（契约 `0062332`，代码 `3ab13fe`）。`middleware/pid/pid.c/.h` 改为调用者持有上下文的纯算法模块：删除旧 `pid_Init/pid_closeloop_angle/pid_closeloop_motor/pid_closeloop_track/pid_formula_positional/pid_formula_incremental/pid_out_limit` 及 5 个 `g_t*PID` 全局（`g_tAnglePID`/`g_tLeftMotorPID`/`g_tRightMotorPID`/`g_tTrackPID`/`g_tPositionPID`），新增 `Pid_Init/Pid_Reset/Pid_SetGains/Pid_SetLimits/Pid_UpdateIncremental/Pid_UpdatePositional/Pid_GetTelemetry` + `Pid_Config_T`/`Pid_Telemetry_T`/`Pid_T`（运行时字段私有，调用者不得直读写）。上游机械适配：`sys_init.c` 删除 PID 初始化调用（无模块级实例可初始化）；`vofa_register.c` 不再 `#include pid.h`，调参持久化改走模块内 static ctx；`speed_loop.c`/`task1.c` 各持有 `static Pid_T s_left_pid/s_right_pid`，`task_groups.c` 持有 `s_vofa_left_pid/s_vofa_right_pid`（惰性初始化）；`2DPlatform_LaserStrike.c` 的 `StepperAxisRuntime_t` 内嵌 `Pid_T`，改走 `Pid_SetGains/Pid_SetLimits/Pid_UpdatePositional/Pid_GetTelemetry`。`tests/host/test_pid.c` 13 用例全走新 API，`test_encoder` 目标直接链接 `pid.c` | `agent/topology/app.md` 与 `driver.md` 的 `PID_API` 类块换成新 7 个符号；删除边 `System_API --> PID_API : init`、`VofaRegister_API ..> PID_API`（V15 该支消除）与启动图节点 `MiddlewareInit[PID init]`；`TaskGroups_API ..> PID_API`/`SpeedLoop_API --> PID_API`/`Task1_API --> PID_API`/`Platform2D_API --> PID_API` 保留（V07 未关，仅 API 名随符号更新）；索引 §5.1 数据流改为「Consumers 各自持有 `Pid_T`，按值传 target/feedback (m/s)，返回限幅后 out（±1000 PWM 尺度），遥测经 `Pid_GetTelemetry`」，并注明 `Pid_T.cfg.out_limit` 是限幅唯一所有者、`Motor_SetOutput` 是拒收校验非二次钳位；V13 该行症状改为 partially closed（PID 支已关，残余 `g_eSysFlagManage`/`TrackN` 随上层重置处置），并修正历史登记名漂移（`g_PID_instances` 从未存在于源码，更正为实际的 5 个 `g_t*PID`）；§7 覆盖清单 `middleware/pid` 行更新为 M01 状态 | 施工方 + `arch-auditor` 双重确认：全仓扫描旧 5 个 `g_t*PID` 全局符号零命中；`grep -rln pid.h hc-team` 仅剩 5 个真实消费者（`speed_loop.c`/`task1.c`/`task_groups.c`/`2DPlatform_LaserStrike.c`/`pid.c` 自身），`sys_init.c`/`vofa_register.c` 已确认不再引用；`pid.h` 源码核实类型/API 与本行描述逐字一致 |
 | 2026-07-17 | **M02：循迹误差估计器**（契约 `77e5926`，E02 修订 `76656dd`，allowed_files 修订 `100ecdb`，代码 `f07601d`）。新增 Middleware `middleware/track_error/track_error.c/.h`：唯一公共 API `TrackError_FromDarkBitmap(const TrackError_Config_T*, uint16_t dark_bitmap, float *out_error_mm)`——无状态纯函数，加权重心量化，坐标 `(index−5.5)×pitch_mm`（index 按车左→车右，+误差=线右偏），丢线（低 12 位全 0）返回 false 不写输出；配置 `TrackError_Config_T{ pitch_mm, bit0_is_left }`，`bit0_is_left` 是位序左右唯一修正点（`gray.h` 警告落点，待 H2 实测定值），`pitch_mm` 为机械安装事实无默认值；仅依赖 `<stdbool.h>`/`<stdint.h>`，无 Driver/App 引用，零外部调用者（§15.1 预期状态）。评审后一行修正（未随本次提交）：`TRACK_ERROR_CENTER_INDEX` 由字面量 `5.5f` 改为 `((float)(TRACK_ERROR_CHANNEL_COUNT - 1u) / 2.0f)`，消除路数与中心值两个编码点 | `agent/topology/app.md` 新增 `TrackError_API` 类块（无入边/出边，与 M01 前 `PID_API` 同型）；索引 §5 新增 5.4 灰度与循迹误差数据流（虚线标注 planned，未接线到 `Gray_ReadDarkBitmap`）；§6 新增 `V03-DUP`（登记与存量 `track_follow.c::Calculate_Track_Error` 的过渡态双实现，语义不等价，移交时机=上层重置删除该文件）；§7 覆盖清单新增 Middleware Track Error 行 | 施工方 + `arch-auditor` 双重确认：主机测试 128 PASS / 0 FAIL（117 基线 + 11 新增）；固件 clean 构建 0 诊断，`track_error.o` 实测进链接；Middleware 纯净扫描（无 Driver/App/TI 头）零命中；App 零引用扫描零命中（`task1.c` 既有 `s_track_error` 变量名巧合，与本模块不相干，已收窄证据模式排除） |
+| 2026-07-17 | **§15 上层重置裁定解除 + S01：App Service 层第一个模块 `chassis`**（`AGENTS.md §15`/`CLAUDE.md` 解除记录 `bffdecf`；契约与计划表 `agent/phase4_app_rewrite/plan_app_first_order.md`；`arch-baseline.txt` 滞后行清理 `c958a3f`；代码 `8a611d5`；契约修订 1 `926bac0`；审计三项处置 `69c29fa`）。用户宣布上层重置开始，Service 先行、Task 最后，旧 `app/**` 继续冻结至 T01。新增 `hc-team/app/service/chassis/chassis.c/.h`：公共面 `Chassis_Init/Chassis_SetSpeedGains(Chassis_Side,kp,ki,kd)/Chassis_SetTargetMps(left,right)/Chassis_Update/Chassis_Stop/Chassis_GetTelemetry`；下游合法依赖 `driver/clock`（`Clock_NowMs` 10ms 周期门控，无符号减法防回绕）、`driver/encoder`（本服务是新链路编码器采样节奏唯一所有者，`Encoder_Update` 传真实 elapsed）、`driver/motor`（`Motor_SetOutput/Motor_Update/Motor_BrakeAll`）、`middleware/pid`（双轮各持一个 `Pid_T`，增量式，`out_limit=MOTOR_OUTPUT_MAX`）；头文件零 include、不暴露 Driver 类型，`Chassis_Side` 自有枚举（驾驶员视角）；安全路径——Init 静默零电机命令，Stop=目标清零+`Pid_Reset`+`Motor_BrakeAll`（刹车态维持到下一次到期 Update，头文件已写明持续语义），采样失败→不刷新命令但仍推进 `Motor_Update` 让 Driver 100ms 超时归零（新增失败注入测试证明）。零调用者是预期状态（V10 部分闭合：Service 层从无到有，完全闭合待各 Service 齐备+T01） | `agent/topology/app.md` §3 新增 `Chassis_API` 类块（取代占位 `Service_Layer`）与 4 条出边（`--> Clock_API`/`--> Encoder_API`/`--> Motor_API`/`--> PID_API`）；索引 §5.1 新增与旧 TaskGroups 链平行的新链（灰色节点标注旧链为冻结存量债待 T01 删除，并登记过渡态双采样所有者事实——两链不同时运行，新链零调用者，采样所有权移交在 T01 完成）；§6 `V10` 改 partially closed（chassis 已落地，其余 Service 仍 open）、`V07` 注明「S01 已提供替代路径，旧 Task 冻结待 T01 删除，本条本身保持 open」；§7 覆盖清单 App Service 行拆分为 chassis（已落地）与其余规划层（待补） | 施工方 + `arch-auditor` 双重确认：主机测试 **140 PASS / 0 FAIL**（128 基线 + 12 新增：`test_chassis` 11 + 失败注入 1）；新增 `tests/host/fake_clock.c`，`fake_board_gpio.c` 新增 `FakeBoardGpio_SetSnapshotFail` 注入开关；固件 clean 构建 exit 0、0 诊断，`chassis.o` 实测进链接；依赖扫描 0 命中（Chassis 未含 Driver 类型泄漏、未越权调用 App/DL HAL）；`arch-baseline.txt` 38→37 条（`vofa_register.c|middleware/pid/pid.h` 滞后行随 M01 消除该包含一并清理，`c958a3f`） |
