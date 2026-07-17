@@ -671,9 +671,11 @@ typedef struct {
     int32_t     step;            /* 每次 UP/DOWN 的调整增量 */
 } Menu_Param_T;
 
-void Menu_Init(const Menu_Param_T *params, uint8_t param_count);
+void Menu_Setup(const Menu_Param_T *params, uint8_t param_count);
     /* 复位导航状态为 RUN_LIST + dirty；不触碰任何硬件/Service。
-     * params==NULL 配 count=0 合法（无「参数」尾项）；表生命周期由调用方保证覆盖使用期。 */
+     * params==NULL 配 count=0 合法（无「参数」尾项）；表生命周期由调用方保证覆盖使用期。
+     * 命名为 Setup 而非 Init：冻结旧 menu_core.c 仍导出 Menu_Init，双实现共链期符号冲突
+     * （契约修订 1，见 §13.5）；Menu_Tick/Menu_GetScreen 与旧符号无冲突，保持原名。 */
 void Menu_Tick(uint32_t now_ms);
     /* 匹配 background_step 签名。每拍：① Hmi_Update()（面板泵送，hmi 自门控 5ms）；
      * ② Hmi_PollInput() 取一个语义事件 → 依当前 screen 转移/编辑/切换 scheduler 条目；
@@ -722,4 +724,12 @@ Menu_Screen Menu_GetScreen(void);   /* 当前界面（查询/渲染/测试所需
 
 ### 13.5 契约修订记录
 
-- （待施工中如发现证据行有误，在此单独提交追加，绝不与满足它的代码同一提交。）
+- **修订 1（2026-07-18，本提交，施工中发现——单独提交，先于满足它的代码）**：§13.2 公共接口
+  `Menu_Init` 改名为 **`Menu_Setup`**。原因：E04 固件链接实测 `error #10056: symbol "Menu_Init"
+  redefined`——冻结旧 `app/ui/oled/menu_core.c` 仍导出同名 `Menu_Init`，且其调用者
+  `task_groups.c:231`/`sys_init.c:72` 是冻结文件（禁触碰），旧 `menu_core.o` 必须留在
+  ORDERED_OBJS 中，双实现共链期两个 `Menu_Init` 符号冲突。核对旧 menu_core 导出面
+  （Menu_Init/Menu_HandleKey/Menu_RenderIfDirty/Menu_SetCurrentPage/Menu_RequestRedraw/
+  Menu_IsDirty/Menu_GetCurrentPage）与新面（Menu_Setup/Menu_Tick/Menu_GetScreen）：**仅
+  Menu_Init 冲突**，故只改此一名，Menu_Tick/Menu_GetScreen/MenuParam_* 保持不变。E03/E04
+  预期数值不变（仅符号名变更）。T01 删除旧 menu_core 后，本名可保留或由 T01 定夺，不预支。
