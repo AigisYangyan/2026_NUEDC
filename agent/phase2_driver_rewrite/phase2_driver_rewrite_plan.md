@@ -66,6 +66,8 @@
 
 2026-07-16 G3519 迁移本地适配（覆盖本文件及各计划中与之矛盾的环境事实，历史记录不回改）：工程已整体移植到 `2026_Diansai`（MSPM0G3519/LQFP-100，SDK 2.11.00.07，见 `agent/MIGRATION_G3507_TO_G3519.md`）。生效事实：① 唯一硬件配置源为仓库根 `board.syscfg`（各计划中 `project/mspm0/board.syscfg` 为旧仓库路径）；② 编码器改 TIMG8/TIMG9 硬件 QEI，GROUP1 中断仅服务按键（P2 系列文档中"GROUP1 软件判向"描述仅为历史事实）；③ 步进总线物理实例 UART2→UART7（引脚 PB15/PB16、波特率 230400 不变）；④ MPU6050/I2C_IMU 已移除——P6 范围相应收窄为 EEPROM、OLED；⑤ 灰度 8 路升级 12 路；⑥ **`tests/host/` 主机测试套件未随迁（拓扑 V16）**——P5 或任何后续施工开工前，必须先从 `../NUEDC/tests/host/` 迁入套件并复跑恢复全绿基线，此前所有 `make -C tests/host` E 行不可执行。
 
+2026-07-17 Agent 框架接线（用户裁定，**覆盖上述条款及各计划中全部 `.agents/skills/` 路径引用；历史记录不回改**）：查明本仓库此前**没有任何 Claude Code 框架在生效**——官方只原生加载 `CLAUDE.md`（本仓库无此文件），根 `AGENTS.md` 从不自动入上下文；项目技能官方路径为 `.claude/skills/`，而 `embedded-closed-loop` 位于 `.agents/skills/`，**自创建起从未被加载过一次**；`agent/` 目录是计划文档，不是子 agent（官方位置 `.claude/agents/`，此前为零）。故既往每次开工的真实成本是手工 Read 约 84KB（AGENTS.md 27KB + 拓扑 56KB + 计划表 10KB）≈ 25k tokens 后才能写第一行代码，且 §4/§14 全靠模型注意力执行。生效变更：① 闭环协议 `git mv` 至 `.claude/skills/embedded-closed-loop`，**现行协议路径以此为准**，上述条款中的 `.agents/skills/embedded-closed-loop` 引用一律读作新路径；② 新增三个子 agent（`.claude/agents/`）：`topo-navigator`（编码前检索拓扑切片，§14 第 1 条）、`arch-auditor`（编码后分层与链路评审，§9 第 8 步）、`topo-updater`（编码后同步拓扑，§14 第 3/4 条）——均在独立上下文运行，主上下文不再承担 56KB 拓扑；③ §4 依赖矩阵与 §14 拓扑同步由 hook 机械执行（`.claude/hooks/`），违规 exit 2 阻断。§11 存量债务经全仓库扫描冻结为基线 `.claude/hooks/arch-baseline.txt`（38 条，全部在 `hc-team/app/**`；Driver 与 Middleware 层零违规），hook 只对基线外的**新增**违规报警，即 §11 第 1 条。本次不改动 `AGENTS.md`、`hc-team/**` 与任何冻结契约。
+
 P2 选择 Encoder 而非 Motor 的原因：Encoder 当前直接写 `g_tMotors[]`，Motor 又持有 PID 指针，形成 `Encoder -> Motor <-> PID` 的交叉所有权。先移除 Encoder 对 Motor 的依赖，Motor 才能在 P3 只保留“方向 + PWM + 安全状态”职责。
 
 ## 5. 每个模块的固定执行协议

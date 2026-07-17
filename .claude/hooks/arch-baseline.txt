@@ -1,0 +1,45 @@
+# AGENTS.md §11 存量架构债务基线 —— 由 .claude/hooks/arch-scan.ps1 -Mode baseline 生成
+# 格式: <相对路径>|<被包含的非法头>
+#
+# 这些是「待重置的债」，不是新代码可采用的范例（§11）。
+# arch-guard 只对不在本表中的「新增」违规报警。
+# 修复一条违规后，把对应行从本表删除，使它不可能被悄悄重新引入。
+
+hc-team/app/scheduler/task_scheduler.c|driver/clock/clock.h
+hc-team/app/scheduler/vofa_register.c|driver/uart_vofa/uart_vofa.h
+hc-team/app/scheduler/vofa_register.c|middleware/pid/pid.h
+hc-team/app/tasks/gray_test/gray_test.c|driver/uart_vofa/uart_vofa.h
+hc-team/app/tasks/platform_2d/2DPlatform_LaserStrike.c|driver/step_motor/emm42.h
+hc-team/app/tasks/platform_2d/2DPlatform_LaserStrike.c|driver/uart_vofa/uart_vofa.h
+hc-team/app/tasks/platform_2d/2DPlatform_LaserStrike.c|middleware/pid/pid.h
+hc-team/app/tasks/platform_2d/stepmotor_bus.c|driver/board_uart/stepmotor_uart.h
+hc-team/app/tasks/platform_2d/stepmotor_bus.c|driver/clock/clock.h
+hc-team/app/tasks/platform_2d/stepmotor_bus.c|driver/mspm0_runtime/mspm0_runtime.h
+hc-team/app/tasks/platform_2d/stepmotor_bus.c|driver/step_motor/emm42.h
+hc-team/app/tasks/platform_2d/stepmotor_bus.h|driver/step_motor/emm42.h
+hc-team/app/tasks/platform_2d/vision_bus.c|driver/board_uart/vision_uart.h
+hc-team/app/tasks/platform_2d/vision_bus.c|driver/clock/clock.h
+hc-team/app/tasks/platform_2d/vision_coord.c|driver/clock/clock.h
+hc-team/app/tasks/speed_loop/speed_loop.c|driver/encoder/encoder.h
+hc-team/app/tasks/speed_loop/speed_loop.c|driver/motor/motor.h
+hc-team/app/tasks/speed_loop/speed_loop.c|driver/uart_vofa/uart_vofa.h
+hc-team/app/tasks/speed_loop/speed_loop.c|middleware/pid/pid.h
+hc-team/app/tasks/task_groups.c|driver/clock/clock.h
+hc-team/app/tasks/task_groups.c|driver/encoder/encoder.h
+hc-team/app/tasks/task_groups.c|driver/key/key.h
+hc-team/app/tasks/task_groups.c|driver/motor/motor.h
+hc-team/app/tasks/task_groups.c|driver/oled/oled_hardware_i2c.h
+hc-team/app/tasks/task_groups.c|driver/uart_vofa/uart_vofa.h
+hc-team/app/tasks/task_groups.c|middleware/pid/pid.h
+hc-team/app/tasks/task1/task1.c|driver/clock/clock.h
+hc-team/app/tasks/task1/task1.c|driver/encoder/encoder.h
+hc-team/app/tasks/task1/task1.c|driver/motor/motor.h
+hc-team/app/tasks/task1/task1.c|driver/uart_vofa/uart_vofa.h
+hc-team/app/tasks/task1/task1.c|middleware/pid/pid.h
+hc-team/app/tasks/track_follow/track_follow.c|ti_msp_dl_config.h
+hc-team/app/tasks/track_follow/track_follow.c|ti/driverlib/dl_gpio.h
+hc-team/app/tasks/uart_stress/uart_stress.c|driver/board_uart/stepmotor_uart.h
+hc-team/app/tasks/uart_test/uart_test.c|driver/uart_vofa/uart_vofa.h
+hc-team/app/ui/oled/menu_core.c|driver/oled/oled_hardware_i2c.h
+hc-team/app/ui/oled/menu_core.h|driver/key/key.h
+hc-team/app/ui/oled/menu_pages.c|driver/oled/oled_hardware_i2c.h
