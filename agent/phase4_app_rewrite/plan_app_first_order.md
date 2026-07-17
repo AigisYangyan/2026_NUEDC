@@ -240,3 +240,16 @@ void LineFollow_GetTelemetry(LineFollow_Telemetry_T *out);
 | E02 | 范围审计 | `git status` + `git diff --stat` 对照 §8.1 | 无越界改动 |
 | E03 | 主机测试 | PowerShell：`rtk proxy make -C tests/host all` | ≥155 PASS / 0 FAIL（140 基线 + ≥15 新用例），必含安全项：Start 前 Update 不动底盘、丢线回退方向与幅值正确、超时→LOST 且底盘刹车、重获线回 TRACKING、差速符号（+误差→左快右慢）、bit0_is_left 反转生效、Stop 确定性 |
 | E04 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 diagnostics、line_follow.o 与 lost_line.o 进入 .out 链接 |
+
+### 8.5 契约修订记录
+
+- **修订 1（2026-07-17，本提交，审计后处置——用户选定方案 b）**：
+  1. §8.2 中「每次调用末尾恒推进 Chassis_Update()」改为：**仅 TRACKING/RECOVERING 推进内环；
+     IDLE/LOST 完全静默（不采样、不发目标、不推进内环）**。理由：审计重要级 F1——LOST
+     转移拍 Chassis_Stop 的机械刹车在同一调用内被内环 SetOutput(0) 覆盖（实测 brake_active
+     被清），「恒推进」语义使超时停车退化为惰行。方案 b 让刹车真值表在 LOST/Stop 后保持
+     （chassis.h 已文档化的驻车方法）。底盘另作他用时由使用者直接泵 Chassis_Update。
+  2. E03 追加两条必含用例：LOST 后刹车真值表保持（IsBrakeActive 持续 true）；
+     外环积分器跨拍存活（审计重要级 F2——积分限幅量纲失配修正的验证，
+     修正 = Init 按误差口径显式给积分限幅，不再依赖 out_limit×3.5 推导）。
+     E03 预期总数相应 ≥156（新用例 +1，原有 LOST 用例改写）。
