@@ -123,6 +123,24 @@ class LostLine_API {
   +LostLine_Tick(LostLine_T*, elapsed_ms, out_error_mm*) bool
 }
 
+class Tuning_API {
+  <<app:service>>
+  +Tuning_Init()
+  +Tuning_EnterProfile(Tuning_Profile) bool
+  +Tuning_Update()
+  +Tuning_ExitProfile()
+  +Tuning_GetActiveProfile() Tuning_Profile
+}
+
+class TuningChassis_API {
+  <<app:service, private to tuning>>
+  +TuningChassis_Enter()
+  +TuningChassis_Apply()
+  +TuningChassis_RefreshTx()
+  +TuningChassis_PumpInner()
+  +TuningChassis_Exit()
+}
+
 class SpeedLoop_API {
   <<app:task>>
   +SpeedLoop_Init()
@@ -327,6 +345,12 @@ LineFollow_API --> TrackError_API : pitch_mm and bit0_is_left passthrough, first
 LineFollow_API --> PID_API : outer Pid_UpdatePositional, out_limit = diff_limit_mps sole owner
 LineFollow_API --> LostLine_API : recovery fallback error, caller-owned LostLine_T
 LineFollow_API --> Chassis_API : same-layer controlled, SetTargetMps base±diff + cascade Update in TRACKING/RECOVERING
+
+Tuning_API --> Clock_API : 10ms self-gate, unsigned-subtract elapsed
+Tuning_API --> VofaDriver_API : vofa_clear_profile + vofa_run, Enter-time RX drain (contract amendment 1)
+Tuning_API --> TuningChassis_API : profile lifecycle orchestration, sole caller
+TuningChassis_API --> Chassis_API : same-layer controlled, SetSpeedGains + SetTargetMps + GetTelemetry + Stop + Update, sole apply point
+TuningChassis_API --> VofaDriver_API : vofa_register_float ×6 tx + vofa_bind_cmd ×8 cmd
 ```
 
 ## 4. 当前启动与调度逻辑图
