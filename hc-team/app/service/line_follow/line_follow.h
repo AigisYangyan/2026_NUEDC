@@ -16,8 +16,10 @@
  * - 差速修正限幅唯一所有者 = 外环 PID 配置（= diff_limit_mps）；
  * - 轮速闭环、电机保护归 chassis 服务及其下游既有所有者，本服务只发目标。
  *
- * 多环级联：LineFollow_Update() 推进外环（10ms 门控）并在每次调用末尾恒推进
- * Chassis_Update()（内环自带门控）。Task 只需泵一个 Update。
+ * 多环级联：LineFollow_Update() 推进外环（10ms 门控），并在 TRACKING/RECOVERING
+ * 期间推进 Chassis_Update()（内环自带门控）——Task 只需泵一个 Update。
+ * IDLE/LOST 完全静默（不采样、不发目标、不推进内环），Chassis_Stop 的刹车真值表
+ * 因此得以保持；底盘另作他用时由使用者直接泵 Chassis_Update()。
  *
  * 调用前置条件：System 装配完成 Clock/Motor/Encoder 初始化，且 Chassis_Init 已执行。
  */
@@ -72,14 +74,15 @@ bool LineFollow_Start(void);
 
 /**
  * @brief  推进循迹环。允许被任意更快的节奏调用，外环按 10ms 门控；
- *         每次调用末尾恒推进 Chassis_Update()（内环自带门控）。
- *         IDLE/LOST 态不采样、不发目标，只透传内环推进。
+ *         TRACKING/RECOVERING 期间在末尾推进 Chassis_Update()（内环自带门控）；
+ *         IDLE/LOST 完全静默（不采样、不发目标、不推进内环，刹车保持）。
  */
 void LineFollow_Update(void);
 
 /**
  * @brief  确定性停止：回 IDLE 并调用 Chassis_Stop()。
- * @note   刹车态持续语义同 Chassis_Stop（维持到下一次到期的内环 tick）。
+ * @note   IDLE 态本服务不再推进内环，机械刹车持续保持直至重新 Start
+ *         （或使用者自行泵 Chassis_Update 接管底盘）。
  */
 void LineFollow_Stop(void);
 

@@ -13,11 +13,13 @@
  *   IDLE       --Start(配置有效)---------------> TRACKING（PID/丢线策略复位）
  *   TRACKING   --位图≠0-----------------------> TRACKING（记方向、清丢线计时）
  *   TRACKING   --位图=0-----------------------> RECOVERING（回退误差继续转向）
+ *   TRACKING   --位图=0 且单拍即累计≥timeout--> LOST（timeout 配得小于拍长时的直达路径）
  *   RECOVERING --位图≠0-----------------------> TRACKING
  *   RECOVERING --累计丢线≥lost_timeout_ms-----> LOST（Chassis_Stop，静默）
  *   任意态     --Stop()------------------------> IDLE（Chassis_Stop）
  *   LOST       --仅 Stop/Start 可离开
- *   全黑（十字）重心≈0 属 TRACKING 正常直行；特征识别归上层 Task。
+ *   IDLE/LOST 完全静默：不采样、不发目标、不推进内环——刹车真值表得以保持（方案 b，
+ *   契约修订 1）。全黑（十字）重心≈0 属 TRACKING 正常直行；特征识别归上层 Task。
  */
 #include "app/service/line_follow/line_follow.h"
 
@@ -30,6 +32,17 @@
 
 /* 外环控制周期：与内环同拍（10ms），沿用旧循迹环口径 */
 #define LINE_FOLLOW_CONTROL_PERIOD_MS 10u
+
+/* 灰度路数与误差量化路数的一致性由 Service 负责（track_error.h 契约注释指名） */
+#if GRAY_CHANNEL_COUNT != TRACK_ERROR_CHANNEL_COUNT
+#error "gray/track_error channel count mismatch: line_follow wiring is invalid"
+#endif
+
+/* 外环积分限幅（误差口径，mm·拍）：积分累计的是 mm 误差，不能沿用 Pid 模块
+ * 「out_limit×3.5」推导（那是内环 误差/输出 同尺度的约定，外环两侧差约两个
+ * 数量级，会让积分一拍饱和、ki 退化为符号继电器）。预算 = 满偏误差 × 100 拍
+ * （10ms 拍 = 1 秒满偏），远大于单拍误差保住积分器语义，同时有界防 windup。 */
+#define LINE_FOLLOW_INTEGRAL_BUDGET_TICKS 100.0f
 
 /* 服务私有运行状态 */
 static LineFollow_Config_T s_cfg;
@@ -56,10 +69,12 @@ static void line_follow_apply(uint16_t bitmap, float error_mm)
 
 void LineFollow_Init(const LineFollow_Config_T *config)
 {
+    float full_scale_error_mm =
+        ((float)(TRACK_ERROR_CHANNEL_COUNT - 1u) / 2.0f) * config->pitch_mm;
     Pid_Config_T pid_cfg = {
         .kp = 0.0f, .ki = 0.0f, .kd = 0.0f,
         .out_limit = config->diff_limit_mps,
-        .integral_limit = 0.0f,  /* ≤0 → 按 out_limit 推导（Pid 模块约定） */
+        .integral_limit = LINE_FOLLOW_INTEGRAL_BUDGET_TICKS * full_scale_error_mm,
         .d_filter_alpha = 1.0f,
     };
 
@@ -96,35 +111,42 @@ void LineFollow_Update(void)
     uint32_t now_ms = Clock_NowMs();
     uint32_t elapsed_ms = now_ms - s_period_base_ms; /* 无符号减法天然处理回绕 */
 
+    /* IDLE/LOST 完全静默：不采样、不发目标、不推进内环，
+     * 让 Chassis_Stop 的刹车真值表保持（方案 b，契约修订 1）。 */
+    if ((s_state != LINE_FOLLOW_TRACKING) && (s_state != LINE_FOLLOW_RECOVERING)) {
+        return;
+    }
+
     if (elapsed_ms >= LINE_FOLLOW_CONTROL_PERIOD_MS) {
+        TrackError_Config_T tcfg = {
+            .pitch_mm = s_cfg.pitch_mm,
+            .bit0_is_left = s_cfg.bit0_is_left,
+        };
+        uint16_t bitmap;
+        float error_mm = 0.0f;
+
         s_period_base_ms = now_ms;
+        bitmap = Gray_ReadDarkBitmap();
 
-        if ((s_state == LINE_FOLLOW_TRACKING) || (s_state == LINE_FOLLOW_RECOVERING)) {
-            TrackError_Config_T tcfg = {
-                .pitch_mm = s_cfg.pitch_mm,
-                .bit0_is_left = s_cfg.bit0_is_left,
-            };
-            uint16_t bitmap = Gray_ReadDarkBitmap();
-            float error_mm = 0.0f;
-
-            if (TrackError_FromDarkBitmap(&tcfg, bitmap, &error_mm)) {
-                s_state = LINE_FOLLOW_TRACKING;
-                LostLine_NoteValid(&s_lost, error_mm);
-                line_follow_apply(bitmap, error_mm);
-            } else if (LostLine_Tick(&s_lost, elapsed_ms, &error_mm)) {
-                s_state = LINE_FOLLOW_RECOVERING;
-                line_follow_apply(bitmap, error_mm);
-            } else {
-                /* 恢复超时：停车并静默（安全项，§8.1 反馈失效必须停止输出） */
-                s_state = LINE_FOLLOW_LOST;
-                s_last_bitmap = bitmap;
-                s_last_diff_mps = 0.0f;
-                Chassis_Stop();
-            }
+        if (TrackError_FromDarkBitmap(&tcfg, bitmap, &error_mm)) {
+            s_state = LINE_FOLLOW_TRACKING;
+            LostLine_NoteValid(&s_lost, error_mm);
+            line_follow_apply(bitmap, error_mm);
+        } else if (LostLine_Tick(&s_lost, elapsed_ms, &error_mm)) {
+            s_state = LINE_FOLLOW_RECOVERING;
+            line_follow_apply(bitmap, error_mm);
+        } else {
+            /* 恢复超时：刹停并静默（安全项，§8.1 反馈失效必须停止输出）；
+             * 本拍起不再推进内环，刹车保持到 Stop/Start。 */
+            s_state = LINE_FOLLOW_LOST;
+            s_last_bitmap = bitmap;
+            s_last_diff_mps = 0.0f;
+            Chassis_Stop();
+            return;
         }
     }
 
-    Chassis_Update(); /* 多环级联：内环恒推进（自带 10ms 门控） */
+    Chassis_Update(); /* 多环级联：TRACKING/RECOVERING 期间推进内环（自带门控） */
 }
 
 void LineFollow_Stop(void)

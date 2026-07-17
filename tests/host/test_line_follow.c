@@ -205,7 +205,7 @@ static int test_lost_recovery_keeps_direction(void)
     return 0;
 }
 
-/* 安全项：丢线超时 → LOST，底盘目标清零、输出归零，且不再采样 */
+/* 安全项：丢线超时 → LOST，底盘刹停（刹车真值表保持，方案 b）、目标清零、不再采样 */
 static int test_lost_timeout_stops_chassis(void)
 {
     Chassis_Telemetry_T ct;
@@ -226,13 +226,35 @@ static int test_lost_timeout_stops_chassis(void)
     TEST_ASSERT_FLOAT_NEAR(ct.target_mps[CHASSIS_SIDE_LEFT], 0.0f, 1e-6f);
     TEST_ASSERT_FLOAT_NEAR(ct.target_mps[CHASSIS_SIDE_RIGHT], 0.0f, 1e-6f);
     reads_at_lost = FakeGrayPort_GetReadCount();
-    for (i = 0; i < 3; i++) { /* LOST 后：不采样，输出保持零 */
+    for (i = 0; i < 3; i++) { /* LOST 后：静默——不采样、不推进内环 */
         tick();
     }
     TEST_ASSERT_TRUE(FakeGrayPort_GetReadCount() == reads_at_lost);
+    TEST_ASSERT_TRUE(FakeMotorHw_IsBrakeActive(MOTOR_LEFT));   /* 刹车保持 */
+    TEST_ASSERT_TRUE(FakeMotorHw_IsBrakeActive(MOTOR_RIGHT));
     TEST_ASSERT_TRUE(FakeMotorHw_GetDutyPermille(MOTOR_LEFT) == 0u);
     TEST_ASSERT_TRUE(FakeMotorHw_GetDutyPermille(MOTOR_RIGHT) == 0u);
     printf("PASS: test_lost_timeout_stops_chassis\n");
+    return 0;
+}
+
+/* F2 回归：外环积分器跨拍存活（积分限幅按误差口径显式给出，不再一拍饱和） */
+static int test_outer_integral_accumulates(void)
+{
+    LineFollow_Telemetry_T lt1;
+    LineFollow_Telemetry_T lt2;
+
+    setup(&k_cfg);
+    LineFollow_SetGains(0.0f, 0.001f, 0.0f); /* 纯积分 */
+    TEST_ASSERT_TRUE(LineFollow_Start());
+    FakeGrayPort_SetDarkChannels((uint16_t)(1u << 9)); /* 恒定误差 +35mm */
+    tick();
+    LineFollow_GetTelemetry(&lt1);
+    tick();
+    LineFollow_GetTelemetry(&lt2);
+    TEST_ASSERT_FLOAT_NEAR(lt1.diff_cmd_mps, 0.035f, 1e-5f);        /* ki×35×1拍 */
+    TEST_ASSERT_FLOAT_NEAR(lt2.diff_cmd_mps, 2.0f * lt1.diff_cmd_mps, 1e-5f);
+    printf("PASS: test_outer_integral_accumulates\n");
     return 0;
 }
 
@@ -307,6 +329,7 @@ int main(void)
     failures += test_diff_limit_clamps();
     failures += test_lost_recovery_keeps_direction();
     failures += test_lost_timeout_stops_chassis();
+    failures += test_outer_integral_accumulates();
     failures += test_reacquire_returns_tracking();
     failures += test_stop_is_deterministic();
     failures += test_gating_skips_sampling();
