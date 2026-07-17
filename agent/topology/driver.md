@@ -165,9 +165,10 @@ class VofaDriver_API {
 }
 
 class PID_API {
-  <<middleware>>
-  +pid_Init()
-  +pid_closeloop_motor(left_target_mps, right_target_mps, left_feedback_mps, right_feedback_mps, p_left_out, p_right_out)
+  <<middleware:pid>>
+  +Pid_Init(Pid_T*, const Pid_Config_T*)
+  +Pid_UpdateIncremental(Pid_T*, target, feedback) float
+  +Pid_UpdatePositional(Pid_T*, target, feedback) float
 }
 
 Clock_API --> DL_HAL : SysTick

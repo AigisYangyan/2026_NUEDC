@@ -81,14 +81,13 @@ class TaskGroups_API {
 
 class PID_API {
   <<middleware:pid>>
-  +pid_Init()
-  +pid_closeloop_angle()
-  +pid_closeloop_motor(left_target_mps, right_target_mps, left_feedback_mps, right_feedback_mps, p_left_out, p_right_out)
-  +pid_closeloop_track()
-  +pid_formula_positional()
-  +pid_formula_incremental()
-  +pid_out_limit()
-  +g_PID_instances
+  +Pid_Init(Pid_T*, const Pid_Config_T*)
+  +Pid_Reset(Pid_T*)
+  +Pid_SetGains(Pid_T*, kp, ki, kd)
+  +Pid_SetLimits(Pid_T*, out_limit, integral_limit)
+  +Pid_UpdateIncremental(Pid_T*, target, feedback) float
+  +Pid_UpdatePositional(Pid_T*, target, feedback) float
+  +Pid_GetTelemetry(const Pid_T*, Pid_Telemetry_T*)
 }
 
 class Service_Layer {
@@ -212,7 +211,6 @@ System_API --> Motor_API : init and stop
 System_API --> Encoder_API : init
 System_API --> Key_API : init
 System_API --> OLED_API : init
-System_API --> PID_API : init
 System_API --> VofaRegister_API : init
 System_API --> StepMotorBus_API : init
 System_API --> VisionBus_API : init
@@ -288,7 +286,6 @@ TrackFollow_API ..> DL_HAL : VIOLATION App reads GPIO
 VisionCoord_API --> Clock_API : state update time
 
 VofaRegister_API ..> VofaDriver_API : VIOLATION direct Driver profile registration
-VofaRegister_API ..> PID_API : VIOLATION binds Middleware globals
 VofaRegister_API ..> TrackFollow_API : VIOLATION exposes task state
 Service_Layer ..> SpeedLoop_API : TARGET not implemented
 ```
@@ -302,7 +299,6 @@ flowchart TD
   SysInit --> ClockInit[Clock_Init]
   SysInit --> RuntimeInit[Runtime UART DMA fixed dispatch]
   SysInit --> DriverInit[OLED Key Motor Encoder VOFA BoardUart]
-  SysInit --> MiddlewareInit[PID init]
   SysInit --> AppInit[Menu Run profiles Tasks Vision StepMotor]
   SysInit --> BoardIRQ[Board_EnableInterrupts]
   Main --> SysRun[SysRun]

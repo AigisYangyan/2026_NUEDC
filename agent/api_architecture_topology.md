@@ -1,6 +1,6 @@
 # NUEDC API 平台架构拓扑图（2026_Diansai · MSPM0G3519）
 
-最后复核：2026-07-17（P9 后 Agent 框架第二步：拓扑按层拆分为索引 + `topology/{driver,app}.md`，章节编号未重排，内容逐字节守恒）  
+最后复核：2026-07-17（M01：PID 重写为调用者持有上下文的纯算法模块，V13 partially closed、V15 PID 一支消除）  
 适用工程：`2026_Diansai`（MSPM0G3519，LQFP-100，SDK 2.11.00.07；由旧工程 `NUEDC`/G3507 移植，见 `agent/MIGRATION_G3507_TO_G3519.md`）  
 事实来源：当前工作区 `hc-team/**/*.c`、`hc-team/**/*.h`、仓库根 `board.syscfg`  
 状态：当前实现拓扑，不是目标架构示意图  
@@ -36,14 +36,15 @@ flowchart LR
   BoardGpio --> Encoder[Encoder_Update elapsed_ms]
   Clock[Clock_NowMs] -->|elapsed ms| SampleOwner[TaskGroups unique encoder sampler]
   SampleOwner -->|real elapsed| Encoder
-  Encoder -->|Encoder_Snapshot by value| Consumers[SpeedLoop and Task1]
-  Consumers -->|targets and feedback mps by value| PID[pid_closeloop_motor]
-  PID -->|left and right out pointers| Consumers
+  Encoder -->|Encoder_Snapshot by value| Consumers[SpeedLoop and Task1, each owns static Pid_T]
+  Consumers -->|target and feedback mps by value| PID[Pid_UpdateIncremental per axis]
+  PID -->|limited out ±1000 PWM scale, by return value| Consumers
+  PID -.->|Pid_GetTelemetry snapshot| Consumers
   Consumers --> MotorSet[Motor_SetOutput + Motor_Update slew/deadtime/timeout]
   MotorSet --> TB6612[TB6612 GPIO and PWM]
 ```
 
-必须检查的数据处理：QEI 硬件判向（G3519 起编码器不再产生 GPIO 中断，GROUP1 仅服务按键）、`Mspm0Runtime_GetEncoderCounts()` 的 16→32 位模差扩展（前提：两次读数间位移 < 32767 计数）、Encoder `s_direction_sign` 全链路唯一方向修正点、速度 `m/s`、PID 输出限幅和 Motor 硬件限幅。任何修改都要证明没有重复反向、滤波、缩放或限幅。QEI 方向约定与旧版软件判向可能镜像，上板方向/PPR 校准由用户自理（`agent/MIGRATION_G3507_TO_G3519.md` §4.3）。
+必须检查的数据处理：QEI 硬件判向（G3519 起编码器不再产生 GPIO 中断，GROUP1 仅服务按键）、`Mspm0Runtime_GetEncoderCounts()` 的 16→32 位模差扩展（前提：两次读数间位移 < 32767 计数）、Encoder `s_direction_sign` 全链路唯一方向修正点、速度 `m/s`、PID 输出限幅和 Motor 硬件限幅。任何修改都要证明没有重复反向、滤波、缩放或限幅。QEI 方向约定与旧版软件判向可能镜像，上板方向/PPR 校准由用户自理（`agent/MIGRATION_G3507_TO_G3519.md` §4.3）。**限幅唯一所有者是 `Pid_T.cfg.out_limit`**（M01 后 Middleware 内收敛，2026-07-17）；`Motor_SetOutput` 对入参做拒收校验而非二次钳位（不构成重复限幅）。Consumers 各自持有 `static Pid_T`（SpeedLoop/Task1/TaskGroups 各一份），无跨消费者共享实例。
 
 ### 5.2 视觉与步进电机
 
@@ -108,9 +109,9 @@ flowchart LR
 | V10 | Service 目录当前没有有效源 API | `hc-team/app/service/` | 缺少 Driver 与 Middleware 的业务桥 | Driver API 稳定后补齐 |
 | V11 | **closed 2026-07-16（P3.T3 E09）**：左右 PWM 统一为 80 MHz/period 7999（10 kHz），compare 按同一 period 换算，比例一致 | `board.syscfg` 单源 + 生成配置 `CLK_FREQ=80000000`/`period=7999` ×2 + `motor_hw.c` 单一常量 | 电机硬件安全与单位口径不一致 | Phase 2 P3.T3 |
 | V12 | **closed 2026-07-16（P3.T1/T2 E01）**：`Motor_Update` 状态机实现 slew 限速、换向过零+5ms 死区、100ms 命令超时归零，主机 7 项测试覆盖 | `motor.c` 状态机 + `tests/host/test_motor.c` | 电机保护缺失 | Phase 2 P3 |
-| V13 | Scheduler、PID、TrackFollow 暴露可写全局状态 | `g_eSysFlagManage`、`g_PID_instances`、`TrackN` | 模块状态必须私有，禁止跨模块直接写 | 对应模块重写时关闭 |
+| V13 | **partially closed 2026-07-17（M01/`3ab13fe`）**：PID 部分已关闭——`pid.c` 重写为调用者持有上下文的纯算法模块，5 个 `g_t*PID` 全局（`g_tAnglePID`/`g_tLeftMotorPID`/`g_tRightMotorPID`/`g_tTrackPID`/`g_tPositionPID`）连同旧公式/闭环函数全仓删除，改由消费者各自持有 `static Pid_T`。残余仅剩 Scheduler `g_eSysFlagManage` 与 TrackFollow `TrackN`，随上层重置处置。**登记名漂移已于 2026-07-17 修正**：本行与类图历史写的 `g_PID_instances` 从未存在于源码，已更正为实际（已删除的）5 个 `g_t*PID` 符号名 | `g_eSysFlagManage`、`TrackN`（PID 侧证据：全仓扫描旧 5 个全局符号零命中） | 模块状态必须私有，禁止跨模块直接写 | Scheduler/TrackFollow 随上层重置关闭 |
 | V14 | UI 直接调用 Key/OLED Driver，并在 UI 头暴露 Key 类型 | `menu_core.*`、`menu_pages.c` | UI 应通过 App 接口/Service，不直接操作 Driver | App Service/UI 阶段 |
-| V15 | VOFA Scheduler 直接依赖 VOFA Driver、PID 和 TrackFollow | `vofa_register.*` | Scheduler 不应成为跨层共享状态中心 | VOFA Service 阶段 |
+| V15 | VOFA Scheduler 直接依赖 VOFA Driver 和 TrackFollow（**PID 一支 2026-07-17 M01 已消除**——`vofa_register.c` 不再 `#include pid.h`，调参持久化改为模块内 static ctx 暂存/恢复，`VofaRegister_API ..> PID_API` 边已删） | `vofa_register.*` | Scheduler 不应成为跨层共享状态中心 | VOFA Service 阶段 |
 | V17 | **closed 2026-07-16（P6 R02/R04）**：EEPROM 器件删除，I2C_AUX 只剩 `driver/oled/oled_hardware_i2c.c` 独占；未引入多余 I2C 总线层 | `driver/eeprom/` 删除；`rg -l 'I2C_AUX' hc-team` 仅命中 OLED driver `.c` | 多器件共享总线却无所有者；单器件独占时禁止过度抽象 | Phase 2 P6 |
 | P1-SCOPE | P1 完成范围收窄：UART 角色迁移交 P5、按键共享 IRQ 交 P4；P1F.T1 仅关闭 Runtime 死接口与时间包装 | `plan1_fix_runtime_closeout.md` §1；P1F E01–E05 | 无新增违规；避免跨计划重复关闭 | P1-FIX / P4 / P5 |
 | V16 | **closed 2026-07-16（HT.T1 E01/E04）**：主机测试套件 `tests/host/` 已从旧 `NUEDC` 仓库迁入当前仓库，可在本仓库复跑 32 项基线（Encoder 14 + PID 5 + Motor 7 + Key 6） | `tests/host/` 7 个源文件；`rtk make -C tests/host all` 全绿；`git ls-files tests/host` 恰好 7 个文件且无 `.exe` | 测试是交付内容；验收协议依赖主机测试基线 | HT.T1 done，P5 前置满足 |
@@ -137,7 +138,7 @@ flowchart LR
 | Driver | IMU | `driver/imu/imu.c/.h`（2026-07-17 P8 重写：器件更换为内置 Kalman 解算的单轴模组，5 字节定长帧，只出 Yaw 与 GyroZ；旧 `IMU.c/.h`(0x7E 九轴协议)已删除。RX 已接线，仍零外部调用者 —— 待 Service 层消费；MPU6050/I2C_IMU 已于 2026-07-16 移除） |
 | Driver | EMM42 | `driver/step_motor/emm42.c/.h`（纯协议组包，无 TI 头。2026-07-17 P9.T2：13 个 App 实现的声明已迁出，本头此后只声明 `emm42.c` 自己实现的符号 —— V18 关闭） |
 | Driver | VOFA UART | `driver/uart_vofa/uart_vofa.c/.h` |
-| Middleware | PID | `middleware/pid/pid.c/.h` |
+| Middleware | PID | `middleware/pid/pid.c/.h`（2026-07-17 M01 重写：调用者持有上下文的纯算法模块，`Pid_Init/Pid_Reset/Pid_SetGains/Pid_SetLimits/Pid_UpdateIncremental/Pid_UpdatePositional/Pid_GetTelemetry`；无模块级实例，无 Driver/DL HAL/App 引用） |
 | App System | Main/Init | `app/system/main.c`、`sys_init.c` |
 | App Scheduler | Scheduler/Registry/VOFA | `app/scheduler/task_scheduler.*`、`run_registry.*`、`vofa_register.*` |
 | App UI | Menu | `app/ui/oled/menu_core.*`、`menu_pages.*` |
@@ -217,3 +218,4 @@ flowchart LR
 | 2026-07-17 | **Agent 框架第二步（纯文档/工具链，`hc-team/**` 与 `board.syscfg` 零改动）**：① 新建根 `CLAUDE.md`（73 行 <200 红线）——官方唯一原生自动加载文件，承载 §4 矩阵、§12 停止条件、§15 裁定、构建入口与 agent/skill 接线，AGENTS.md 仍是唯一权威；② AGENTS.md §8.1/§8.2 拆为按需加载 skills `motor-safety`/`data-chain`（`.claude/skills/`，正文逐字照抄 + 本工程既有事实，AGENTS.md 原文零改动，skill 内标注双向同步义务）；③ 本拓扑按层拆分——§2 → `agent/topology/driver.md`（197 行）、§3/§4 → `agent/topology/app.md`（328 行），本文件瘦身为索引（215 行，保留 §1/§5–§10），**章节编号不重排**（§2/§3 锚点被 11 处文档引用）；§14 路径声明、`agent/README.md`、`topo-navigator`/`topo-updater` 定义同步（`topo-guard.ps1:61` 自首日即预留 `agent/topology/*` 匹配，hook 零改动） | **已复核，无 API/依赖边变化**——纯文件重组。拆分经双向验证：写前切片重建断言 + 写后用三个新文件反拼原文与 `git show HEAD:` 逐字节比对 `RECONSTRUCT_MATCH`（716 行全 CRLF 无 BOM，避开 P8 sed 剥 CRLF 事故同类风险） | 首轮试跑（同日）：三子 agent 并行全部跑通，navigator/auditor/updater 各约 2.2万~2.7万 tokens；skills 热加载当场生效再次实测成立，subagent 定义更新须下次会话生效 |
 | 2026-07-17 | **Driver 层验收封包**：`arch-auditor` 评审 5 条 findings 全为文档/注释陈述错误，已处置——① `mspm0_runtime.c:8` 头注释修正 QEI timer 归属（实际 QEI_LEFT=TIMG9、QEI_RIGHT=TIMG8，单源 `board.syscfg`）；② `board.h:20` 注释 `Motor_StartPwm()`→`Motor_Init()`；③ `oledfont.h` 删除无用 `#include "ti_msp_dl_config.h"`（头内无 TI 符号）；④ 新增 `docs/driver层验收封包报告.md`；⑤ `docs/driver层总汇报.md` §6 边界清单补列 `board_gpio.c`。均为注释/文档修正，**API 面零变化** | 补一条漏画的边：`BoardGpio_API --> DL_HAL`（`board_gpio.c` 实测 `#include "ti_msp_dl_config.h"` + `<ti/driverlib/dl_gpio.h>`，`BoardGpio_GetKeyRawLevels` 内直调 `DL_GPIO_readPins`；此前类图只画到 `Runtime_API` 的过渡边，缺这条——不是新违规，Driver→DL HAL 允许且 `board_gpio.c` 本就是该模块 TI 边界文件，纯拓扑补边）。其余已复核，无拓扑变化 | 主机测试 109 PASS / 0 FAIL；固件 clean 重建 exit 0/诊断 0；`board_gpio.c` 源码核实 `#include` 行 10/12/13/15 与 `DL_GPIO_readPins` 调用行 19 |
 | 2026-07-17 | **网表对照 + QEI 左右命名对调**（用户裁定，仅 `board.syscfg` 改动）：硬件组网表证实 U33/U34 插座上电机与编码器左右命名交叉，裁定固件改名吸收——QEI1.`$name` `QEI_LEFT`→`QEI_RIGHT`（物理仍为 TIMG9/PB7/PB9，= U34 = 右轮）、QEI2.`$name` `QEI_RIGHT`→`QEI_LEFT`（物理仍为 TIMG8/PB10/PB11，= U33 = 左轮）。**与 2026-07-16 QEI/灰度引脚重映射一行记录的归属方向相反**（该行历史事实不回改，按惯例保留）；`mspm0_runtime.c:8-10` 头注释同步新归属，零代码 API 改动。契约见 `docs/给硬件组的修改方案.md` §5，提交 `6943172` | 复核 `agent/topology/driver.md`（Encoder_API 类块、5.1 数据流边 `EncGPIO→QEI→RawCount→BoardGpio→Encoder`）与索引 §1/§5/§6/§7：均不含左右↔timer 绑定的具体陈述（只提「TIMG8 TIMG9 硬件 QEI 计数器」这一通用事实），**故拓扑边无需改动**——左右命名由 syscfg `$name` 单源吸收，符合既有「无 API 边变化」结论的同一模式；**已复核，拓扑边无变化** | 生成头 `QEI_LEFT_INST=TIMG8`、`QEI_RIGHT_INST=TIMG9`（独立复读过）；主机测试 109 PASS / 0 FAIL；固件构建 0 警告 0 错误；`git status hc-team tests` 除 `mspm0_runtime.c` 头注释外为空 |
+| 2026-07-17 | **M01：PID 全量重写**（契约 `0062332`，代码 `3ab13fe`）。`middleware/pid/pid.c/.h` 改为调用者持有上下文的纯算法模块：删除旧 `pid_Init/pid_closeloop_angle/pid_closeloop_motor/pid_closeloop_track/pid_formula_positional/pid_formula_incremental/pid_out_limit` 及 5 个 `g_t*PID` 全局（`g_tAnglePID`/`g_tLeftMotorPID`/`g_tRightMotorPID`/`g_tTrackPID`/`g_tPositionPID`），新增 `Pid_Init/Pid_Reset/Pid_SetGains/Pid_SetLimits/Pid_UpdateIncremental/Pid_UpdatePositional/Pid_GetTelemetry` + `Pid_Config_T`/`Pid_Telemetry_T`/`Pid_T`（运行时字段私有，调用者不得直读写）。上游机械适配：`sys_init.c` 删除 PID 初始化调用（无模块级实例可初始化）；`vofa_register.c` 不再 `#include pid.h`，调参持久化改走模块内 static ctx；`speed_loop.c`/`task1.c` 各持有 `static Pid_T s_left_pid/s_right_pid`，`task_groups.c` 持有 `s_vofa_left_pid/s_vofa_right_pid`（惰性初始化）；`2DPlatform_LaserStrike.c` 的 `StepperAxisRuntime_t` 内嵌 `Pid_T`，改走 `Pid_SetGains/Pid_SetLimits/Pid_UpdatePositional/Pid_GetTelemetry`。`tests/host/test_pid.c` 13 用例全走新 API，`test_encoder` 目标直接链接 `pid.c` | `agent/topology/app.md` 与 `driver.md` 的 `PID_API` 类块换成新 7 个符号；删除边 `System_API --> PID_API : init`、`VofaRegister_API ..> PID_API`（V15 该支消除）与启动图节点 `MiddlewareInit[PID init]`；`TaskGroups_API ..> PID_API`/`SpeedLoop_API --> PID_API`/`Task1_API --> PID_API`/`Platform2D_API --> PID_API` 保留（V07 未关，仅 API 名随符号更新）；索引 §5.1 数据流改为「Consumers 各自持有 `Pid_T`，按值传 target/feedback (m/s)，返回限幅后 out（±1000 PWM 尺度），遥测经 `Pid_GetTelemetry`」，并注明 `Pid_T.cfg.out_limit` 是限幅唯一所有者、`Motor_SetOutput` 是拒收校验非二次钳位；V13 该行症状改为 partially closed（PID 支已关，残余 `g_eSysFlagManage`/`TrackN` 随上层重置处置），并修正历史登记名漂移（`g_PID_instances` 从未存在于源码，更正为实际的 5 个 `g_t*PID`）；§7 覆盖清单 `middleware/pid` 行更新为 M01 状态 | 施工方 + `arch-auditor` 双重确认：全仓扫描旧 5 个 `g_t*PID` 全局符号零命中；`grep -rln pid.h hc-team` 仅剩 5 个真实消费者（`speed_loop.c`/`task1.c`/`task_groups.c`/`2DPlatform_LaserStrike.c`/`pid.c` 自身），`sys_init.c`/`vofa_register.c` 已确认不再引用；`pid.h` 源码核实类型/API 与本行描述逐字一致 |
