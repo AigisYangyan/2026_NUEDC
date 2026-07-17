@@ -41,7 +41,7 @@
 | A00 | 计划 + 裁定解除记录 | `agent/phase4_app_rewrite/` | — | — | `DONE`（bffdecf + baseline chore c958a3f） |
 | S01 | chassis 底盘速度环服务 | `app/service/chassis/` | speed_loop.c、task1 速度部分、task_groups 采样所有权 | V07（部分）、V10（部分） | `DONE`（契约 bffdecf，修订 926bac0；代码 8a611d5；审计处置 69c29fa。E01 0 命中 / E02 无越界 / E03 140 PASS 0 FAIL＝128 基线+12 / E04 exit 0、0 诊断、chassis.o 进链接） |
 | S02 | line_follow 循迹服务（外环+丢线策略） | `app/service/line_follow/` | track_follow.c、task1 循迹部分、gray_test | V03、V03-DUP、V07（部分） | `DONE`（契约 6dfdc85，修订 88010fd；代码 bb4825c；审计处置 53e9967。E01 0 命中 / E02 无越界 / E03 159 PASS 0 FAIL＝140 基线+19 / E04 exit 0、0 诊断、两 .o 进链接。Q5 关闭：丢线策略显式重建于 lost_line） |
-| S03 | 遥测/调参链路服务（VOFA） | `app/service/`（契约时定名） | vofa_register.c | V15 | 待 S01/S02 |
+| S03 | 遥测/调参链路服务（VOFA） | `app/service/tuning/` | vofa_register.c | V15、V19 | 契约冻结（§9） |
 | S04 | 人机输入/显示服务（Key/OLED 包装） | `app/service/`（契约时定名） | menu 对 Key/OLED 的直调 | V14 的基础 | 待定契约 |
 | S05 | 云台/视觉服务群（platform_2d 下沉） | `app/service/`（契约时拆分） | vision_bus/vision_coord/stepmotor_bus/2DPlatform | stepmotor_bus 违规群 | 赛题明确后 |
 | SCH01 | 调度器重写 | `app/scheduler/` | task_scheduler.c、run_registry.c | V13 残余（g_eSysFlagManage） | 待 S 层主体 |
@@ -70,7 +70,7 @@
 | # | 问题 | 归属 |
 |---|---|---|
 | Q1 | Scheduler 的时间来源：矩阵禁止 Scheduler 调 Driver，而 Clock 是 Driver。候选：System 装配层供给节拍 / 建极薄 systime Service。 | SCH01 契约 |
-| Q2 | VOFA 命令解析与分发的最终归属（当前 vofa_run 的 task-context 解析是登记违规节点）。 | S03 契约 |
+| Q2 | ~~VOFA 命令解析与分发的最终归属~~ **已定案（S03 契约 §9）**：字节流解析归 Driver `vofa_run()`（V09 任务上下文边界不动）；解析结果的**分发与应用**归 `app/service/tuning`（唯一收口，cmd→被调 Service API 单向应用）。Task 层永不直接触碰 uart_vofa。 | S03 契约 |
 | Q3 | 赛题（电赛小题）具体定义与 Task 编排内容，待用户给题。 | T01 契约 |
 | Q4 | `arch-baseline.txt` 第 10 行（vofa_register.c→pid.h）已滞后于代码事实（M01 已消除该包含），待清理。 | A00 随手 chore |
 | Q5 | ~~S02 丢线策略需显式重建~~ **已关闭（S02）**：`lost_line` 子模块=方向记忆+固定回退+有界超时（超时上限是新增安全项，旧实现没有）。 | S02 契约 |
@@ -253,3 +253,97 @@ void LineFollow_GetTelemetry(LineFollow_Telemetry_T *out);
      外环积分器跨拍存活（审计重要级 F2——积分限幅量纲失配修正的验证，
      修正 = Init 按误差口径显式给积分限幅，不再依赖 out_limit×3.5 推导）。
      E03 预期总数相应 ≥156（新用例 +1，原有 LOST 用例改写）。
+
+## 9. S03 契约（tuning VOFA 调参链路服务）——冻结
+
+- **task_id**: S03-tuning
+- **goal**: 新建 `app/service/tuning/`：VOFA 调参链路服务。吸收旧 `vofa_register.c` 的
+  「profile 注册中枢」职责（旧文件保持冻结，T01 删除；过渡期双实现登记拓扑），关闭 V15
+  剩余支（Driver 直注册 + 暴露 task 状态），顺手关闭 V19（`u8` 别名经 Grep 证实全域零使用，
+  仅删 typedef 与 TODO 注释）。第一个 profile：**底盘速度环脱线悬挂调参**（用户指定 demo）——
+  为未来 debug Task 的调参状态机提供「进入即注册」的现成入口。
+- **Q2 定案**：字节流解析归 Driver `vofa_run()`（V09 任务上下文边界不动）；解析结果的
+  分发与应用归本服务唯一收口。Task 层永不直接触碰 uart_vofa。
+- **变量组隔离三原则（用户裁定 2026-07-17，契约核心）**：
+  1. **只做调参**：VOFA 变量组（cmd 输入 + tx 遥测）是本服务私有 static 上下文，
+     不承载任何运行控制职责；实际运行变量（chassis 内部目标/PID/快照）不注册进 VOFA。
+  2. **与运行变量分离、不相互赋予**：cmd 组永不从运行值回读初始化，运行值永不写入 cmd 组；
+     tx 组只是 `Chassis_GetTelemetry()` 快照的单向复制（展示副本）；参数应用方向唯一：
+     cmd → `Chassis_SetSpeedGains`/`Chassis_SetTargetMps`（Service 公共 API，不摸 Pid_T/内部状态）。
+  3. **初值安全**：Enter/重进一律将 cmd 组重置为安全值（增益 0、目标 0）——不继承旧
+     vofa_register「重进保参」回读语义；悬挂车辆上电进调参态时电机确定性不出力。
+- **接口辩护**（调参链路能做什么）：能进入/退出一个调参 profile（进入即挂变量组）、
+  能周期推进收发与应用、能报告当前激活 profile。仅此成为公共面。
+
+### 9.1 allowed_files（无 glob）
+
+| 文件 | 动作 |
+|---|---|
+| `hc-team/app/service/tuning/tuning.h` / `.c` | 新建（会话核心：profile 生命周期 + 推进编排） |
+| `hc-team/app/service/tuning/tuning_chassis.h` / `.c` | 新建（底盘速度环 profile 子模块：变量组 + 注册/重置/应用/刷新） |
+| `hc-team/driver/uart_vofa/uart_vofa.h` | 修改（V19：仅删 `typedef uint8_t u8` 与 TODO(V19) 注释块，无其他改动） |
+| `tests/host/test_tuning.c` | 新建 |
+| `tests/host/Makefile` | 追加 test_tuning 目标/clean/.PHONY |
+| `.gitignore` | 追加 test_tuning / test_tuning.exe |
+| `Debug/makefile` | 登记 tuning.o、tuning_chassis.o |
+| `agent/phase4_app_rewrite/plan_app_first_order.md` | 状态回写 |
+
+forbidden_files：`hc-team/app/service/chassis/**`、`hc-team/app/service/line_follow/**`
+（只调用不修改）、`hc-team/app/{tasks,scheduler,system,ui}/**`、`hc-team/driver/**` 其余全部
+（含 `uart_vofa.c`、`board_uart/**`）、`hc-team/middleware/**`、tests/host 既有 `test_*.c`
+与 `fake_*.c`（fake_uart_port 已有 Vofa 注入/抓取面，fake_clock 已有时间注入面）。
+
+### 9.2 公共接口（最小面）
+
+```c
+typedef enum {
+    TUNING_PROFILE_NONE = 0,
+    TUNING_PROFILE_CHASSIS_SPEED,   /* 底盘速度环悬挂调参（demo） */
+} Tuning_Profile;
+
+void Tuning_Init(void);             /* →NONE；静默：不碰 VOFA/底盘 */
+bool Tuning_EnterProfile(Tuning_Profile profile);
+    /* CHASSIS_SPEED：vofa_clear_profile → cmd 组重置安全值 → 注册 tx×6/cmd×8
+     * → Chassis_Stop（确定性起点）→ 立即应用安全 cmd（增益 0/目标 0 覆写底盘残留）。
+     * NONE 或未知值：等效 Exit / 返回 false。 */
+void Tuning_Update(void);
+    /* NONE：完全静默（不发帧、不推底盘）。激活态每次调用：
+     * ① 自门控 TUNING_STREAM_PERIOD_MS=10（Clock_NowMs 无符号减法）；到期执行
+     *    vofa_run()（Driver 内解析 RX→cmd + 发送上一拍 tx 帧）→ cmd 无条件应用
+     *    （Pid_SetGains 只写 cfg 不清史，已核实）→ 刷新 tx ← Chassis_GetTelemetry
+     *    快照（遥测比现场晚一帧，接受）。
+     * ② 无论到期与否，末尾恒推进 Chassis_Update()（内环自门控 10ms，S02 同款级联）。 */
+void Tuning_ExitProfile(void);
+    /* Chassis_Stop → vofa_clear_profile → NONE。此后 Update 静默，
+     * 刹车真值表保持（S02 修订 1 同款语义）。 */
+Tuning_Profile Tuning_GetActiveProfile(void);
+```
+
+- **变量组内容（CHASSIS_SPEED）**：tx×6 = 目标 L/R、反馈 L/R、PID 输出 L/R
+  （全部来自 Chassis_Telemetry_T 快照副本）；cmd×8 = `LM`/`RM`（目标 m/s）、
+  `LP`/`LI`/`LD`、`RP`/`RI`/`RD`（增益）——命令名沿用旧 profile，上位机工程免改。
+- **单一所有者声明**：增益/目标写入只经 Chassis 公共 API（限幅、slew、换向、超时、刹车
+  各归 S01 既有所有者，本服务零复做）；VOFA 协议/解析/缓冲归 uart_vofa Driver；
+  串口归 vofa_uart Driver。本服务唯一拥有：调参变量组存储 + 应用节奏 + profile 生命周期。
+- **前置条件**：System 装配层已完成 `vofa_init()`（含 VofaUart_Init）与 Clock/底盘链 Init
+  （S01 同口径）；UART5 PA0/PA1 实物未引出是已登记硬件阻塞，不影响固件与主机验收。
+
+### 9.3 preserved_behavior
+
+- `app/service/{chassis,line_follow}/**`、旧 `app/**`、`driver/**`（除 uart_vofa.h 删 2 行
+  死 typedef）、`middleware/**` 零行为改动；主机既有 159 用例全过；固件行为不变
+  （新 .o 进链接但零调用者；`u8` 零使用故删除不改任何编译结果）。
+
+### 9.4 证据行（≤6，恰 1 条固件构建行）
+
+| 行 | 名称 | 命令 | 预期 |
+|---|---|---|---|
+| E01 | 依赖纯净 | Grep `app/tasks/|app/scheduler/|app/ui/|app/system/|ti_msp_dl_config|ti/driverlib`（path=`hc-team/app/service/tuning`，`#include` 行） | 0 命中 |
+| E02 | 范围审计 | `git status` + `git diff --stat` 对照 §9.1 | 无 allowed_files 之外的改动 |
+| E03 | 主机测试 | PowerShell：`rtk proxy make -C tests/host all` | ≥171 PASS / 0 FAIL（159 基线 + ≥12 新用例），必含安全项：Init/NONE 态完全静默（无帧无电机命令）、Enter 即安全（底盘残留增益/目标被安全 cmd 覆写 + 刹车起点）、安全初值帧全 0、RX 调参经 Chassis API 生效（LM 目标 + LP 增益悬挂主链路）、分离性（外部改运行值不回写 cmd 且下一拍被 cmd 覆写回）、tx=快照副本、10ms 门控单帧、级联推进内环、Exit 后刹车保持且无新帧、重进 cmd 回安全值 |
+| E04 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 diagnostics、tuning.o 与 tuning_chassis.o 进入 .out 链接 |
+| E05 | V19 关闭 | Grep `typedef\s+uint8_t\s+u8|\bu8\b`（path=`hc-team`） | 0 命中 |
+
+### 9.5 契约修订记录
+
+（无）
