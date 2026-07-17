@@ -57,7 +57,7 @@
 | S04 | 人机输入/显示服务（Key/OLED 包装） | `app/service/hmi/` | menu 对 Key/OLED 的直调、task_groups UI 泵送 | V14 的基础 | `DONE`（契约 f8311c8；代码 2dac572；审计处置 ad5ca08。E01 0 命中 / E02 无越界 / E03 185 PASS 0 FAIL＝173 基线+12 / E04 exit 0、0 诊断、hmi.o 经 linkInfo.xml 确证进链） |
 | S05 | 云台/视觉服务群（platform_2d 下沉：瞄准收敛/轨迹发生/运动前馈/视觉接入） | `app/service/`（契约时拆分） | vision_bus/vision_coord/stepmotor_bus/2DPlatform | stepmotor_bus 违规群 | 排队（S07 后预制，**不再等赛题**——§12；前馈依赖 M01） |
 | SCH01 | 调度器重写 | `app/scheduler/` | task_scheduler.c、run_registry.c | V13 残余（g_eSysFlagManage） | `DONE`（Q1 定案 74d421e；契约 56ced13，修订 c6bcc4a；代码 e801caf；审计处置 6bfe3f4。E01 0 命中 / E02 无越界 / E03 200 PASS 0 FAIL＝185 基线+15 / E04 exit 0、0 诊断、scheduler.o 经 linkInfo.xml 确证进链。V13 残余本体仍待 T01 删旧文件时关闭） |
-| UI01 | 菜单重写（含分问选择/参数表——大纲 P0-D） | `app/ui/menu/` | menu_core/menu_pages（冻结不删，T01 删除） | V14（替代面 UI01 建成，本体 T01 关闭——见 §13 裁定） | **契约冻结（§13，本提交），施工中** |
+| UI01 | 菜单重写（含分问选择/参数表——大纲 P0-D） | `app/ui/menu/` | menu_core/menu_pages（冻结不删，T01 删除） | V14（替代面 UI01 建成，本体 T01 关闭——见 §13 裁定；拓扑保持 open） | `DONE`（契约 c05de1b，修订 1 2b54b8a→Menu_Init 改名 Menu_Setup；代码 e23176a；审计处置 82e6493。E01 0 命中 / E02 无越界 / E03 214 PASS 0 FAIL＝200 基线+14 / E04 exit 0、0 诊断、menu.o+menu_param.o 经 linkInfo.xml 确证进链、旧 menu_core.o 仍共链。arch-auditor 6/7 通过，1 建议级已删。V14 待 T01 删旧关闭） |
 | M01 | 里程计+航向 unwrap（Middleware 纯算法：编码器 Δ→x,y,θ；imu.h 明示 unwrap 归此层） | `middleware/odometry/`（契约时定拆分） | task1 姿态/里程零散逻辑（冻结不迁移，重建） | — | 排队（UI01 后） |
 | S06 | motion 语义运动服务（直行 N cm/定角转/圆弧/定点停；IMU 航向保持可插拔） | `app/service/motion/` | task1 直行/转弯编排 | — | 排队（M01 后） |
 | M02 | 循迹元素检测（可注册检测器：十字/直角弯/断线/终点横线…，特征+置信度计数） | `middleware/track_elements/` | — | — | 排队（S06 后） |

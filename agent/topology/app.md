@@ -59,7 +59,7 @@ class VofaRegister_API {
 }
 
 class Menu_API {
-  <<app:ui>>
+  <<app:ui, OLD, frozen menu_core/menu_pages>>
   +Menu_Init()
   +Menu_HandleKey()
   +Menu_RenderIfDirty()
@@ -68,6 +68,22 @@ class Menu_API {
   +Menu_IsDirty()
   +Menu_GetCurrentPage()
   +MenuPages_Init()
+}
+
+class MenuUI_API {
+  <<app:ui, NEW UI01>>
+  +Menu_Setup(params, param_count)
+  +Menu_Tick(now_ms)
+  +Menu_GetScreen() Menu_Screen
+}
+
+class MenuParam_API {
+  <<app:ui, private to menu, not in public face>>
+  +MenuParam_Init(params, count)
+  +MenuParam_Enter()
+  +MenuParam_Handle(Hmi_Input) Menu_Screen
+  +MenuParam_Render()
+  +MenuParam_FormatValue(value, buf, cap)
 }
 
 class TaskGroups_API {
@@ -302,6 +318,13 @@ Menu_API --> RunRegistry_API : builds pages
 Menu_API --> Scheduler_API : enter and leave
 Menu_API ..> Key_API : VIOLATION UI calls Driver
 Menu_API ..> OLED_API : VIOLATION UI calls Driver
+
+%% MenuUI_API / MenuParam_API (UI01, new) — zero callers today, E01 dependency scan 0 hits
+%% against Driver/DL HAL (S15.1 expected state); SYS01/T01 assembly layer is the future caller.
+MenuUI_API --> SchedulerEntry_API : GetEntryCount/GetEntryName/EnterEntry/LeaveEntry, same-layer controlled
+MenuUI_API --> Hmi_API : Update/PollInput/IsDisplayReady/PrintLine
+MenuUI_API --> MenuParam_API : delegates PARAM_LIST/PARAM_EDIT screens, private submodule
+MenuParam_API --> Hmi_API : PrintLine render
 
 TaskGroups_API --> Menu_API : UI task
 TaskGroups_API --> SpeedLoop_API
