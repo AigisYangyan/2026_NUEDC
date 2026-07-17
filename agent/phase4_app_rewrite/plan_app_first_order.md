@@ -40,7 +40,7 @@
 |---|---|---|---|---|---|
 | A00 | 计划 + 裁定解除记录 | `agent/phase4_app_rewrite/` | — | — | `DONE`（bffdecf + baseline chore c958a3f） |
 | S01 | chassis 底盘速度环服务 | `app/service/chassis/` | speed_loop.c、task1 速度部分、task_groups 采样所有权 | V07（部分）、V10（部分） | `DONE`（契约 bffdecf，修订 926bac0；代码 8a611d5；审计处置 69c29fa。E01 0 命中 / E02 无越界 / E03 140 PASS 0 FAIL＝128 基线+12 / E04 exit 0、0 诊断、chassis.o 进链接） |
-| S02 | line_follow 循迹服务（外环+丢线策略） | `app/service/line_follow/` | track_follow.c、task1 循迹部分、gray_test | V03、V03-DUP、V07（部分） | 待 S01 |
+| S02 | line_follow 循迹服务（外环+丢线策略） | `app/service/line_follow/` | track_follow.c、task1 循迹部分、gray_test | V03、V03-DUP、V07（部分） | **契约冻结（§8）** |
 | S03 | 遥测/调参链路服务（VOFA） | `app/service/`（契约时定名） | vofa_register.c | V15 | 待 S01/S02 |
 | S04 | 人机输入/显示服务（Key/OLED 包装） | `app/service/`（契约时定名） | menu 对 Key/OLED 的直调 | V14 的基础 | 待定契约 |
 | S05 | 云台/视觉服务群（platform_2d 下沉） | `app/service/`（契约时拆分） | vision_bus/vision_coord/stepmotor_bus/2DPlatform | stepmotor_bus 违规群 | 赛题明确后 |
@@ -159,3 +159,84 @@ void Chassis_GetTelemetry(Chassis_Telemetry_T *out);
 - 每完成一个模块：更新 §3 状态列（含契约/代码提交哈希）、追加该模块契约章节、
   在拓扑索引 §10 记一行日志。
 - 契约修订必须单独提交并在本文件中注明修订原因与提交哈希。
+
+## 8. S02 契约（line_follow 循迹外环服务）——冻结
+
+- **task_id**: S02-line_follow
+- **goal**: 新建 `app/service/line_follow/`：灰度位图采样触发 → Middleware 加权重心误差 →
+  外环 PID → 差速目标喂 chassis 内环（Service 同层受控调用）。「循迹环触发 + 多环触发/级联」
+  的唯一所有者：`LineFollow_Update()` 推进外环并级联推进 `Chassis_Update()`。
+  丢线恢复策略按 phase3 §5.2 移交备忘**显式重建**（Q5 关闭），落在独立子模块 `lost_line`。
+- **文件层级**（用户指令 2026-07-17：不要把所有代码放在一个文件里）：
+  `line_follow.{h,c}` = 公共面 + 触发/编排/状态机；`lost_line.{h,c}` = 丢线恢复策略
+  （服务内私有模块，调用者持有上下文，可独立主机测试）。
+- **接口辩护**：循迹功能能做什么——沿线行驶、丢线后有界恢复、超时安全停车、报告状态与
+  误差遥测、可调外环增益。仅此成为公共面。
+
+### 8.1 allowed_files（无 glob）
+
+| 文件 | 动作 |
+|---|---|
+| `hc-team/app/service/line_follow/line_follow.h` / `.c` | 新建 |
+| `hc-team/app/service/line_follow/lost_line.h` / `.c` | 新建 |
+| `tests/host/test_lost_line.c`、`tests/host/test_line_follow.c` | 新建 |
+| `tests/host/Makefile` | 追加两个 target/clean/.PHONY |
+| `.gitignore` | 追加两个测试产物 |
+| `Debug/makefile` | 登记 line_follow.o、lost_line.o |
+| `agent/phase4_app_rewrite/plan_app_first_order.md` | 状态回写 |
+
+forbidden_files：`hc-team/app/service/chassis/**`（只调用不修改）、`hc-team/app/{tasks,scheduler,system,ui}/**`、
+`hc-team/driver/**`、`hc-team/middleware/**`、tests/host 既有 `test_*.c` 与 `fake_*.c`
+（fake_gray_port 已有注入面）。
+
+### 8.2 公共接口（最小面）
+
+```c
+typedef enum { LINE_FOLLOW_IDLE, LINE_FOLLOW_TRACKING,
+               LINE_FOLLOW_RECOVERING, LINE_FOLLOW_LOST } LineFollow_State;
+typedef struct {
+    float    pitch_mm;          /* 探头机械间距(>0)；机械定案后实测 */
+    bool     bit0_is_left;      /* 位序唯一修正点（H2 实测后定），透传 TrackError */
+    float    base_speed_mps;    /* 巡线基速 */
+    float    diff_limit_mps;    /* 差速修正限幅 = 外环 Pid out_limit（唯一所有者） */
+    float    recovery_error_mm; /* 丢线回退误差幅值（旧±27 语义重建，建议≈2.7×pitch） */
+    uint32_t lost_timeout_ms;   /* 恢复期上限，超时→LOST+停车 */
+} LineFollow_Config_T;
+typedef struct { uint16_t dark_bitmap; float error_mm; float diff_cmd_mps;
+                 LineFollow_State state; } LineFollow_Telemetry_T;
+
+void LineFollow_Init(const LineFollow_Config_T *config); /* 静默；不动底盘 */
+void LineFollow_SetGains(float kp, float ki, float kd);  /* 外环 PID，运行时可调 */
+bool LineFollow_Start(void);   /* 配置有效(pitch>0)→TRACKING；否则 false 并保持 IDLE */
+void LineFollow_Update(void);  /* 自门控 10ms；每次调用末尾恒推进 Chassis_Update() */
+void LineFollow_Stop(void);    /* →IDLE + Chassis_Stop */
+LineFollow_State LineFollow_GetState(void);
+void LineFollow_GetTelemetry(LineFollow_Telemetry_T *out);
+```
+
+- **差速符号约定**：+误差 = 线在车右（M02 口径）→ 需右转 → 左快右慢：
+  `left = base + c`，`right = base − c`，c 与误差同号（外环 PID 位置式，输入=误差，
+  输出=差速修正 m/s，out_limit = diff_limit_mps）。
+- **状态机**（转移表随 .c 注释交付）：IDLE→(Start 且配置有效)→TRACKING；
+  TRACKING→(位图=0)→RECOVERING（回退误差 = sign(最近有效误差)×recovery_error_mm，
+  从未见线则 0=直行找线）；RECOVERING→(重获线)→TRACKING；
+  RECOVERING→(累计≥lost_timeout_ms)→LOST（Chassis_Stop，保持静默直至 Stop/Start）；
+  任意态 Stop→IDLE+Chassis_Stop。全黑（十字）重心≈0 = 正常直行通过，特征识别归 T01。
+- **单一所有者声明**：误差量化只在 `middleware/track_error`（本服务是其第一个消费者，
+  不复算）；位序反转只经 `bit0_is_left` 透传（gray.h 位序警告的落点，全链路仍仅一个反转点）；
+  丢线策略只在 `lost_line`（旧 track_follow.c 的 ±27 回退是冻结债，T01 删除，过渡期双实现登记拓扑）；
+  差速限幅唯一所有者 = 外环 Pid cfg；轮速闭环与电机保护归 chassis/S01 既有所有者。
+
+### 8.3 preserved_behavior
+
+- `app/service/chassis/**`、旧 `app/**`、`driver/**`、`middleware/**` 零改动；
+  主机既有 140 用例全过；固件行为不变（新 .o 进链接但零调用者）。
+
+### 8.4 证据行（≤6，恰 1 条固件构建行）
+
+| 行 | 名称 | 命令 | 预期 |
+|---|---|---|---|
+| E01 | 依赖纯净 | Grep `app/tasks/|app/scheduler/|app/ui/|app/system/|ti_msp_dl_config|ti/driverlib`（path=`hc-team/app/service/line_follow`） | 0 命中 |
+| E02 | 范围审计 | `git status` + `git diff --stat` 对照 §8.1 | 无越界改动 |
+| E03 | 主机测试 | PowerShell：`rtk proxy make -C tests/host all` | ≥155 PASS / 0 FAIL（140 基线 + ≥15 新用例），必含安全项：Start 前 Update 不动底盘、丢线回退方向与幅值正确、超时→LOST 且底盘刹车、重获线回 TRACKING、差速符号（+误差→左快右慢）、bit0_is_left 反转生效、Stop 确定性 |
+| E04 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 diagnostics、line_follow.o 与 lost_line.o 进入 .out 链接 |
