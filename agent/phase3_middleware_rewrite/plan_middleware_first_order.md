@@ -273,6 +273,8 @@ allowed_files：
 - Debug/hc-team/middleware/track_error/subdir_vars.mk（新建，按 pid 同名文件模式）
 - Debug/hc-team/middleware/track_error/subdir_rules.mk（新建，同上）
 - agent/phase3_middleware_rewrite/plan_middleware_first_order.md
+- .gitignore（**修订 2026-07-17 追加**：仓库惯例是每个主机测试产物逐条登记忽略，
+  新增 test_track_error 需照例补两行；冻结时遗漏）
 
 forbidden_files（重点声明）：
 
