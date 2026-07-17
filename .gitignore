@@ -21,3 +21,5 @@ tests/host/test_oled
 tests/host/test_oled.exe
 tests/host/test_imu
 tests/host/test_imu.exe
+tests/host/test_gray
+tests/host/test_gray.exe
