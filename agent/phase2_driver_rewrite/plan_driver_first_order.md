@@ -34,26 +34,34 @@
 | D06 | key | `driver/key/` | `DONE` | P4 | — |
 | D07 | oled | `driver/oled/` | `DONE` | P6 | — |
 | D08 | board_uart（4 角色） | `driver/board_uart/` | `DONE` | P5 / P8 | — |
-| D09 | step_motor / emm42 | `driver/step_motor/` | `DONE` | P5 / P7 | — |
-| D10 | uart_vofa | `driver/uart_vofa/` | `DONE` | P5 | ⚠ PA0/PA1 待硬件组引出 |
+| D09 | step_motor / emm42 | `driver/step_motor/` | `DONE` | P5 / P7 / **P9** | 可补主机测试（V18 修复后已具备条件） |
+| D10 | uart_vofa | `driver/uart_vofa/` | `DONE` | P5 / P9 | ⚠ PA0/PA1 待硬件组引出；`u8` 命名空间污染登记 V19 |
 | D11 | imu（单轴 Z） | `driver/imu/` | `DONE` | **P8 / P8B** | ⚠ **上位机配置 230400+500Hz + 装平 + 正方向实测**（见 §4.2） |
-| **D12** | **gray（12 路灰度）** | **不存在** | **`GAP` + `HOLD`** | **未立** | **见 §3 —— Driver 层最后一块缺口** |
+| **D12** | **gray（12 路灰度）** | `driver/gray/` | **`DONE`** | **P9.T1** | ⚠ **供电电压确认 + 位序实测**（见 §4.4） |
 | D13 | board_gpio → runtime 过渡边 | `driver/board_gpio/` | `DEBT` | 未立 | 见 §5.1 |
 | D14 | BSL ENTRY 监听器 | 未定 | `GAP` | 未立 | 见 §5.2 |
 
-### 结论
+### 结论（2026-07-17 更新）
 
-> **Driver 层实质只剩 D12（灰度）一块缺口，而它正处于用户暂缓裁定下。**
+> **Driver 层已收官。** 用户于 2026-07-17 解除灰度暂缓裁定，D12 随即由 P9.T1 补齐 ——
+> 「用户解除灰度裁定之时，就是 Driver 层收官之时」这句话已经兑现。
 > D13/D14 是小体量债，不阻塞任何功能。
-> 也就是说：**用户解除灰度裁定之时，就是 Driver 层收官之时。**
+>
+> **瓶颈已经不在 Driver 层，而在 §4 的硬件实测项** —— 其中 **H1 灰度供电电压会烧 IO**。
+> 总汇报见 **`docs/driver层总汇报.md`**。
 
 ---
 
-## 3. D12 —— 12 路灰度（唯一实质缺口）
+## 3. D12 —— 12 路灰度（已完成）
 
-**状态：`HOLD`（用户 2026-07-17 裁定「灰度暂不编写，后续会修改」，该裁定至今有效）**
+**状态：`DONE`（P9.T1，契约 `b421682`，代码 `b423593`）**
 
-> ⚠ 同日用户解除的是 **IMU** 的暂缓裁定，**灰度的没有解除**。动 D12 前必须先向用户确认。
+> 用户 2026-07-17 消息「这是我新买的灰度模块…开战新的 driverplan，将它移植 driver 层」
+> **解除了同日早些时候的暂缓裁定**。D12 随即施工完毕。
+>
+> 器件：武汉无名创新 NCHD1（迹）。配置手册：**`docs/12路灰度传感器配置指南.md`**。
+> 公共接口收敛为单个 `Gray_ReadDarkBitmap()`；12 路一次原子读取兑现了 board.syscfg 用 PB8 换来的性质。
+> **V03 残留点未动**（§15.2 禁止在 App Task 里制造调用者），其关闭时机是上层重置删除 `track_follow.c` 之时。
 
 ### 查实的现状（2026-07-17）
 
@@ -109,6 +117,20 @@
 - 核心板晶振书面确认（PA3/PA5/PA6 是否实焊）。
 - PA0/PA1（VOFA）待硬件组引出；引出前 VOFA 实物不可用，固件已就绪。
 
+### 4.4 灰度（承接 `plan_p9_gray_driver.md` §6）
+
+配置指南已出：**`docs/12路灰度传感器配置指南.md`**。要点：
+
+| 项 | 动作 |
+|---|---|
+| **供电电压** | ★ **唯一硬件风险项**。5V 供电时模组输出高约 **4.0V**（手册 p.31）。须确认 MSPM0G3519 的 PB 脚是否耐 5V；不耐则**必须**改 3.3V 供电或每路串 300–1000Ω，否则烧 IO |
+| **位序左右** | 黑线移到阵列最左，读 `Gray_ReadDarkBitmap()`，看 bit0 还是 bit11 置位。厂商约定 P1=最右，本仓 syscfg 注释写 IN1=最左，**二者矛盾且固件无法自证** |
+| 电位器 | 12 路逐路调（手册 p.23 三步法）：高度固定顺拧到底 / 浅色逆拧待灯亮起 / 求稳继续微拧少许 / 移至深色绿灯即灭 / 上下微抖灯仍不变 |
+| 安装高度 | 灯罩底部离地 **10–30mm** |
+
+> ⚠ **修正点只有一个**：位序方向的修正只能落在未来 Middleware 的权重表里，
+> **不得**在 Driver 里加第二个反转开关（同 `s_direction_sign` 教训，§8.2）。
+
 ---
 
 ## 5. Driver 层小体量债（不阻塞，可随时派工）
@@ -138,7 +160,7 @@
 
 | 违规 | 内容 |
 |---|---|
-| V03 | `track_follow.c` 直接调 DL HAL（**与 D12 同批解决**） |
+| V03 | `track_follow.c` 直接调 DL HAL。**注意：D12 已建成（P9.T1）但 V03 未关** —— 关闭时机是上层重置**删除** `track_follow.c` 之时，不是 Driver 建成之时（§15.2 禁止改 App Task 去接 Driver） |
 | V07 | TaskGroups / SpeedLoop / Task1 直接编排 Driver 与 PID |
 | V10 | `app/service/` 无有效源 API（当前 `git ls-files` 命中 **0**） |
 | V13 | Scheduler / PID / TrackFollow 暴露可写全局（`g_eSysFlagManage`、`g_PID_instances`、`TrackN`） |

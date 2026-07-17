@@ -1,6 +1,6 @@
 # NUEDC API 平台架构拓扑图（2026_Diansai · MSPM0G3519）
 
-最后复核：2026-07-17（P8：新单轴 IMU 驱动重写 + RX 接线；违规边 `IMU_API --> DL_HAL` 已关闭）  
+最后复核：2026-07-17（P9：新建 `Gray_API`/`GrayPort_API`（D12，Driver 层最后一块缺口）；违规 V18 关闭；登记 V19/V20）  
 适用工程：`2026_Diansai`（MSPM0G3519，LQFP-100，SDK 2.11.00.07；由旧工程 `NUEDC`/G3507 移植，见 `agent/MIGRATION_G3507_TO_G3519.md`）  
 事实来源：当前工作区 `hc-team/**/*.c`、`hc-team/**/*.h`、仓库根 `board.syscfg`  
 状态：当前实现拓扑，不是目标架构示意图  
@@ -113,6 +113,23 @@ class Key_API {
   +Key_IsPressed()
   +Key_GetPressEvent()
   +Key_PollPressEvent()
+}
+
+class Gray_API {
+  <<driver>>
+  +GRAY_CHANNEL_COUNT = 12
+  +GRAY_BITMAP_MASK
+  +Gray_ReadDarkBitmap() uint16_t
+  note: 深色=1 为器件事实（比较器输出），非本层约定
+  note: 无 Init（SysConfig 已配输入）、无状态、无去抖、无诊断
+  note: 不声明左右 —— 位序矛盾未决，须实测
+}
+
+class GrayPort_API {
+  <<driver>>
+  +gray_port_read() uint32_t
+  +gray_port_channel_mask(channel) uint32_t
+  note: HAL 边界，非公共 API；主机测试由 fake_gray_port.c 顶替
 }
 
 class OLED_API {
@@ -378,6 +395,8 @@ class StepmotorUart_API { <<driver>> }
 class Motor_API { <<driver>> }
 class Encoder_API { <<driver>> }
 class Key_API { <<driver>> }
+class Gray_API { <<driver>> }
+class GrayPort_API { <<driver>> }
 class OLED_API { <<driver>> }
 class Emm42_API { <<driver>> }
 class VofaDriver_API { <<driver>> }
@@ -454,6 +473,8 @@ VisionBus_API --> VisionCoord_API : parsed frames
 VisionBus_API --> VisionUart_API : pull buffered bytes
 Platform2D_API --> VisionCoord_API : coordinates
 Platform2D_API --> StepMotorBus_API : transport state
+Gray_API --> GrayPort_API : one port read, then scatter
+GrayPort_API --> DL_HAL : GPIO_LINE_SENSOR = GPIOB, single DL_GPIO_readPins for all 12
 Platform2D_API --> Emm42_API : commands
 Platform2D_API --> PID_API : axis control
 Platform2D_API --> VofaRegister_API
@@ -594,6 +615,9 @@ flowchart LR
 | V17 | **closed 2026-07-16（P6 R02/R04）**：EEPROM 器件删除，I2C_AUX 只剩 `driver/oled/oled_hardware_i2c.c` 独占；未引入多余 I2C 总线层 | `driver/eeprom/` 删除；`rg -l 'I2C_AUX' hc-team` 仅命中 OLED driver `.c` | 多器件共享总线却无所有者；单器件独占时禁止过度抽象 | Phase 2 P6 |
 | P1-SCOPE | P1 完成范围收窄：UART 角色迁移交 P5、按键共享 IRQ 交 P4；P1F.T1 仅关闭 Runtime 死接口与时间包装 | `plan1_fix_runtime_closeout.md` §1；P1F E01–E05 | 无新增违规；避免跨计划重复关闭 | P1-FIX / P4 / P5 |
 | V16 | **closed 2026-07-16（HT.T1 E01/E04）**：主机测试套件 `tests/host/` 已从旧 `NUEDC` 仓库迁入当前仓库，可在本仓库复跑 32 项基线（Encoder 14 + PID 5 + Motor 7 + Key 6） | `tests/host/` 7 个源文件；`rtk make -C tests/host all` 全绿；`git ls-files tests/host` 恰好 7 个文件且无 `.exe` | 测试是交付内容；验收协议依赖主机测试基线 | HT.T1 done，P5 前置满足 |
+| V18 | **closed 2026-07-17（P9.T2 E04）**：`emm42.h` 曾声明 13 个总线动作函数，而它们实现在 App 层 `stepmotor_bus.c:702-861` —— Driver 头对外宣称 Driver 提供这些能力，实则不提供，单独链接 `emm42.o` 得未定义引用。13 个声明已迁往 `stepmotor_bus.h`（实现所在层），声明数守恒 13→0 / 0→13 | `driver/step_motor/emm42.h`、`app/tasks/platform_2d/stepmotor_bus.h`；E04 实测 | Driver 头不得声明 App 层实现的符号 | Phase 2 P9.T2 |
+| V19 | `uart_vofa.h:16` `typedef uint8_t u8` 污染全局命名空间 | `driver/uart_vofa/uart_vofa.h` | 公共头不得向全局命名空间注入通用短别名 | `extern "C"` 守卫已于 P9.T2 补齐；`u8` 属跨模块 churn，随 VOFA Service 阶段 |
+| V20 | `board.h:5-7` 断言「No other project layer may include `ti_msp_dl_config.h`」措辞过宽，与 8 个模块的实际设计冲突（clock/board_gpio/oled/board_uart 均为各自外设的指定边界文件）。真正规则应为「TI HAL 只能出现在各模块的边界文件里」 | `driver/board/board.h:5-7` | **文档措辞缺陷，非代码缺陷** —— 登记以免后人据此误判 | 后续文档批次 |
 
 登记表只允许基于代码证据新增或关闭。修复完成后不要直接删除记录：先把状态改为“closed + 日期 + 验证”，下一次阶段收口时再归档。
 
@@ -608,10 +632,11 @@ flowchart LR
 | Driver | Board UART Roles | `driver/board_uart/vision_uart.c/.h`、`driver/board_uart/vofa_uart.c/.h`、`driver/board_uart/stepmotor_uart.c/.h`、`driver/board_uart/imu_uart.c/.h` |
 | Driver | Motor | `driver/motor/motor.c/.h`（纯状态机，无 TI 头）、`motor_hw.c/.h`（唯一 TI 头位置） |
 | Driver | Encoder | `driver/encoder/encoder.c/.h` |
+| Driver | Gray | `driver/gray/gray.c/.h`（散射逻辑，无 TI 头，主机可测）、`gray_port.h`（HAL 边界）、`gray_hw.c`（唯一 TI 头位置；引脚全经 syscfg 生成宏，零手抄）。2026-07-17 P9.T1 新建：器件 NCHD1「迹」12 路阵列，公共面仅 `Gray_ReadDarkBitmap()`。零外部调用者 —— §15.1 预期状态 |
 | Driver | Key | `driver/key/key.c/.h` |
 | Driver | OLED | `driver/oled/oled_hardware_i2c.c/.h`（公共面仅 Init/Clear/ShowChar/ShowString/Process/IsReady；`oledfont.h` 仅 driver 私有字模） |
 | Driver | IMU | `driver/imu/imu.c/.h`（2026-07-17 P8 重写：器件更换为内置 Kalman 解算的单轴模组，5 字节定长帧，只出 Yaw 与 GyroZ；旧 `IMU.c/.h`(0x7E 九轴协议)已删除。RX 已接线，仍零外部调用者 —— 待 Service 层消费；MPU6050/I2C_IMU 已于 2026-07-16 移除） |
-| Driver | EMM42 | `driver/step_motor/emm42.c/.h` |
+| Driver | EMM42 | `driver/step_motor/emm42.c/.h`（纯协议组包，无 TI 头。2026-07-17 P9.T2：13 个 App 实现的声明已迁出，本头此后只声明 `emm42.c` 自己实现的符号 —— V18 关闭） |
 | Driver | VOFA UART | `driver/uart_vofa/uart_vofa.c/.h` |
 | Middleware | PID | `middleware/pid/pid.c/.h` |
 | App System | Main/Init | `app/system/main.c`、`sys_init.c` |
@@ -685,3 +710,6 @@ flowchart LR
 | 2026-07-17 | 用户裁定入规范：**App 上层将整体重置，当前只做 Driver 层下层接口，不管上层调用者**。`AGENTS.md` 新增 §15（不重排既有编号 —— §8.1/§14 等被 11 处文档引用）；新建严格计划表 `agent/phase2_driver_rewrite/plan_driver_first_order.md`；新增 `docs/IMU陀螺仪配置指南.md`（面向厂商上位机的配置动作）。**纯文档，零代码改动** | **已复核，无拓扑变化**（§14.4）。巡查副产物（登记，未施工）：`driver/gray/` **不存在**，12 路灰度采样在 `app/tasks/track_follow/track_follow.c:26,61` 直接 `#include ti_msp_dl_config.h` 并调 `DL_GPIO_readPins` —— 这是 **V03 至今 partially closed 而非 closed 的唯一残留点**，且处于用户暂缓裁定下 | `git diff --stat` 仅 4 个文档文件；`hc-team/**` 与 `board.syscfg` 零触碰 |
 | 2026-07-17 | P8：新单轴 IMU 驱动重写（契约 `plan_p8_imu_rewrite.md`，冻结于 `f0ef8f0`）。**器件已更换**：旧 0x7E 九轴协议 → 新 5 字节定长帧单轴模组（内置 Kalman 解算，只出 Yaw 与 GyroZ）。删除 `IMU.c/.h`(616 行)，新增 `imu.c/.h`；`imu_uart` 补 RX FIFO；`mspm0_runtime` 新增 `UART_IMU_INST_IRQHandler`（唯一不走 DMA 的接收角色）；`board.syscfg` 的 `UART_IMU` 230400→115200 且开启外设级 RX 中断 | `IMU_API` 类改为 6 个新接口；**违规边 `IMU_API --> DL_HAL : exposed TI header` 关闭**（E02 实测 IMU 层零 TI 依赖）；新增边 `Runtime_API --> ImuUart_API`、`IMU_API --> Runtime_API`；`ImuUart_API` 补 `Read`/`GetRxOverflowCount`；覆盖清单 IMU 行改写 | E01 clean 固件构建退出 0、诊断 0（`imu.o` 实测重编、`.out` 实测重链，非空转）；E02 `hc-team/driver/imu/` 中 `ti_msp_dl_config|DL_|delay_cycles` **0 命中**；E03 旧器件 API 全工程 0 命中，`git ls-files` 施工前 2 → 施工后 0；E04 主机 **98 PASS / 0 FAIL**（76 基线 + 22 新增 IMU 用例）；E05 `UART_IMU_BAUD_RATE=115200` 且 `SYSCFG_DL_UART_IMU_init()` 内 `DL_UART_MAIN_INTERRUPT_RX` 命中 1；E06 变更文件全在 allowed_files。**契约修订 2 次且均单独提交**：E05 符号名（`27e50d7`）、E03 模式自始不可满足（`93bf75f`）。**教训：证据行的模式必须在冻结前先对现有代码树跑一遍**（量具错误第三次）；**`core.ignorecase=true`，证明文件删除只能用 `git ls-files`，`ls` 会假阴性** |
 | 2026-07-17 | P7：巡查推翻原范围 —— Step Motor 已于 P5 拆完（`emm42.c` 已是纯组包），IMU 无外部调用者且 RX 未接线（`mspm0_runtime.c` 中 IMU 字样 0 处）。**IMU 部分经用户 2026-07-17 裁定推迟**（IMU 与 12 路灰度后续要改，避免与重写冲突），已施工的 IMU 改动全部回退，本次仅交付 emm42 残渣清理（契约 `plan_p7_imu_stepmotor.md`，冻结于 `16e0c96`） | 类图去 `Emm42_RunCommandTask()`。**违规边 `IMU_API --> DL_HAL : exposed TI header` 保持 open** —— IMU 未施工，该边仍是真实现状 | E01/E03/E05/E06 全过（构建 0 告警、emm42 残渣 0 命中、主机 76 PASS）。巡查副产物（未修，随 IMU 一并推迟）：`IMU.c` 三处延时按 32MHz 计算而 `CPUCLK=80MHz`，实际时长仅标称 40%；因 IMU 是死代码从未暴露。**教训：`git show HEAD:` 输出的是已归一化的 blob，不能用来判断工作区行尾，只能用 `cat -A` 看工作区文件本身。** |
+| 2026-07-17 | **P9.T1：12 路灰度 Driver 移植（D12 —— Driver 层最后一块缺口，用户当日消息解除暂缓裁定）**。契约冻结于 `b421682`，代码 `b423593`。器件为武汉无名创新 NCHD1「迹」12 路阵列。公共面按 §15.3 判据收敛为**单个** `Gray_ReadDarkBitmap()`；结构沿用 motor 范式（`gray.c` 散射逻辑零 TI 依赖 + `gray_hw.c` 唯一 HAL + `gray_port.h` 边界 + 主机假件）。★ **兑现了 board.syscfg 用 PB8 换来却从未用上的性质**：一次 `DL_GPIO_readPins` 读全 12 路，而 `track_follow.c:59-65` 一直是 12 次分读（路间时间偏斜） | 新增 `Gray_API`/`GrayPort_API` 两类与 `Gray_API --> GrayPort_API`、`GrayPort_API --> DL_HAL` 两条边；覆盖清单新增 Gray 行。**V03 保持 open** —— `track_follow.c` 未动（§15.2 禁止在 App Task 里制造调用者），V03 的关闭时机是上层重置**删除**该文件之时，不是 D12 建成之时 | 契约 6 行全过：E01 clean 构建 exit 0/诊断 0（`gray.o`/`gray_hw.o` 实测编译、`.out` 实测重链）；E02 `gray.c/.h`+`gray_port.h` 中 TI 依赖 0 命中；E03 主机 **109 PASS / 0 FAIL**（101 基线 + 8 新增）；E04 `gray_hw.c` 中 `DL_GPIO_readPins` 恰好 1 次、`DL_GPIO_PIN_` 0 次（零手抄引脚号）；E05 `hc-team/app`+`board.syscfg` 状态空；E06 变更全在 allowed_files。**变异验证**：恒等映射变异被 4 条用例逮住、把读取挪进循环被调用计数用例逮住。**观察项**：`Gray_ReadDarkBitmap` 因零调用者被 `--gc-sections` 从镜像剔除 —— 已用对照证明是链接器行为而非缺陷（零调用者的 `Imu_Update` 在 map 中同为 0，有调用者的 `Imu_Init` 为 3），属 §15.1 预期状态 |
+| 2026-07-17 | **P9.T2：Driver 层整理**（契约 `19214a8`，E05 修订 `7ddc040`，代码 `6befee8`）。零行为变化：声明搬家 + static 收窄 + 死符号删除 + 注释增补。删死符号 6 处、`Motor_Brake` 收回为私有 `motor_brake_one`（两轮同属一个运动体，只刹一轮会把车甩转）、删空目录 `driver/eeprom/`、`uart_vofa.h` 补 `extern "C"`、9 个文件补 `@file` 契约块 | **V18 closed**：`emm42.h` 的 13 个 App 实现声明迁往 `stepmotor_bus.h`。★ **不改写 V08 历史结论** —— V08 判据是「`emm42.c` 不再 `extern` App 符号」，P5 R04 扫的是 `.c` 里的 `extern`，**看不见头文件声明**，故这是 P5 量具照不到的新缺陷而非误闭。新登记 **V19**（`u8` 命名空间污染）、**V20**（`board.h:5-7` 措辞过宽，与 8 个模块实际设计冲突，属文档错非代码错） | E01 clean 构建 exit 0/诊断 0；E02 主机 109 PASS/0 FAIL 零回归；E03 死符号 6→0；E04 声明守恒 13→0 / 0→13；E05 `Motor_Brake` 1→0 且 EEPROM_GONE；E06 `@file` 覆盖 0/9→9/9。**★ 量具错误第 5 次**：E05 原用裸模式 `Motor_Brake`，它是必须保留的公共 API `Motor_BrakeAll` 的前缀 —— **自冻结起不可满足**，已单独提交修订（`7ddc040`）。**根因与 P8 不同**：P8 教训是「模式须在冻结前对现有树跑一遍」，本次**跑了**（得 2，据此写「2→须 0」），错在**只看计数没看命中的是哪几行**。**修订后教训：跑一遍不够，必须读它匹配到了什么；计数不是证据，命中的行才是。** 另：T2 新注释里写 `Emm42_Send*/Move*`，其中 `*/` 提前终止块注释致 15 条诊断，被 E01 逮住 —— 构建证据行的价值即在此 |
+| 2026-07-17 | **P9.T3：删除两份参考工程 + 器件事实转录 + Driver 层总汇报**。删除 `hc-team/12路灰度传感器检测20240331（STM32F103C8T6）/`（73 文件）与 `hc-team/IMU_NEW_EXAMPLE/`（71 文件）共 144 个文件。★ **转录先于删除**：二者从未进过 git，删除不可逆，故先提交 `docs/12路灰度传感器配置指南.md`（`f443c7f`）再删。新增 `docs/driver层总汇报.md` | **已复核，无拓扑变化**（§14.4）—— 纯文档与未跟踪文件删除，`hc-team` 代码零改动 | E07 两目录施工前实测 73+71 个文件、施工后 `GRAY_REF_GONE`+`IMU_REF_GONE`；E08 `git status --untracked-files=all hc-team/` 为**空**（参考工程消失且无残渣，Driver 零改动）。**厂商示例里的循迹算法（-11..+11 偏差映射、停止线检测）刻意未随驱动迁入** —— 那属 Middleware 不属 Driver；其设计前提（10mm 线宽下最多 2 路同时压线）已记入灰度指南 §5 |

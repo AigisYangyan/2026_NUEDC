@@ -15,6 +15,7 @@
 | G3507→G3519 迁移（2026-07-16，本仓库） | 工程移入 `2026_Diansai`：MSPM0G3519/LQFP-100、SDK 2.11、步进总线 UART2→UART7、编码器升级 TIMG8/TIMG9 硬件 QEI（公共 API 零变化，GROUP1 只剩按键）、MPU6050/I2C_IMU 移除、灰度 8→12 路 | 提交 `ccf3fee`…`fc86063`；配方见 `agent/MIGRATION_G3507_TO_G3519.md` |
 | Agent/skills 本地适配（2026-07-16） | AGENTS.md 入库并标注 G3519 工程事实；拓扑同步（删 MPU6050、QEI 数据流、V16 登记）；三个 REASONIX skills 注入本地事实；plan5 修订 5 | 提交 `a7446c6` |
 | 计划目录整理（2026-07-16） | 完成计划移入 `done/`，作废文档移入 `obsolete/`，新建 HT 派工计划与本索引 | 提交 `36d4d65` |
+| **Phase 2 P9：12 路灰度 Driver + Driver 层收官（2026-07-17）** | **用户当日消息解除灰度暂缓裁定** —— D12（Driver 层最后一块缺口）补齐。新建 `driver/gray/`：器件 NCHD1「迹」12 路阵列，公共面按 §15.3 判据收敛为**单个** `Gray_ReadDarkBitmap()`；**兑现 board.syscfg 用 PB8 换来却从未用上的 12 路一次原子读取**（旧 `track_follow.c` 是 12 次分读）。同批：修 `emm42.h` 倒置依赖（V18，13 个 App 实现的声明迁往 `stepmotor_bus.h`）、删死符号 6 处、`Motor_Brake` 收为私有、删空目录 `driver/eeprom/`、补 9 处 `@file` 契约块、删两份参考工程（144 文件，**器件事实先转录后删除**） | `ACCEPTED`，`plan_p9_gray_driver.md` + `plan_p9_driver_audit.md`，主机 **109 项**（+8），**V18 closed**，新登记 V19/V20。总汇报：**`docs/driver层总汇报.md`** |
 | Phase 2 P8B：IMU 链路提速（2026-07-17） | 用户裁定 **230400 + 500 Hz**。`board.syscfg` 的 `UART_IMU` 115200→230400；`imu.h` 枚举**末尾追加** `IMU_OUTPUT_RATE_500_HZ`(RRATE 0x0D)；`imu_uart.c` TX 超时按 230400 重算。**裁定理由经审查更正**：「底盘 500Hz 更精准」不成立（速率与精度在本器件解耦），真实依据是**云台前馈延迟**（180°/s 转弯时 200Hz 的 5ms 数据龄 = 0.90° 指向误差，为器件自身 0.2° 精度的 4.5 倍；500Hz 压至 0.36°；1000Hz 跌破噪声底故不暴露） | `ACCEPTED`，`done/plan_p8b_imu_230400_500hz.md`，E01–E06 全过，主机 **101 项**（+3） |
 | Phase 2 P8：新单轴 IMU 驱动重写（2026-07-17） | **器件已更换**（用户解除 P7 的 IMU 暂缓裁定）。新器件与旧 IMU 协议无交集：5 字节定长帧、内置 Kalman 解算、只出 Yaw 与 GyroZ。删除旧 `IMU.c/.h`(616 行/0x7E 九轴协议)，新增 `imu.c/.h`（解析+快照+新鲜度+诊断）；`imu_uart` 补 RX FIFO 并接线 UART3 IRQ；`board.syscfg` 的 `UART_IMU` 230400→**115200** 并开启 RX 中断 | `ACCEPTED`，`plan_p8_imu_rewrite.md`，E01–E06 全过，主机 **98 项**（+22），违规边 `IMU_API --> DL_HAL` **closed** |
 | Phase 2 P7：emm42 残渣清理（2026-07-17） | 巡查推翻原范围：**Step Motor 已于 P5 拆完**（`emm42.c` 已是纯组包），**IMU 无外部调用者且 RX 未接线**（`mspm0_runtime.c` 中 IMU 字样 0 处）。**IMU 部分经用户 2026-07-17 裁定推迟**（IMU 与 12 路灰度后续要改），已施工的 IMU 改动整体回退。实际交付：清除 emm42 未引用全局 `g_emm42_default_*` 与空壳 `Emm42_RunCommandTask` | `ACCEPTED`（范围收窄），`plan_p7_imu_stepmotor.md`，E01/E03/E05/E06 过、E02/E04 标 N/A（IMU 未施工），主机测试 76 项 |
@@ -58,7 +59,7 @@ agent/
    - **Q4（编码器⇄灰度对调）**：**硬件组是对的，固件是错的**。编码器原占的 PA3/PA6/PA2 分别是 `SYSCTL.LFXIN`/`HFXOUT`/`ROSC`，核心板为现成模块、晶振实焊，固件无法绕过 —— 这是引脚表比固件更接近物理事实的**唯一一处**。已按 `plan_qei_gray_pinmux.md` 施工并验收，表的 11 行冲突全消。
    - 「左右轮 timer 归属翻转导致静默对调」的风险**不存在**：syscfg `$name` 继续与物理轮子绑定，实例号是 Driver 以下私有事实（E04 证实驱动零改动）。
 6. **P7**（2026-07-17 `ACCEPTED`，范围收窄，`plan_p7_imu_stepmotor.md`）：原定「其余 Driver 拆分」，巡查后**两项均不成立** —— Step Motor 已于 P5 拆完；IMU 的问题不是耦合而是一行冗余头包含。**IMU 部分经用户裁定推迟**，仅交付 emm42 残渣清理。
-   - **★ IMU 的「暂不编写」裁定已于 2026-07-17 由用户解除**（用户更换了 IMU 器件并要求重写）→ 见下方 P8。**12 路灰度的裁定仍然有效，动它前须先确认。**
+   - **★ IMU 的「暂不编写」裁定已于 2026-07-17 由用户解除**（用户更换了 IMU 器件并要求重写）→ 见下方 P8。~~12 路灰度的裁定仍然有效~~ **灰度裁定亦已于 2026-07-17 解除**（用户：「这是我新买的灰度模块…开战新的 driverplan」）→ 见下方 P9。
    - P7 记录的两项 IMU 缺陷（`IMU.h:5` 冗余头、三处 32MHz 延时假设）**随 P8 删除旧 `IMU.c/.h` 一并消失**，不再是未结项。
 7. **P8 / P8B**（2026-07-17 `ACCEPTED`，`done/plan_p8_imu_rewrite.md`、`done/plan_p8b_imu_230400_500hz.md`）：新单轴 IMU 驱动重写，面向小车底盘。**最终链路 = 230400 + 500 Hz**。
    - **器件换了，不是改**：旧 0x7E 九轴多功能码协议 → 新 5 字节定长帧单轴模组。参考资料在 `hc-team/IMU_NEW_EXAMPLE/`（未纳入版本控制）。
@@ -72,8 +73,15 @@ agent/
    - **`Imu_ZeroYaw()` / `Imu_SetOutputRate()` 写器件 flash**，均为一次性动作，禁止放进周期任务。
 8. **★ 用户裁定（2026-07-17）：App 上层将整体重置 → 当前只做 Driver 层，不管上层调用者。**已写入 `AGENTS.md` §15，严格计划表见 `phase2_driver_rewrite/plan_driver_first_order.md`。
    - **Driver 零调用者是预期状态，不是缺陷** —— 不得因此推迟 Driver 工作，也不得在 Task 里直接调 Driver 来「制造调用者」（那是复制 V07/V03 违规）。
-   - **Driver 层实质只剩 12 路灰度一块缺口**（`driver/gray/` 不存在，采样仍在 `track_follow.c` 里直接调 `DL_GPIO_readPins` = V03 残留），而它**仍在用户暂缓裁定下**。解除灰度裁定之时即 Driver 层收官之时。
-9. **Service 层承接**（**裁定解除后才启动，当前不得施工**）：关闭 V03(残留)/V07/V10/V13/V14/V15。现有 `app/**` 不是范例，它就是这堆违规本身。
+   - ~~Driver 层实质只剩 12 路灰度一块缺口~~ **已于 2026-07-17 补齐（P9.T1）** —— 用户当日消息解除灰度暂缓裁定，`driver/gray/` 建成，**Driver 层收官**。
+   - ⚠ **V03 残留点仍在**：`track_follow.c` 未动（§15.2 禁止在 App Task 里制造调用者）。**V03 的关闭时机是上层重置删除该文件之时，不是 D12 建成之时** —— 别把「灰度驱动做好了」误读成「V03 关了」。
+9. **P9**（2026-07-17 `ACCEPTED`，`plan_p9_gray_driver.md`、`plan_p9_driver_audit.md`）：**Driver 层收官**。
+   - **D12 灰度补齐** —— 器件 NCHD1「迹」。配置手册：**`docs/12路灰度传感器配置指南.md`**。
+   - **总汇报：`docs/driver层总汇报.md`** —— 14 个模块逐个核对，含「实测过但故意不动」的清单（避免下次重复巡查）。
+   - **★ 瓶颈已不在 Driver 层，而在 4 项硬件实测**（总汇报 §5）：灰度供电电压（**会烧 IO**）、灰度位序、编码器方向、IMU 上位机配置。
+   - 未修的账：V19（`u8` 污染）、V20（`board.h` 措辞过宽，属文档错）、D13/D14、`emm42.c` 可补主机测试。
+
+10. **Service 层承接**（**裁定解除后才启动，当前不得施工**）：关闭 V03(残留)/V07/V10/V13/V14/V15。现有 `app/**` 不是范例，它就是这堆违规本身。
 
 ## 3.1 待办（有裁定但未立计划）
 

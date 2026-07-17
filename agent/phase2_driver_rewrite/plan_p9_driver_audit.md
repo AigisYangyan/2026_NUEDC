@@ -89,7 +89,7 @@
 
 ## P9.T2 Driver 层整理（删死码 + 修倒置依赖 + 补注释）
 
-Status: pending
+Status: **ACCEPTED**（2026-07-17）
 Goal: Driver 层无死符号、无倒置声明、无空目录，9 个欠注释文件补齐 `@file` 契约块；固件与主机测试零回归。
 
 Evidence:
@@ -204,7 +204,7 @@ Stop conditions:
 
 ## P9.T3 参考工程删除 + 器件手册转录 + Driver 层总汇报
 
-Status: pending
+Status: **ACCEPTED**（2026-07-17）
 Goal: 两份参考工程从工作区消失；其中不可再生的器件事实已先行转录进 `docs/`；产出 Driver 层总汇报。
 
 Architecture:
@@ -253,10 +253,29 @@ Stop conditions:
 | **V19** | `uart_vofa.h:16` `typedef uint8_t u8` 污染全局命名空间；该头缺 `extern "C"` 守卫 | `extern "C"` T2 补；`u8` 属跨模块 churn，随 VOFA Service 阶段处理 |
 | **V20** | `board.h:5-7` 断言「No other project layer may include ti_msp_dl_config.h」措辞过宽，与 8 个模块的实际设计冲突 | 文档措辞缺陷，随后续文档批次修正 |
 
-## 4. 施工报告（BUILD 阶段填写）
+## 4. 施工与验收
 
-待填。
+**T2 Status: ACCEPTED**（代码 `6befee8`）
 
-## 5. 验收（ACCEPT 阶段填写）
+| 行 | 结果 |
+|---|---|
+| E01 | clean 固件构建 exit **0**、诊断 **0**、实测重链 |
+| E02 | 主机 **109 PASS / 0 FAIL**（零回归） |
+| E03 | 死符号 **6 → 0** |
+| E04 | 声明守恒：`emm42.h` **13→0**、`stepmotor_bus.h` **0→13**、`motor.h` **0** |
+| E05 | `Motor_Brake` **1→0**；`EEPROM_GONE`（修订后，见 §2 修订 1） |
+| E06 | `@file` 覆盖 **0/9 → 9/9** |
 
-待填。
+**T3 Status: ACCEPTED**
+
+| 行 | 结果 |
+|---|---|
+| E07 | 施工前实测 73+71=**144** 个文件；施工后 `GRAY_REF_GONE` + `IMU_REF_GONE` |
+| E08 | `git status --untracked-files=all hc-team/` 为**空** |
+
+前置「转录先于删除」已履行：`docs/12路灰度传感器配置指南.md` 于 `f443c7f` 先行入库，
+之后才执行 `rm -rf`。
+
+**施工中被证据行逮住的自造 bug**：T2 新注释里写了 `Emm42_Send*/Move*`，
+其中的 `*/` 提前终止了块注释，产生 15 条编译诊断。E01 立刻失败。
+若无构建证据行，这会以「注释而已」的名义混过去。
