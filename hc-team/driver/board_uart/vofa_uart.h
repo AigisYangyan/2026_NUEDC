@@ -12,7 +12,7 @@
  *
  * 硬件事实（board.syscfg 单源）：
  * - UART_HOST_LINK = UART5 @ 230400，收发均走 DMA
- * - ⚠ PA0/PA1 在当前板子上尚未引出，固件已就绪但实物不可用（待硬件组）
+ * - PA0/PA1 已连接（硬件组确认 2026-07-17），真机 VOFA 链路无硬件阻塞
  */
 #ifndef VOFA_UART_H
 #define VOFA_UART_H

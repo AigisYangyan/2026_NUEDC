@@ -29,7 +29,7 @@ Corollaries, all enforced by the same commit boundary:
 - Single hardware config source: **`board.syscfg` at repo root** (historical plans' `project/mspm0/board.syscfg` no longer exists).
 - Firmware build: `rtk make -C Debug all`. Host tests: `make.bat -C tests/host all` — **present and green since HT.T1** (V16 closed; 76 cases as of P6). A report claiming host rows is now checkable, not an automatic reject.
 - Encoders are TIMG8/TIMG9 hardware QEI (GROUP1 IRQ serves keys only); stepper bus is physical UART7; MPU6050/I2C_IMU removed; grayscale is 12-channel.
-- UART roles: `UART_HOST_LINK` = VOFA on **UART5/PA1/PA0/230400/DMA** (PA0/PA1 not yet routed on the board); `UART_BSL_ENTRY` = **UART0/PA10/PA11/9600/no DMA**, wireless BSL only, **listener unimplemented**.
+- UART roles: `UART_HOST_LINK` = VOFA on **UART5/PA1/PA0/230400/DMA** (PA0/PA1 routed and connected — hardware team confirmed 2026-07-17); `UART_BSL_ENTRY` = **UART0/PA10/PA11/9600/no DMA**, wireless BSL only, **listener unimplemented**.
 - **`make.bat` must be launched via the PowerShell tool.** Invoking it as `cmd /d /c ".\make.bat ..."` from Bash silently no-ops and returns a fake exit 0 — a proven evidence-forging trap.
 - `rg` is not on the PowerShell PATH; use the Grep tool for scans.
 
