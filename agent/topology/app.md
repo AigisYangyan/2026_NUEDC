@@ -141,6 +141,16 @@ class TuningChassis_API {
   +TuningChassis_Exit()
 }
 
+class Hmi_API {
+  <<app:service>>
+  +Hmi_Init()
+  +Hmi_Update()
+  +Hmi_PollInput() Hmi_Input
+  +Hmi_IsDisplayReady() bool
+  +Hmi_PrintLine(row, text) bool
+  +Hmi_ClearDisplay() bool
+}
+
 class SpeedLoop_API {
   <<app:task>>
   +SpeedLoop_Init()
@@ -351,6 +361,10 @@ Tuning_API --> VofaDriver_API : vofa_clear_profile + vofa_run, Enter-time RX dra
 Tuning_API --> TuningChassis_API : profile lifecycle orchestration, sole caller
 TuningChassis_API --> Chassis_API : same-layer controlled, SetSpeedGains + SetTargetMps + GetTelemetry + Stop + Update, sole apply point
 TuningChassis_API --> VofaDriver_API : vofa_register_float ×6 tx + vofa_bind_cmd ×8 cmd
+
+Hmi_API --> Key_API : Key_Scan pump + Key_PollPressEvent read-clear
+Hmi_API --> OLED_API : OLED_IsReady/OLED_Process/OLED_ShowString/OLED_Clear
+Hmi_API --> Clock_API : 5ms self-gate, unsigned-subtract elapsed
 ```
 
 ## 4. 当前启动与调度逻辑图
