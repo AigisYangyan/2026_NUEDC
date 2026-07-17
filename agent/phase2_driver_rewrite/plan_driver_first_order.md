@@ -89,7 +89,7 @@
 - ⚠ **修正点只有一个**（`s_direction_sign`）。加第二个反转开关会与它抵消。
 - **未实测前不得改**（§8.1：禁止猜方向）。
 
-### 4.2 IMU（承接 `plan_p8_imu_rewrite.md` §9）
+### 4.2 IMU（承接 `done/plan_p8_imu_rewrite.md` §9、`done/plan_p8b_imu_230400_500hz.md` §6）
 
 配置指南已出：**`docs/IMU陀螺仪配置指南.md`**（面向厂商上位机）。要点：
 

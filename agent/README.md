@@ -15,6 +15,7 @@
 | G3507→G3519 迁移（2026-07-16，本仓库） | 工程移入 `2026_Diansai`：MSPM0G3519/LQFP-100、SDK 2.11、步进总线 UART2→UART7、编码器升级 TIMG8/TIMG9 硬件 QEI（公共 API 零变化，GROUP1 只剩按键）、MPU6050/I2C_IMU 移除、灰度 8→12 路 | 提交 `ccf3fee`…`fc86063`；配方见 `agent/MIGRATION_G3507_TO_G3519.md` |
 | Agent/skills 本地适配（2026-07-16） | AGENTS.md 入库并标注 G3519 工程事实；拓扑同步（删 MPU6050、QEI 数据流、V16 登记）；三个 REASONIX skills 注入本地事实；plan5 修订 5 | 提交 `a7446c6` |
 | 计划目录整理（2026-07-16） | 完成计划移入 `done/`，作废文档移入 `obsolete/`，新建 HT 派工计划与本索引 | 提交 `36d4d65` |
+| Phase 2 P8B：IMU 链路提速（2026-07-17） | 用户裁定 **230400 + 500 Hz**。`board.syscfg` 的 `UART_IMU` 115200→230400；`imu.h` 枚举**末尾追加** `IMU_OUTPUT_RATE_500_HZ`(RRATE 0x0D)；`imu_uart.c` TX 超时按 230400 重算。**裁定理由经审查更正**：「底盘 500Hz 更精准」不成立（速率与精度在本器件解耦），真实依据是**云台前馈延迟**（180°/s 转弯时 200Hz 的 5ms 数据龄 = 0.90° 指向误差，为器件自身 0.2° 精度的 4.5 倍；500Hz 压至 0.36°；1000Hz 跌破噪声底故不暴露） | `ACCEPTED`，`done/plan_p8b_imu_230400_500hz.md`，E01–E06 全过，主机 **101 项**（+3） |
 | Phase 2 P8：新单轴 IMU 驱动重写（2026-07-17） | **器件已更换**（用户解除 P7 的 IMU 暂缓裁定）。新器件与旧 IMU 协议无交集：5 字节定长帧、内置 Kalman 解算、只出 Yaw 与 GyroZ。删除旧 `IMU.c/.h`(616 行/0x7E 九轴协议)，新增 `imu.c/.h`（解析+快照+新鲜度+诊断）；`imu_uart` 补 RX FIFO 并接线 UART3 IRQ；`board.syscfg` 的 `UART_IMU` 230400→**115200** 并开启 RX 中断 | `ACCEPTED`，`plan_p8_imu_rewrite.md`，E01–E06 全过，主机 **98 项**（+22），违规边 `IMU_API --> DL_HAL` **closed** |
 | Phase 2 P7：emm42 残渣清理（2026-07-17） | 巡查推翻原范围：**Step Motor 已于 P5 拆完**（`emm42.c` 已是纯组包），**IMU 无外部调用者且 RX 未接线**（`mspm0_runtime.c` 中 IMU 字样 0 处）。**IMU 部分经用户 2026-07-17 裁定推迟**（IMU 与 12 路灰度后续要改），已施工的 IMU 改动整体回退。实际交付：清除 emm42 未引用全局 `g_emm42_default_*` 与空壳 `Emm42_RunCommandTask` | `ACCEPTED`（范围收窄），`plan_p7_imu_stepmotor.md`，E01/E03/E05/E06 过、E02/E04 标 N/A（IMU 未施工），主机测试 76 项 |
 | Phase 2 HT.T1：`tests/host` 恢复 | 主机测试套件从旧仓库迁入 `2026_Diansai`，32 项基线全绿 | `CODEX_ACCEPTED`，V16 closed，提交 `d57b728` |
@@ -34,10 +35,15 @@ agent/
 └── phase2_driver_rewrite/
     ├── phase2_driver_rewrite_plan.md  ← Phase 2 索引（模块顺序、裁定记录）
     ├── plan_driver_first_order.md     ← ★ Driver 层唯一进度权威（AGENTS.md §15 引用，开工前必读）
-    ├── plan_host_tests_restore.md     ← ★ 下一个派工：HT.T1 迁入 tests/host 恢复基线
-    ├── plan5_uart_role_drivers.md     ← P5 待派工（前置：HT.T1 验收）
-    ├── done/                          ← 已验收计划（7 份），只读历史契约
+    ├── plan5/6/_debug_uart/_qei_gray/_p7  ← 均已验收但**尚未扫入 done/**（见下方注）
+    ├── plan_host_tests_restore.md     ← HT.T1 已验收（V16 closed，提交 `d57b728`）；**文件内状态行仍写 pending，是陈旧笔误**
+    ├── plan_pin_table_v2_migration.md ← 已被 `plan_qei_gray_pinmux.md` 取代；**文件内状态行仍写 BLOCKED**，宜移入 `obsolete/`
+    ├── done/                          ← 已验收计划（9 份），只读历史契约
     └── obsolete/                      ← 被 G3519 迁移作废（GROUP1 软件判向基线），可整目录删除
+
+> **注（2026-07-17）**：P8/P8B 已扫入 `done/`。`plan5` / `plan6` / `plan_debug_uart_remap` /
+> `plan_qei_gray_pinmux` / `plan_p7` 五份状态均为 `(CODEX_)ACCEPTED` 但仍留在根目录，属历史遗留的
+> 整理欠账，**不影响任何结论**，可随时一次性扫入 `done/`。
 ```
 
 ## 3. 接下来的执行顺序
@@ -54,12 +60,15 @@ agent/
 6. **P7**（2026-07-17 `ACCEPTED`，范围收窄，`plan_p7_imu_stepmotor.md`）：原定「其余 Driver 拆分」，巡查后**两项均不成立** —— Step Motor 已于 P5 拆完；IMU 的问题不是耦合而是一行冗余头包含。**IMU 部分经用户裁定推迟**，仅交付 emm42 残渣清理。
    - **★ IMU 的「暂不编写」裁定已于 2026-07-17 由用户解除**（用户更换了 IMU 器件并要求重写）→ 见下方 P8。**12 路灰度的裁定仍然有效，动它前须先确认。**
    - P7 记录的两项 IMU 缺陷（`IMU.h:5` 冗余头、三处 32MHz 延时假设）**随 P8 删除旧 `IMU.c/.h` 一并消失**，不再是未结项。
-7. **P8**（2026-07-17 `ACCEPTED`，`plan_p8_imu_rewrite.md`）：新单轴 IMU 驱动重写，面向小车底盘。
+7. **P8 / P8B**（2026-07-17 `ACCEPTED`，`done/plan_p8_imu_rewrite.md`、`done/plan_p8b_imu_230400_500hz.md`）：新单轴 IMU 驱动重写，面向小车底盘。**最终链路 = 230400 + 500 Hz**。
    - **器件换了，不是改**：旧 0x7E 九轴多功能码协议 → 新 5 字节定长帧单轴模组。参考资料在 `hc-team/IMU_NEW_EXAMPLE/`（未纳入版本控制）。
    - **器件内置 Kalman 解算** → 驱动**禁止**再做积分/滤波/方向反转/单位再换算（AGENTS.md §8.2 单一所有者）。旧驱动的 `IMU_Update_Yaw_Integration()` 是对裸陀螺的积分，对本器件属重复处理，已随旧文件删除且**不得迁移回来**。
    - **航向角 unwrap 不在 Driver**：器件出 `[-180,180)`；连续多圈航向是数据处理，属 Middleware/Service。
    - **未实现 BIAS_CAL（陀螺零偏校准）**：21 秒阻塞、一次性台架动作，可用厂家上位机完成。需要时另开派工。
-   - **★ 上板必测**：① 实测输出速率（`Imu_GetDiag().frame_count` 1 秒增量 ÷ 2）—— 出厂默认 10Hz 对底盘偏航闭环太慢，须用 `Imu_SetOutputRate()` 提到 100/200Hz；② 波特率裁定验证（若 `checksum_error_count` 暴涨而 `frame_count` 不涨 → 115200 判断错）；③ **航向角正方向**（车体转向 vs `yaw_deg` 增减），修正点只能有一个。
+   - **★ 移交用户（上位机三步，缺一不可）**：① 波特率 115200 → **230400**（固件 syscfg 已配 230400，模块不改就是乱码；固件无法代劳，手册 BAUD 表 0x0006 笔误）；② 输出速率 10Hz → **500Hz**；③ **自动零偏校准**（车放平静止 ~20s）—— 未校准时静止零漂 ±1°/s，5 分钟漂 300°；校准后 5 分钟仅漂 0.17°，低于器件 0.2° 精度底。
+   - **★ 装配**：模块**必须装平**（Z 轴垂直地面），歪装会把 pitch/roll 分量混入 yaw。**航向角正方向须实测**（车逆时针转看 `yaw_deg` 增减），修正点**只能有一个**。
+   - **速率 ≠ 精度**：RRATE 只改数据新鲜度，不改任何精度指标（器件内部采样 50kHz、Kalman 常驻）。Yaw 漂/不准的解药是零偏校准，不是提速率。
+   - **单轴够用，别换 6 轴**（2026-07-17 与用户确认）：**重力给不了 Yaw 任何参考**，故 6 轴的 Yaw 与单轴一样是纯陀螺积分，漂法相同 —— 约束 Yaw 要靠磁力计/视觉，不是 6 轴。会改口的三种情况：① **题目有坡道**（Z 轴不再垂直，测的变成绕车身 Z 轴）；② 云台要做 pitch 前馈；③ 平衡车。换之前必须先确认 6 轴版是否**也内置解算** —— 若是裸 6 轴（如已移除的 MPU6050），得自己写融合，几乎必然不如它内置 Kalman。
    - **`Imu_ZeroYaw()` / `Imu_SetOutputRate()` 写器件 flash**，均为一次性动作，禁止放进周期任务。
 8. **★ 用户裁定（2026-07-17）：App 上层将整体重置 → 当前只做 Driver 层，不管上层调用者。**已写入 `AGENTS.md` §15，严格计划表见 `phase2_driver_rewrite/plan_driver_first_order.md`。
    - **Driver 零调用者是预期状态，不是缺陷** —— 不得因此推迟 Driver 工作，也不得在 Task 里直接调 Driver 来「制造调用者」（那是复制 V07/V03 违规）。
