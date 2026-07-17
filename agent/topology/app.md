@@ -105,6 +105,24 @@ class Chassis_API {
   +Chassis_GetTelemetry(Chassis_Telemetry_T*)
 }
 
+class LineFollow_API {
+  <<app:service>>
+  +LineFollow_Init(const LineFollow_Config_T*)
+  +LineFollow_SetGains(kp, ki, kd)
+  +LineFollow_Start() bool
+  +LineFollow_Update()
+  +LineFollow_Stop()
+  +LineFollow_GetState() LineFollow_State
+  +LineFollow_GetTelemetry(LineFollow_Telemetry_T*)
+}
+
+class LostLine_API {
+  <<app:service, private to line_follow>>
+  +LostLine_Init(LostLine_T*, recovery_error_mm, timeout_ms)
+  +LostLine_NoteValid(LostLine_T*, error_mm)
+  +LostLine_Tick(LostLine_T*, elapsed_ms, out_error_mm*) bool
+}
+
 class SpeedLoop_API {
   <<app:task>>
   +SpeedLoop_Init()
@@ -302,6 +320,13 @@ Chassis_API --> Clock_API : 10ms period gate, unsigned-subtract elapsed
 Chassis_API --> Encoder_API : sole new-chain sampling owner, real elapsed
 Chassis_API --> Motor_API : SetOutput + Update
 Chassis_API --> PID_API : dual-axis Pid_UpdateIncremental, each side owns static Pid_T
+
+LineFollow_API --> Clock_API : 10ms outer-loop gate, unsigned-subtract elapsed
+LineFollow_API --> Gray_API : Gray_ReadDarkBitmap, gated sample trigger
+LineFollow_API --> TrackError_API : pitch_mm and bit0_is_left passthrough, first real consumer S02
+LineFollow_API --> PID_API : outer Pid_UpdatePositional, out_limit = diff_limit_mps sole owner
+LineFollow_API --> LostLine_API : recovery fallback error, caller-owned LostLine_T
+LineFollow_API --> Chassis_API : same-layer controlled, SetTargetMps base±diff + cascade Update in TRACKING/RECOVERING
 ```
 
 ## 4. 当前启动与调度逻辑图

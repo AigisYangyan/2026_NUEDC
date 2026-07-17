@@ -40,7 +40,7 @@
 |---|---|---|---|---|---|
 | A00 | 计划 + 裁定解除记录 | `agent/phase4_app_rewrite/` | — | — | `DONE`（bffdecf + baseline chore c958a3f） |
 | S01 | chassis 底盘速度环服务 | `app/service/chassis/` | speed_loop.c、task1 速度部分、task_groups 采样所有权 | V07（部分）、V10（部分） | `DONE`（契约 bffdecf，修订 926bac0；代码 8a611d5；审计处置 69c29fa。E01 0 命中 / E02 无越界 / E03 140 PASS 0 FAIL＝128 基线+12 / E04 exit 0、0 诊断、chassis.o 进链接） |
-| S02 | line_follow 循迹服务（外环+丢线策略） | `app/service/line_follow/` | track_follow.c、task1 循迹部分、gray_test | V03、V03-DUP、V07（部分） | **契约冻结（§8）** |
+| S02 | line_follow 循迹服务（外环+丢线策略） | `app/service/line_follow/` | track_follow.c、task1 循迹部分、gray_test | V03、V03-DUP、V07（部分） | `DONE`（契约 6dfdc85，修订 88010fd；代码 bb4825c；审计处置 53e9967。E01 0 命中 / E02 无越界 / E03 159 PASS 0 FAIL＝140 基线+19 / E04 exit 0、0 诊断、两 .o 进链接。Q5 关闭：丢线策略显式重建于 lost_line） |
 | S03 | 遥测/调参链路服务（VOFA） | `app/service/`（契约时定名） | vofa_register.c | V15 | 待 S01/S02 |
 | S04 | 人机输入/显示服务（Key/OLED 包装） | `app/service/`（契约时定名） | menu 对 Key/OLED 的直调 | V14 的基础 | 待定契约 |
 | S05 | 云台/视觉服务群（platform_2d 下沉） | `app/service/`（契约时拆分） | vision_bus/vision_coord/stepmotor_bus/2DPlatform | stepmotor_bus 违规群 | 赛题明确后 |
@@ -73,7 +73,7 @@
 | Q2 | VOFA 命令解析与分发的最终归属（当前 vofa_run 的 task-context 解析是登记违规节点）。 | S03 契约 |
 | Q3 | 赛题（电赛小题）具体定义与 Task 编排内容，待用户给题。 | T01 契约 |
 | Q4 | `arch-baseline.txt` 第 10 行（vofa_register.c→pid.h）已滞后于代码事实（M01 已消除该包含），待清理。 | A00 随手 chore |
-| Q5 | S02 丢线策略需显式重建（旧 ±27 记忆回退语义未迁移，见 phase3 §5.2 移交备忘）。 | S02 契约 |
+| Q5 | ~~S02 丢线策略需显式重建~~ **已关闭（S02）**：`lost_line` 子模块=方向记忆+固定回退+有界超时（超时上限是新增安全项，旧实现没有）。 | S02 契约 |
 
 ## 6. S01 契约（chassis 底盘速度环服务）——冻结
 
