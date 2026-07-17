@@ -27,3 +27,7 @@ tests/host/test_track_error
 tests/host/test_track_error.exe
 tests/host/test_chassis
 tests/host/test_chassis.exe
+tests/host/test_lost_line
+tests/host/test_lost_line.exe
+tests/host/test_line_follow
+tests/host/test_line_follow.exe

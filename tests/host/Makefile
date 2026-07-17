@@ -38,8 +38,12 @@ TRACK_ERROR_TEST_SRC = test_track_error.c
 CHASSIS_SRC = ../../hc-team/app/service/chassis/chassis.c
 FAKE_CLOCK_SRC = fake_clock.c
 CHASSIS_TEST_SRC = test_chassis.c
+LOST_LINE_SRC = ../../hc-team/app/service/line_follow/lost_line.c
+LOST_LINE_TEST_SRC = test_lost_line.c
+LINE_FOLLOW_SRC = ../../hc-team/app/service/line_follow/line_follow.c
+LINE_FOLLOW_TEST_SRC = test_line_follow.c
 
-all: test_encoder run test_pid run_pid test_motor run_motor test_key run_key test_uart_fifo run_uart_fifo test_vofa_rx run_vofa_rx test_stepmotor_uart run_stepmotor_uart test_oled run_oled test_imu run_imu test_gray run_gray test_track_error run_track_error test_chassis run_chassis
+all: test_encoder run test_pid run_pid test_motor run_motor test_key run_key test_uart_fifo run_uart_fifo test_vofa_rx run_vofa_rx test_stepmotor_uart run_stepmotor_uart test_oled run_oled test_imu run_imu test_gray run_gray test_track_error run_track_error test_chassis run_chassis test_lost_line run_lost_line test_line_follow run_line_follow
 
 test_encoder: $(DRIVER_SRC) $(ENCODER_OWNER_SRC) $(FAKE_SRC) $(MOTOR_DRIVER_SRC) $(MOTOR_FAKE_SRC) $(PID_SRC) $(TEST_SRC)
 	$(CC) $(CFLAGS) -o $@ $(DRIVER_SRC) $(ENCODER_OWNER_SRC) $(FAKE_SRC) $(MOTOR_DRIVER_SRC) $(MOTOR_FAKE_SRC) $(PID_SRC) $(TEST_SRC) $(GC_LDFLAGS) -lm
@@ -107,6 +111,18 @@ test_chassis: $(CHASSIS_SRC) ../../hc-team/app/service/chassis/chassis.h $(DRIVE
 run_chassis: test_chassis
 	./test_chassis
 
+test_lost_line: $(LOST_LINE_SRC) ../../hc-team/app/service/line_follow/lost_line.h $(LOST_LINE_TEST_SRC)
+	$(CC) $(CFLAGS) -o $@ $(LOST_LINE_SRC) $(LOST_LINE_TEST_SRC) $(GC_LDFLAGS) -lm
+
+run_lost_line: test_lost_line
+	./test_lost_line
+
+test_line_follow: $(LINE_FOLLOW_SRC) $(LOST_LINE_SRC) $(CHASSIS_SRC) $(DRIVER_SRC) $(FAKE_SRC) $(MOTOR_DRIVER_SRC) $(MOTOR_FAKE_SRC) $(PID_SRC) $(TRACK_ERROR_SRC) $(GRAY_DRIVER_SRC) $(FAKE_GRAY_PORT_SRC) $(FAKE_CLOCK_SRC) $(LINE_FOLLOW_TEST_SRC)
+	$(CC) $(CFLAGS) -o $@ $(LINE_FOLLOW_SRC) $(LOST_LINE_SRC) $(CHASSIS_SRC) $(DRIVER_SRC) $(FAKE_SRC) $(MOTOR_DRIVER_SRC) $(MOTOR_FAKE_SRC) $(PID_SRC) $(TRACK_ERROR_SRC) $(GRAY_DRIVER_SRC) $(FAKE_GRAY_PORT_SRC) $(FAKE_CLOCK_SRC) $(LINE_FOLLOW_TEST_SRC) $(GC_LDFLAGS) -lm
+
+run_line_follow: test_line_follow
+	./test_line_follow
+
 test_oled: $(OLED_DRIVER_SRC) $(FAKE_I2C_PORT_SRC) $(OLED_TEST_SRC)
 	$(CC) $(CFLAGS) -o $@ $(OLED_DRIVER_SRC) $(FAKE_I2C_PORT_SRC) $(OLED_TEST_SRC) $(GC_LDFLAGS) -lm
 
@@ -139,9 +155,13 @@ clean:
 	cmd.exe /D /C "if exist test_track_error del /Q /F test_track_error"
 	cmd.exe /D /C "if exist test_chassis.exe del /Q /F test_chassis.exe"
 	cmd.exe /D /C "if exist test_chassis del /Q /F test_chassis"
+	cmd.exe /D /C "if exist test_lost_line.exe del /Q /F test_lost_line.exe"
+	cmd.exe /D /C "if exist test_lost_line del /Q /F test_lost_line"
+	cmd.exe /D /C "if exist test_line_follow.exe del /Q /F test_line_follow.exe"
+	cmd.exe /D /C "if exist test_line_follow del /Q /F test_line_follow"
 else
 clean:
-	rm -f test_encoder test_encoder.exe test_pid test_pid.exe test_motor test_motor.exe test_key test_key.exe test_uart_fifo test_uart_fifo.exe test_vofa_rx test_vofa_rx.exe test_stepmotor_uart test_stepmotor_uart.exe test_oled test_oled.exe test_imu test_imu.exe test_gray test_gray.exe test_track_error test_track_error.exe test_chassis test_chassis.exe
+	rm -f test_encoder test_encoder.exe test_pid test_pid.exe test_motor test_motor.exe test_key test_key.exe test_uart_fifo test_uart_fifo.exe test_vofa_rx test_vofa_rx.exe test_stepmotor_uart test_stepmotor_uart.exe test_oled test_oled.exe test_imu test_imu.exe test_gray test_gray.exe test_track_error test_track_error.exe test_chassis test_chassis.exe test_lost_line test_lost_line.exe test_line_follow test_line_follow.exe
 endif
 
-.PHONY: all run run_pid run_motor run_key run_uart_fifo run_vofa_rx run_stepmotor_uart run_oled run_imu run_gray run_track_error run_chassis clean
+.PHONY: all run run_pid run_motor run_key run_uart_fifo run_vofa_rx run_stepmotor_uart run_oled run_imu run_gray run_track_error run_chassis run_lost_line run_line_follow clean
