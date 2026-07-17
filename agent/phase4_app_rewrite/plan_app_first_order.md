@@ -69,7 +69,7 @@
 
 | # | 问题 | 归属 |
 |---|---|---|
-| Q1 | Scheduler 的时间来源：矩阵禁止 Scheduler 调 Driver，而 Clock 是 Driver。候选：System 装配层供给节拍 / 建极薄 systime Service。 | SCH01 契约 |
+| Q1 | ~~Scheduler 的时间来源：矩阵禁止 Scheduler 调 Driver，而 Clock 是 Driver~~ **已定案（2026-07-17 用户确认，选 A）**：System 装配层供给节拍——SCH01 新调度器不含 `clock.h`，时间以参数注入（形如 `Scheduler_Run(uint32_t now_ms)`，具体签名 SCH01 契约冻结时定），由 `app/system` 主循环读 `Clock_NowMs()` 喂入。不建 systime Service：纯透传接口只能用「让 Scheduler 有人可调」辩护，违反 §1「接口须以能力解释」裁定，且会在 Clock 之外造第二个时间查询面。红利：调度器成为零依赖纯逻辑，主机测试免链 fake clock（规避 fake_i2c_port 自带 `Clock_NowMs` 的符号重定义坑）；同款先例 `LostLine_Tick(ctx, elapsed_ms, …)`。 | SCH01 契约 |
 | Q2 | ~~VOFA 命令解析与分发的最终归属~~ **已定案（S03 契约 §9）**：字节流解析归 Driver `vofa_run()`（V09 任务上下文边界不动）；解析结果的**分发与应用**归 `app/service/tuning`（唯一收口，cmd→被调 Service API 单向应用）。Task 层永不直接触碰 uart_vofa。 | S03 契约 |
 | Q3 | 赛题（电赛小题）具体定义与 Task 编排内容，待用户给题。 | T01 契约 |
 | Q4 | ~~`arch-baseline.txt` vofa_register.c→pid.h 滞后行~~ **已关闭（S03 复核 2026-07-17）**：该行已不在 baseline 中（A00 chore 已清）；现存第 9 行 vofa_register.c→uart_vofa.h 与代码事实一致，属冻结违规如实登记。 | A00 随手 chore |
