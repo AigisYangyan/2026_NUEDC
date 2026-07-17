@@ -42,8 +42,9 @@ typedef enum {
 void Tuning_Init(void);
 
 /**
- * @brief  进入调参 profile：清空 VOFA profile → cmd 组重置安全值 → 注册变量组
- *         → 被调服务确定性停止 → 立即应用安全 cmd（覆写底盘残留增益/目标）。
+ * @brief  进入调参 profile：清空 VOFA profile → 排空积压 RX（历史命令不带入新会话）
+ *         → cmd 组重置安全值 → 注册变量组 → 被调服务确定性停止
+ *         → 立即应用安全 cmd（覆写底盘残留增益/目标）。
  * @param  profile  目标 profile；NONE 或未知值不进入任何 profile（当前激活时等效 Exit）。
  * @return true = 已进入；false = 未进入（NONE/未知值）。
  */

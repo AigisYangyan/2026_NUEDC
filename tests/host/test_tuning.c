@@ -371,6 +371,61 @@ static int test_reenter_resets_cmd_to_safe(void)
     return 0;
 }
 
+/* 安全项（契约修订 1）：NONE 期间积压的历史命令在 Enter 时被排空，不带入新会话 */
+static int test_enter_drains_stale_rx_commands(void)
+{
+    Chassis_Telemetry_T t;
+    int i;
+
+    setup();
+    /* 会话间上位机残留：NONE 态 FIFO 里积压危险命令 */
+    push_cmd("LM=1\nLP=100\nRM=1\nRP=100\n");
+    TEST_ASSERT_TRUE(Tuning_EnterProfile(TUNING_PROFILE_CHASSIS_SPEED));
+    for (i = 0; i < 5; i++) {
+        FakeClock_Advance(10u);
+        Tuning_Update();
+        FakeUartPort_CompleteVofaTx();
+    }
+    Chassis_GetTelemetry(&t);
+    TEST_ASSERT_FLOAT_NEAR(t.target_mps[CHASSIS_SIDE_LEFT], 0.0f, 1e-6f);
+    TEST_ASSERT_FLOAT_NEAR(t.target_mps[CHASSIS_SIDE_RIGHT], 0.0f, 1e-6f);
+    TEST_ASSERT_TRUE(FakeMotorHw_GetDutyPermille(MOTOR_LEFT) == 0u);
+    TEST_ASSERT_TRUE(FakeMotorHw_GetDutyPermille(MOTOR_RIGHT) == 0u);
+    printf("PASS: test_enter_drains_stale_rx_commands\n");
+    return 0;
+}
+
+/* 契约行为：激活态传入无效 profile 等效 Exit——刹车 + 回 NONE + 此后静默 */
+static int test_enter_invalid_while_active_acts_as_exit(void)
+{
+    uint8_t raw[TUNING_FRAME_BYTES + 16u];
+    uint32_t len_before;
+    int i;
+
+    setup();
+    TEST_ASSERT_TRUE(Tuning_EnterProfile(TUNING_PROFILE_CHASSIS_SPEED));
+    push_cmd("LP=100\nLM=1\n");
+    FakeClock_Advance(10u);
+    Tuning_Update();
+    FakeUartPort_CompleteVofaTx();
+    TEST_ASSERT_TRUE(FakeMotorHw_GetDutyPermille(MOTOR_LEFT) > 0u);
+
+    TEST_ASSERT_TRUE(!Tuning_EnterProfile((Tuning_Profile)777));
+    TEST_ASSERT_TRUE(Tuning_GetActiveProfile() == TUNING_PROFILE_NONE);
+    TEST_ASSERT_TRUE(FakeMotorHw_IsBrakeActive(MOTOR_LEFT));
+    TEST_ASSERT_TRUE(FakeMotorHw_IsBrakeActive(MOTOR_RIGHT));
+
+    len_before = FakeUartPort_CopyVofaTx(raw, sizeof(raw));
+    for (i = 0; i < 5; i++) {
+        FakeClock_Advance(10u);
+        Tuning_Update();
+    }
+    TEST_ASSERT_TRUE(FakeMotorHw_IsBrakeActive(MOTOR_LEFT));
+    TEST_ASSERT_TRUE(FakeUartPort_CopyVofaTx(raw, sizeof(raw)) == len_before);
+    printf("PASS: test_enter_invalid_while_active_acts_as_exit\n");
+    return 0;
+}
+
 int main(void)
 {
     int failures = 0;
@@ -387,6 +442,8 @@ int main(void)
     failures += test_cascade_pumps_inner_loop();
     failures += test_exit_brakes_and_silences();
     failures += test_reenter_resets_cmd_to_safe();
+    failures += test_enter_drains_stale_rx_commands();
+    failures += test_enter_invalid_while_active_acts_as_exit();
 
     if (failures != 0) {
         printf("%d tuning test(s) failed.\n", failures);

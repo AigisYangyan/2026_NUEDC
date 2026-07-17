@@ -33,6 +33,8 @@ bool Tuning_EnterProfile(Tuning_Profile profile)
     }
 
     vofa_clear_profile();
+    vofa_run();     /* 排空 NONE 期间积压的 RX：绑定/通道表已清空，解析落空且无帧发出。
+                     * 缺此步，会话间上位机残留命令会在重进后首拍生效，破坏安全初值（契约修订 1）。 */
     TuningChassis_Enter();
     s_active = TUNING_PROFILE_CHASSIS_SPEED;
     s_period_base_ms = Clock_NowMs();
