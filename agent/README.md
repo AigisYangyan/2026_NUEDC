@@ -33,6 +33,7 @@ agent/
 ├── phase1_DL_HAL/                     ← 纯历史归档（G3507 时期），只读
 └── phase2_driver_rewrite/
     ├── phase2_driver_rewrite_plan.md  ← Phase 2 索引（模块顺序、裁定记录）
+    ├── plan_driver_first_order.md     ← ★ Driver 层唯一进度权威（AGENTS.md §15 引用，开工前必读）
     ├── plan_host_tests_restore.md     ← ★ 下一个派工：HT.T1 迁入 tests/host 恢复基线
     ├── plan5_uart_role_drivers.md     ← P5 待派工（前置：HT.T1 验收）
     ├── done/                          ← 已验收计划（7 份），只读历史契约
@@ -60,7 +61,10 @@ agent/
    - **未实现 BIAS_CAL（陀螺零偏校准）**：21 秒阻塞、一次性台架动作，可用厂家上位机完成。需要时另开派工。
    - **★ 上板必测**：① 实测输出速率（`Imu_GetDiag().frame_count` 1 秒增量 ÷ 2）—— 出厂默认 10Hz 对底盘偏航闭环太慢，须用 `Imu_SetOutputRate()` 提到 100/200Hz；② 波特率裁定验证（若 `checksum_error_count` 暴涨而 `frame_count` 不涨 → 115200 判断错）；③ **航向角正方向**（车体转向 vs `yaw_deg` 增减），修正点只能有一个。
    - **`Imu_ZeroYaw()` / `Imu_SetOutputRate()` 写器件 flash**，均为一次性动作，禁止放进周期任务。
-8. **Service 层承接**（待规划）：关闭 V07/V10/V13/V14/V15（Task 直接编排 Driver/PID、Service 空缺、可写全局、UI 直调 Driver、VOFA 跨层注册）。
+8. **★ 用户裁定（2026-07-17）：App 上层将整体重置 → 当前只做 Driver 层，不管上层调用者。**已写入 `AGENTS.md` §15，严格计划表见 `phase2_driver_rewrite/plan_driver_first_order.md`。
+   - **Driver 零调用者是预期状态，不是缺陷** —— 不得因此推迟 Driver 工作，也不得在 Task 里直接调 Driver 来「制造调用者」（那是复制 V07/V03 违规）。
+   - **Driver 层实质只剩 12 路灰度一块缺口**（`driver/gray/` 不存在，采样仍在 `track_follow.c` 里直接调 `DL_GPIO_readPins` = V03 残留），而它**仍在用户暂缓裁定下**。解除灰度裁定之时即 Driver 层收官之时。
+9. **Service 层承接**（**裁定解除后才启动，当前不得施工**）：关闭 V03(残留)/V07/V10/V13/V14/V15。现有 `app/**` 不是范例，它就是这堆违规本身。
 
 ## 3.1 待办（有裁定但未立计划）
 
