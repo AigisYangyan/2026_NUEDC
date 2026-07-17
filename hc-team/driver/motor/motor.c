@@ -183,7 +183,8 @@ void Motor_Update(uint32_t elapsed_ms)
     }
 }
 
-void Motor_Brake(Motor_Id id)
+/* 单轮刹车：仅供 Motor_BrakeAll 使用。命名随本文件其余静态函数用 motor_ 前缀。 */
+static void motor_brake_one(Motor_Id id)
 {
     if ((id < MOTOR_LEFT) || (id >= MOTOR_COUNT)) {
         return;
@@ -199,6 +200,6 @@ void Motor_BrakeAll(void)
     Motor_Id id;
 
     for (id = MOTOR_LEFT; id < MOTOR_COUNT; ++id) {
-        Motor_Brake(id);
+        motor_brake_one(id);
     }
 }

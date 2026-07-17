@@ -2,8 +2,18 @@
  * @file    emm42.h
  * @brief   EMM42 步进电机协议组包接口
  *
- * Driver 层只负责把参数编码成协议帧；总线队列编排由 stepmotor_bus
- * 提供兼容包装实现，维持现有上层调用名不变。
+ * 模块职责：
+ * - 把参数编码成 EMM42 协议帧（纯组包，零副作用）
+ *
+ * 本 Driver **不负责**：
+ * - 不碰串口，不发送。组好的帧交给调用方，由 App 的 stepmotor_bus 排队发出
+ * - 不做总线队列编排、不等应答、不重试
+ *
+ * ★ 2026-07-17（P9.T2 / 违规 V18）：本头曾声明 13 个总线动作函数（发送、移动、
+ *   回零一类），而它们实现在 App 层 app/tasks/platform_2d/stepmotor_bus.c。
+ *   那让 Driver 头对外宣称 Driver 提供这些能力，实则不提供 —— 单独链接 emm42.o
+ *   会得到未定义引用。现已迁往 stepmotor_bus.h（实现所在层）。
+ *   **本头此后只允许声明 emm42.c 自己实现的符号。**
  */
 
 #ifndef __EMM42_H__
@@ -14,10 +24,6 @@
 
 #ifdef __cplusplus
 extern "C" {
-#endif
-
-#ifndef EMM42_UART_ID
-#define EMM42_UART_ID 0u
 #endif
 
 #define EMM42_CMD_ENABLE        0xF3u
@@ -32,9 +38,6 @@ extern "C" {
 #define EMM42_SPEED_MAX_PROTO      (EMM42_SPEED_MAX_RPM * EMM42_SPEED_SCALE_X10)
 #define EMM42_ACCEL_MIN_GRADE      0u
 #define EMM42_ACCEL_MAX_GRADE      255u
-
-#define EMM42_MICROSTEP                256u
-#define EMM42_PULSES_PER_REVOLUTION    51200u
 
 #define EMM42_POSITION_MODE_RELATIVE   0u
 #define EMM42_POSITION_MODE_ABSOLUTE   1u
@@ -86,37 +89,6 @@ bool Emm42_BuildPidConfigFrame(uint8_t axis_id,
                                uint32_t kd,
                                uint8_t *out,
                                uint8_t *out_len);
-
-void Emm42_SendEnableCommand(uint8_t axis_id, uint8_t enable_status);
-void Emm42_SendSpeedCommand(uint8_t axis_id,
-                            uint8_t direction,
-                            uint16_t speed,
-                            uint8_t acceleration);
-void Emm42_SendPositionCommand(uint8_t axis_id,
-                               uint8_t direction,
-                               uint16_t speed,
-                               uint8_t acceleration,
-                               uint32_t pulses,
-                               uint8_t mod);
-void Emm42_EnableAll(void);
-void Emm42_DisableAll(void);
-void Emm42_SetAllAxesZero(void);
-void Emm42_MoveRelative(Emm42_Axis_e axis,
-                        int32_t pulses,
-                        uint16_t speed,
-                        uint8_t acceleration);
-void Emm42_MoveAbsolute(Emm42_Axis_e axis,
-                        uint32_t position_pulses,
-                        uint16_t speed);
-void Emm42_SetZeroPosition(uint8_t axis_id);
-void Emm42_StartHoming(uint8_t axis_id);
-void Emm42_ExitHoming(uint8_t axis_id);
-void Emm42_SendPidConfigCommand(uint8_t axis_id,
-                                uint8_t save_to_flash,
-                                uint32_t kp,
-                                uint32_t ki,
-                                uint32_t kd);
-void Emm42_SendReadSpeedCommand(uint8_t axis_id);
 
 #ifdef __cplusplus
 }

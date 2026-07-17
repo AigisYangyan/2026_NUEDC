@@ -53,10 +53,13 @@ extern "C" {
      */
     void Motor_Update(uint32_t elapsed_ms);
 
-    /** 主动刹车：H 桥进入刹车真值表，PWM compare 立即归零。 */
-    void Motor_Brake(Motor_Id id);
-
-    /** 全部电机刹车 */
+    /**
+     * @brief 全部电机刹车：H 桥进入刹车真值表，PWM compare 立即归零。
+     *
+     * 单轮刹车是本模块的私有实现（motor.c 的 motor_brake_one），不对外暴露：
+     * 底盘两轮同属一个运动体，只刹一轮会把车甩转 —— 那不是任何调用者该有的能力。
+     * 2026-07-17（P9.T2 / D-3）从公共头收回。
+     */
     void Motor_BrakeAll(void);
 
 #ifdef __cplusplus

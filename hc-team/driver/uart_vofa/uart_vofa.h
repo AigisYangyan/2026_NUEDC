@@ -13,6 +13,13 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* TODO(V19)：u8 是全局命名空间污染，应改回 uint8_t。
+ * 未在 P9.T2 处理：u8 在整条 VOFA 链路广泛使用，替换属跨模块 churn，
+ * 随 VOFA Service 阶段一并处理。 */
 typedef uint8_t u8;
 
 #define VOFA_PROTOCOL_FIREWATER 0
@@ -29,13 +36,11 @@ typedef uint8_t u8;
 #define VOFA_PROTOCOL_SELECT VOFA_PROTOCOL_JUSTFLOAT
 
 #define VOFA_TX_BUF_SIZE    512
-#define VOFA_RX_BUF_SIZE    128
 #define VOFA_CHANNEL_MAX    16
 #define VOFA_RX_PARAM_MAX   32
 
 #define VOFA_JUSTFLOAT_TAIL {0x00, 0x00, 0x80, 0x7f}
 
-typedef void (*vofa_param_setter_t)(float value);
 typedef void (*vofa_send_fn_t)(uint8_t *data, uint16_t len);
 
 int vofa_init(void);
@@ -45,4 +50,8 @@ int vofa_register_int(int *data);
 int vofa_bind_cmd(const char *cmd, volatile float *val_ptr);
 void vofa_run(void);
 
+#ifdef __cplusplus
+}
 #endif
+
+#endif /* __UART_HOST_LINK_H__ */

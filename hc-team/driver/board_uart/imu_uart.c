@@ -1,3 +1,10 @@
+/**
+ * @file    imu_uart.c
+ * @brief   UART_IMU 角色 Driver 实现：私有 RX FIFO + 有界轮询 TX
+ *
+ * UART_IMU 是四个 UART 角色里**唯一不走 DMA** 的接收方：帧长仅 5 字节、
+ * 速率也不高，逐字节中断搬运即可，不值得为它占一对 DMA 通道。
+ */
 #include "driver/board_uart/imu_uart.h"
 
 #include <stdbool.h>

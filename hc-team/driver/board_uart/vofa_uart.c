@@ -1,3 +1,9 @@
+/**
+ * @file    vofa_uart.c
+ * @brief   UART_HOST_LINK 角色 Driver 实现：私有 RX FIFO + 有界 TX
+ *
+ * ISR 链只搬字节到 FIFO；协议解析一律在 vofa_run() 任务态发生（V09）。
+ */
 #include "driver/board_uart/vofa_uart.h"
 
 #include <stdbool.h>

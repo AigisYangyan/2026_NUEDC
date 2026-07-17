@@ -1,3 +1,9 @@
+/**
+ * @file    stepmotor_uart.c
+ * @brief   UART_STEPPER_BUS 角色 Driver 实现：私有 RX FIFO + TX 空闲可观测
+ *
+ * TX 完成标志只记录事实，不代表器件已应答 —— 应答语义归上层 stepmotor_bus。
+ */
 #include "driver/board_uart/stepmotor_uart.h"
 
 #include <stdbool.h>

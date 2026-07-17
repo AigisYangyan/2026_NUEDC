@@ -1,3 +1,9 @@
+/**
+ * @file    vision_uart.c
+ * @brief   UART_VISION 角色 Driver 实现：私有 RX FIFO
+ *
+ * ISR/DMA 只把字节推进 FIFO，不解析。溢出计数后丢字节，不是安全事件。
+ */
 #include "driver/board_uart/vision_uart.h"
 
 #include <stdbool.h>

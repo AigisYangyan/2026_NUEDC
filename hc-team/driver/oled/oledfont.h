@@ -1,3 +1,13 @@
+/**
+ * @file    oledfont.h
+ * @brief   OLED 6x8 ASCII 点阵字模数据
+ *
+ * ⚠ 本头在文件作用域**定义**数据（`const unsigned char asc2_0806[][6] = {...}`），
+ *   而非声明 —— 在 C 里这是外部链接的定义。因此本头**只允许被
+ *   driver/oled/oled_hardware_i2c.c 这一个文件包含**；被第二个文件包含即重复定义。
+ *   2026-07-17（P9.T2）复核：实测包含者恰好只有 oled_hardware_i2c.c，无冲突，
+ *   故只补此约束说明，未改结构。
+ */
 #ifndef __OLEDFONT_H
 #define __OLEDFONT_H 
 
