@@ -63,8 +63,8 @@ float SpeedPlan_Update(SpeedPlan_T *sp, float abs_error_mm, uint32_t elapsed_ms)
         }
         target = straight + (frac * (min_speed - straight));
     }
-    /* 夹到 [min,straight]（排序夹紧兼容 min>straight 误配，防漂移） */
-    target = clampf(target, fminf(min_speed, straight), fmaxf(min_speed, straight));
+    /* 夹到 [min,straight]：契约保证 min≤straight，普通夹紧兜住插值端点的浮点舍入。 */
+    target = clampf(target, min_speed, straight);
 
     /* ② 有界斜坡：朝 target 步进，单拍不超过 rate×elapsed。 */
     rate = (target > sp->current_mps) ? sp->cfg.accel_mps_per_s
