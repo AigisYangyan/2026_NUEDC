@@ -57,6 +57,13 @@
    但 S07 段类型集含 `ARC`，其执行依赖 motion 圆弧原语——S06b 是 S07 `ARC` 段的前置件，
    故先做 S06b 再做 S07，S07 契约届时可一次性覆盖全部四种段类型，免二次修订。实际执行序为
    **… → S02b → S06b → S07 → S05**（S06b 契约见 §19）。
+9. **S07 当前施工项，契约 §20 本提交冻结（2026-07-18，用户三问裁定）**：S06b DONE 后 S07 前置件齐备
+   （四类段的执行原语 line_follow 元素事件面 + motion STRAIGHT/TURN/ARC 全部 DONE）。用户就 Q6 三问裁定：
+   段表**装配层持有**（route 纯执行机制）、段类型**全四类 + 任意混合**、段间**确定性交接 + 可选段级超时**。
+   契约 §20 冻结全部证据行后本会话结束；TDD/施工/审计/拓扑为后续独立闭环（契约先于代码，闭环铁律）。
+   S07 与 line_follow/motion 的关键接线不变量（route 每拍至多推进一个子服务、不直接泵
+   Chassis_Update/Imu_Update、不 include scheduler.h/track_elements.h）见 §20.0——由 topo-navigator
+   切片核验（拓扑分层拆分后首个正式会话，导航器凭自身定义定位 `agent/topology/{driver,app}.md` 成功）。
 
 ## 3. 模块状态表
 
@@ -76,7 +83,7 @@
 | M02 | 循迹元素检测（几何类别检测器：断线/横线/左岔/右岔，特征+连续置信计数+上升沿事件） | `middleware/track_elements/` | — | — | `DONE`（契约 §16 冻结 b71b59b；代码 cf745f8；arch-auditor 无阻断/无重要级，1 建议级文档处置见 §16.5。E01 0 命中 / E02 无越界 / E03 269 PASS 0 FAIL＝253 基线+16 / E04 exit 0、0 诊断、track_elements.o 经 linkInfo.xml 确证进链（3 引用）。位图并列消费者不采样（非 V21 双泵）、bit0_is_left 无第二反转、V24 登记） |
 | M03 | speed_plan 速度规划（Middleware 纯算法：`\|error_mm\|` → 有状态斜坡基速，直道加速/入弯减速，自持输出限幅） | `middleware/speed_plan/` | — | — | `DONE`（契约 §17 冻结 61f4149；代码 8d84657；契约修订 1/审计处置 8975b2a；代码 fix 6ace23b；拓扑同步 3b92258。E01 0 命中 / E02 无越界 / E03 285 PASS 0 FAIL＝269 基线+16 / E04 exit 0、0 诊断、speed_plan.o 经 linkInfo.xml 确证进链。arch-auditor 无阻断/无重要级，2 建议级已处置（F1 删排序夹紧、F2 白名单更正）；基速调制单一所有者落定 speed_plan，V25 登记） |
 | S02b | line_follow 深化：M02 元素事件面接入 + M03 速度调制接入（base_speed 合成点仍唯一在 line_follow_apply） | `app/service/line_follow/` | — | — | `DONE`（契约 §18 冻结 b3b2d38；代码 f278894；拓扑同步见 §10。E01 0 命中 / E02 4 文件在范围 / E03 300 PASS 0 FAIL＝285 基线+15（速度调制 5 + 元素事件面 10）/ E04 exit 0、0 诊断、line_follow.o 重编并经 linkInfo.xml 确证进链（speed_plan.o/track_elements.o 已在链）。arch-auditor 三维无发现；base_speed 合成点未搬家、位图并列消费不新开采样点、V21 不新增第四推进点） |
-| S07 | route 分段路线执行服务（段表驱动：FOLLOW_UNTIL(元素)/STRAIGHT/TURN/ARC——新题=换段表） | `app/service/route/` | task1 分段状态机 | — | 排队（S02b 后；范围 Q6 契约裁定） |
+| S07 | route 分段路线执行服务（段表驱动：FOLLOW_UNTIL(元素)/STRAIGHT/TURN/ARC——新题=换段表） | `app/service/route/` | task1 分段状态机 | — | **契约冻结（§20，本提交）**；范围 Q6 已裁定（§5/§2.9），TDD/施工/审计/拓扑待后续闭环 |
 | SYS01 | 装配入口更新 | `app/system/` | sys_init.c 增量改造 | — | 随各阶段 |
 | T01 | 赛题 Task（薄编排）+ 旧 tasks 整体删除 | `app/tasks/` | 全部旧 `tasks/**` | V03/V07/V13 残余/V15 全关，baseline 清空 | **最后**（赛题公布后） |
 
@@ -105,7 +112,7 @@
 | Q3 | 赛题（电赛小题）具体定义与 Task 编排内容，待用户给题。 | T01 契约 |
 | Q4 | ~~`arch-baseline.txt` vofa_register.c→pid.h 滞后行~~ **已关闭（S03 复核 2026-07-17）**：该行已不在 baseline 中（A00 chore 已清）；现存第 9 行 vofa_register.c→uart_vofa.h 与代码事实一致，属冻结违规如实登记。 | A00 随手 chore |
 | Q5 | ~~S02 丢线策略需显式重建~~ **已关闭（S02）**：`lost_line` 子模块=方向记忆+固定回退+有界超时（超时上限是新增安全项，旧实现没有）。 | S02 契约 |
-| Q6 | S07 分段路线执行器的范围：段类型集合、段表由谁持有（T01 传入 vs S07 内建）、元素事件与里程事件哪个是主触发源。原则已定：多环触发+逻辑编排归 Service，T01 只装配段表——具体形状契约时定，不预支。 | S07 契约 |
+| Q6 | ~~S07 分段路线执行器的范围：段类型集合、段表由谁持有、主触发源~~ **已定案（S07 契约 §20，2026-07-18 用户三问裁定）**：① **段类型集合** = FOLLOW_UNTIL(元素事件)/STRAIGHT/TURN/ARC 四类，支持任意混合序；② **段表由装配层/T01 持有并经 `Route_Setup` 注入**（route 是纯执行机制，同 scheduler 条目表 / menu 分组表先例，换赛题=换段表 route 零改动）；③ **主触发源按段类型自然完成分派**——FOLLOW_UNTIL 以 `LineFollow_PollElementEvents` 元素上升沿事件为完成源，STRAIGHT/TURN/ARC 以 `Motion_IsDone`（motion 内部里程/航向判据）为完成源，无单一「里程 vs 元素」全局主触发；④ 段间**确定性交接**（隔拍刹停间隙 + 进 motion 段前 odometry catch-up）+ 每段**可选完成超时兜底**（承 S06 §15.5 deferred，超时/LOST/段启动被拒 → FAULT+确定性刹停）。 | S07 契约 §20 |
 | Q7 | 视觉帧解析归属：Q2 先例是「字节流解析归 Driver（uart_vofa），分发应用归 Service」——vision 同构方案 = 新建 `driver/uart_vision` 帧解析（吸收冻结的 vision_bus 职责），坐标→角度映射归 Middleware，收敛/触发归 Service。是否照搬待 S05 契约核对协议差异后定。**视觉组协议原件已登记（见 §5.1 + `docs/通信协议.md`，2026-07-18）；两种候选帧格式二选一与本裁定同在 S05 契约定案。** | S05 契约 |
 | Q8 | 双机协同（大纲 P2-B：双车蓝牙）与测距/避障（P3）：本仓库无对应硬件与 Driver，硬件未定案。登记为余力项，赛题/硬件明确后再立项，不预支协议设计。 | 赛题后 |
 | Q9 | 声光提示（大纲 P0-D：buzzer/LED 时序）：Driver 库存无 buzzer；题目普遍要求声光。硬件确认引脚后补小 Driver + 上层包装（归属 hmi 扩展 or 独立，届时定）。 | 硬件定案后 |
@@ -1620,3 +1627,236 @@ bool Motion_StartArc(float radius_mm, float arc_deg);
   处置：注释级修正为「ARC=圆心角/已转过 deg；IDLE/DONE=0」，逻辑不动，随代码提交 2aa2ba9 一并入库。
   审计另记一条非发现观察（契约 §19.3 已显式接受）：欠转修正在 `hold_diff_limit_mps>v_inner`
   时可使内轮瞬时为负——差速转向常态，过零+死区由 motor.c 独占，motion 不抢先夹紧（同 STRAIGHT/TURN 口径）。
+
+## 20. S07 契约（route 分段路线执行服务）——冻结
+
+- **task_id**: S07-route
+- **goal**: 新建 `app/service/route/`：分段路线执行服务。以**装配层注入的段表**（`Route_Segment_T[]`）
+  驱动一个**非阻塞段级状态机**，逐段执行四类运动基元——`FOLLOW_UNTIL`（循迹直到命中指定循迹元素
+  事件）/`STRAIGHT`/`TURN`/`ARC`（后三者=motion 语义原语），按每段**自然完成**推进到下一段，
+  直至全部段完成（DONE）或段失败（FAULT）。成为「段序编排 + 段完成触发判定 + 段间确定性交接」这条
+  多环触发+逻辑编排链的唯一 Service 所有者（AGENTS.md §15.6 解除后裁定：多环触发+逻辑编排归 Service）。
+  吸收旧 `task1.c` 的分段状态机语义（旧文件冻结不迁移，按新数据链重建；旧 task1 用裸角积分+固定编排，
+  本服务改用已建成的 line_follow 元素事件面 + motion 去卷航向原语）。为 T01 赛题 Task 提供「换段表即换赛题」
+  的现成执行器。
+- **接口辩护**（底盘能做什么）：底盘能按一张段表依次「沿线走到某个循迹元素、走一段直线、原地转一个角度、
+  走一段定半径圆弧」，每段完成自动切下一段，全程可随时确定性停车，能报告当前执行到第几段与总体状态。
+  仅此成为公共面。
+- **交付形态**：新建 `route.{h,c}` + `test_route.c`（不改 line_follow/motion/chassis，只调用其公共 API）。
+- **Q6 三问定案（用户 2026-07-18 三问裁定，见 §5 Q6 / §2.9）**：① 段类型 = 四类且任意混合；
+  ② 段表由**装配层/T01 持有并经 `Route_Setup` 注入**（route 纯执行机制，同 scheduler/menu 先例）；
+  ③ 完成触发源**按段类型分派**（FOLLOW_UNTIL=元素事件 / motion 段=`Motion_IsDone`），无全局单一主触发；
+  ④ 段间**确定性交接**（隔拍刹停间隙 + 进 motion 段前 odometry catch-up）+ 每段**可选完成超时兜底**。
+- **零调用者是预期状态**（T01 未写）：route 只交付被挂载的构件（`Route_Start/Update/Stop` 与
+  `Scheduler_Entry_T` 钩子签名兼容），由 T01 装配填入条目表——**方向是 Scheduler 调 route，非 route 调
+  Scheduler**（V07/S04/UI01 同款过渡态）。不得为「让它有人调」把 route 临时接进旧 tasks。
+
+### 20.0 单一所有者与推进不变量（本契约核心，回应 topo-navigator 双泵告警）
+
+- **route 不直接触碰任何下层**：route.c 只 `#include "line_follow.h"` 与 `"motion.h"`（Service→Service
+  同层受控，矩阵允许），**绝不** include `scheduler.h`（Service→Scheduler 矩阵**禁止**）、
+  `track_elements.h`（元素位序经 line_follow 透传的 `LineFollow_Element`，route 不复引）、
+  任何 `driver/**` / `middleware/**` / `chassis.h`（chassis 由 line_follow/motion 独占，route 不旁路）。
+  route **绝不**直接调 `Chassis_Update` / `Chassis_SetTargetMps` / `Imu_Update` / `Odometry_*` /
+  `Encoder_*` / `Gray_*`——全部经 line_follow / motion 间接。
+- **每拍至多推进一个子服务（V21/V23 结构性排除）**：`Route_Update` 在 RUNNING 期，一拍只推进当前段的
+  **唯一**子服务——FOLLOW_UNTIL 段推 `LineFollow_Update()`、motion 段推 `Motion_Update()`（进 motion 段
+  的 catch-up 也是 motion 自身，非并发第二服务）。route 因此**不构成第四个 `Chassis_Update` 推进点**
+  （V21）、**不构成第二个 `Imu_Update` 排空点**（V23）——两个子服务永不在同一拍并发驱动底盘，
+  Chassis_Update 的实际驱动源恒 ≤1。此不变量与 scheduler 单活动条目不变量同构（route 自身运行在
+  单活动条目内）。
+- **route 新增唯一拥有**：段序状态机 + 段完成触发判定（按段类型选 元素事件 / `Motion_IsDone`）+
+  段间确定性交接（隔拍刹停间隙 + 进 motion 段前的 odometry catch-up）+ **段级完成超时兜底**
+  （承 S06 §15.5 deferred 的「转向完成超时」归此编排层）。
+- **route 一律不复做**（经既有所有者）：循迹外环/丢线/速度调制/元素几何检测 = line_follow 及其
+  Middleware（track_error/speed_plan/track_elements）；语义运动状态机/到位判据/航向保持/圆弧前馈/
+  IMU 排空/里程计消费/unwrap = motion 及其 Middleware（odometry/heading/pid）；底盘速度环/输出限幅/
+  slew/换向过零死区/命令超时/刹车真值表 = chassis + motor.c；元素位序 `bit0_is_left` = line_follow 配置
+  （route 不新增第二反转）。route 对任何数据变换零复做——它只编排既有原语的启停与推进节奏。
+
+### 20.1 allowed_files（无 glob）
+
+| 文件 | 动作 |
+|---|---|
+| `hc-team/app/service/route/route.h` / `.c` | 新建 |
+| `tests/host/test_route.c` | 新建 |
+| `tests/host/Makefile` | 追加 test_route 目标/clean/.PHONY |
+| `.gitignore` | 追加 test_route / test_route.exe |
+| `Debug/makefile` | 登记 route.o（ORDERED_OBJS、两处 -include、clean） |
+| `agent/phase4_app_rewrite/plan_app_first_order.md` | 状态回写 + 本契约冻结/修订 |
+
+forbidden_files：`hc-team/app/service/{line_follow,motion,chassis,tuning,hmi}/**`（line_follow/motion
+只调用不修改，其余零触碰）、`hc-team/app/{tasks,scheduler,system,ui}/**`、`hc-team/driver/**`、
+`hc-team/middleware/**`（含 track_elements——route 不 include）、tests/host 既有 `test_*.c` 与
+`fake_*.c`（复用既有注入面，无需改）。（Debug/ 下本地生成物 `subdir_*.mk`/`sources.mk`/`ccsObjs.opt`
+本地补列不入库，不列。）
+
+### 20.2 公共接口（最小面）
+
+```c
+/** 段类型：单张段表可混合排列的四类运动基元。 */
+typedef enum {
+    ROUTE_SEG_FOLLOW_UNTIL = 0, /* 循迹直到命中指定元素事件（line_follow 驱动） */
+    ROUTE_SEG_STRAIGHT,         /* 直行定距（motion 驱动） */
+    ROUTE_SEG_TURN,             /* 原地定角转（motion 驱动） */
+    ROUTE_SEG_ARC,              /* 定半径定角圆弧（motion 驱动） */
+} Route_SegKind;
+
+/** 段描述符（装配层填写；kind 决定哪些字段有效，其余忽略）。 */
+typedef struct {
+    Route_SegKind kind;
+    /* FOLLOW_UNTIL */
+    uint16_t until_elements;    /* LineFollow_Element 位掩码，任一位命中(OR)即段完成；
+                                   ==0 = 无元素目标（该段仅靠 timeout/LOST/Route_Stop 终止，谨慎） */
+    /* STRAIGHT */
+    float    distance_mm;       /* 前进距离（>0，透传 Motion_StartStraight） */
+    bool     heading_hold;      /* 直行航向保持开关（透传 Motion_StartStraight） */
+    /* TURN */
+    float    turn_deg;          /* 相对角（≠0，+CCW/−CW，透传 Motion_StartTurn） */
+    /* ARC */
+    float    arc_radius_mm;     /* 半径（>track_width/2，透传 Motion_StartArc） */
+    float    arc_deg;           /* 圆心角（≠0，+CCW/−CW，透传 Motion_StartArc） */
+    /* 安全：段完成超时兜底（route 唯一拥有的段级 liveness 保护） */
+    uint32_t timeout_ms;        /* >0 = 该段自进入起超过此时长仍未完成 → FAULT + 确定性停车；
+                                   ==0 = 禁用段级超时（该段仅靠自然完成 / line_follow LOST /
+                                   Route_Stop 终止；FOLLOW_UNTIL 仍有 line_follow 自身丢线超时兜底，
+                                   motion 段若失速 [S06 §15.5] 则可能永不完成——见 §20.3 安全注释） */
+} Route_Segment_T;
+
+/** 服务状态。 */
+typedef enum {
+    ROUTE_IDLE = 0,   /* 未运行 / 已停：route 不推任何子服务，底盘静默（刹车真值表保持） */
+    ROUTE_RUNNING,    /* 执行某段中 */
+    ROUTE_DONE,       /* 全部段完成：末段已确定性停车，静默 */
+    ROUTE_FAULT,      /* 段失败（line_follow LOST / 段超时 / 段启动被拒）：已确定性停车，静默 */
+} Route_State;
+
+/** 一次性读出的服务遥测。 */
+typedef struct {
+    Route_State   state;
+    uint8_t       segment_index;  /* 当前（RUNNING）或最后处理（DONE/FAULT）的段索引 */
+    uint8_t       segment_count;  /* 段表长度 */
+    Route_SegKind current_kind;   /* segment_index 段的类型（count==0 时无意义） */
+} Route_Telemetry_T;
+
+void Route_Setup(const Route_Segment_T *segments, uint8_t count);
+    /* 登记段表（调用方保证表生命周期覆盖使用期）+ 复位为 IDLE。segments==NULL 或 count==0 →
+     * 合法空表（Route_Start 立即 DONE）。不触碰任何硬件/子服务。
+     * 前置：装配层已 LineFollow_Init + Motion_Init（各带有效标定 cfg）。 */
+void Route_Start(void);
+    /* 匹配 scheduler on_enter 签名。空表 → state=DONE（trivially 完成）。非空 → cur=0、
+     * 标记首段待进入、state=RUNNING；本调用不驱动底盘（驱动始于首个 Route_Update）。 */
+void Route_Update(uint32_t now_ms);
+    /* 匹配 scheduler on_step 签名。见 §20.3 段状态机。RUNNING 期每拍至多推进一个子服务；
+     * IDLE/DONE/FAULT 完全静默（不推任何子服务，刹车真值表保持）。 */
+void Route_Stop(void);
+    /* 匹配 scheduler on_exit 签名。任意态 → 停当前活动子服务（FOLLOW_UNTIL:LineFollow_Stop /
+     * motion 段:Motion_Stop）→ state=IDLE。确定性停止（§8.1），随时可从正常控制流调用。 */
+Route_State Route_GetState(void);
+bool Route_IsDone(void);                          /* state==ROUTE_DONE */
+void Route_GetTelemetry(Route_Telemetry_T *out);  /* out==NULL 无副作用 */
+```
+
+- **钩子签名兼容**：`Route_Start`(void)/`Route_Update`(uint32_t)/`Route_Stop`(void) 恰配
+  `Scheduler_Entry_T` 的 `on_enter`/`on_step`/`on_exit`——T01 可把 route 直接注册为一个运行条目，
+  无需适配器。`now_ms` 是**实用参数**（段级超时基准，非 Menu_Tick 那样的预留位）。
+- **头不暴露 Driver/下层类型**（§3.4）：公共面只用自持枚举/结构 + `LineFollow_Element` 位号
+  （Service 层类型，合法）；不出现 `Motion_*`/`Chassis_*`/`Encoder_*` 类型。段参数用 route 自持字段，
+  由 route.c 透传给对应 `Motion_StartXxx`。
+
+### 20.3 段状态机与交接语义（转移表随 .c 注释交付）
+
+`Route_Update(now_ms)` 在 `RUNNING` 态每拍逻辑（`seg = &segments[cur]`）：
+
+1. **段尚未进入**（`seg_entered==false`）——只做进入，不驱动、不判完成，本拍即返回：
+   - FOLLOW_UNTIL：`LineFollow_Start()`；返回 false（line_follow 配置无效）→ `abort_fault`。
+   - STRAIGHT/TURN/ARC：**先 odometry catch-up**——调一次 `Motion_Update()`（此刻 motion 处 IDLE/DONE，
+     按 motion.h:124 只排空 IMU + 推进 odometry 刷新位姿/航向，**不驱动底盘**），使随后 `Start` 捕获的
+     起点/航向基准反映 FOLLOW_UNTIL 期的真实位姿（FOLLOW_UNTIL 期无人推进 odometry 而冻结，若不
+     catch-up 则 `heading0` 陈旧 → motion 首拍产生幻纠偏差速）。再 dispatch `Motion_StartStraight/
+     StartTurn/StartArc`（透传段参数）；返回 false（段参数非法：distance≤0 / turn_deg==0 /
+     radius<track/2 / arc_deg==0）→ `abort_fault`。
+   - 记 `seg_deadline_base = now_ms`；`seg_entered=true`；**本拍返回**（进入拍不驱动——保证进入拍只触碰
+     这一个子服务，且与上一段完成拍隔一拍刹停间隙，交接确定性无正负跳变震荡，§8.1 换向经停）。
+2. **段已进入**——推进 + 判完成/失活：
+   - 推进当前段**唯一**子服务：FOLLOW_UNTIL → `LineFollow_Update()`；motion 段 → `Motion_Update()`。
+   - **完成检查**（推进后才成立）：
+     - FOLLOW_UNTIL：`events = LineFollow_PollElementEvents()`；`(events & seg.until_elements)!=0`
+       → 段完成。
+     - motion 段：`Motion_IsDone()` → 段完成。
+     - 段完成 → `finish_segment`：FOLLOW_UNTIL 调 `LineFollow_Stop()`（→IDLE+Chassis_Stop，刹车保持）；
+       motion 段已 DONE+Chassis_Stop+静默（无需额外动作）。随后 `cur++`、`seg_entered=false`；
+       `cur>=count` → `state=DONE`（末段已刹停），否则下一拍进入下一段（隔拍刹停间隙）。
+   - **失活/超时检查**（仅当本拍未完成）：
+     - FOLLOW_UNTIL 且 `LineFollow_GetState()==LINE_FOLLOW_LOST`（丢线恢复超时）→ `abort_fault`。
+     - `timeout_ms>0` 且 `(uint32_t)(now_ms − seg_deadline_base) >= timeout_ms` → `abort_fault`。
+
+`abort_fault`：停当前活动子服务（FOLLOW_UNTIL:`LineFollow_Stop` / motion 段:`Motion_Stop`——motion 可能
+仍在驱动，必须显式刹停；进入即被拒的段无活动子服务，底盘本就静默）→ `state=FAULT`，此后 Update 静默。
+
+`IDLE/DONE/FAULT` 态：`Route_Update` 完全静默——**不推任何子服务**（刹车真值表保持，确定性驻停，
+S06/S02 修订 1 同款显示/驱动所有权隔离）。
+
+- **安全注释（§8.1，软件可证）**：init-to-safe = Setup/Start 不驱动、进入拍不驱动（底盘持上一段刹停态）；
+  确定性停止 = Route_Stop 任意态刹停、段失败恒 Chassis_Stop（经子服务）；超时兜底 = 段级 timeout_ms
+  是 route 唯一拥有的 liveness 保护（motion 失速 [S06 §15.5] 的编排层兜底落点）；换向经停 = 段间隔拍
+  刹停间隙避免两驱动源同拍并发。**`timeout_ms==0` 的取舍**：禁用段级超时后，FOLLOW_UNTIL 仍有
+  line_follow 自身丢线超时兜底，但 motion 段失速将永不完成——此时须靠 Route_Stop 外部干预；装配层
+  对 motion 段建议设 timeout_ms>0（本契约不强制默认值，避免无实测依据的臆造上限，§8.3）。
+
+### 20.4 数据链与单一所有者声明（§8.2）
+
+接线后一拍数据流（`Route_Update` RUNNING 段已进入路径）：
+
+```text
+Route_Update(now_ms)
+  ├─ FOLLOW_UNTIL 段：LineFollow_Update() ── 唯一采样/循迹/元素/速度调制/内环级联（line_follow 既有链，不变）
+  │      └─ LineFollow_PollElementEvents() → 元素上升沿事件掩码 → &until_elements → 段完成判定
+  └─ motion 段：Motion_Update() ── 唯一 IMU 排空 + 里程计消费 + 语义运动 + 内环级联（motion 既有链，不变）
+         └─ Motion_IsDone() → 段完成判定
+进 motion 段前：Motion_Update()（IDLE catch-up，仅刷新 odometry/航向，不驱动）→ Motion_StartXxx 捕获真实基准
+```
+
+- **完成触发源单一所有者**：元素事件唯一来自 `LineFollow_PollElementEvents`（track_elements 经 line_follow，
+  V24 已锁位序，route 不复算、不 include track_elements.h）；motion 到位唯一来自 `Motion_IsDone`
+  （odometry 里程/航向判据在 motion，route 不复算距离/角度）。route 只做「事件掩码按位与 / 布尔查询」
+  的编排判定，非任何数据变换。
+- **段级超时**：唯一以 route 自持 `seg_deadline_base` + 入参 `now_ms` 无符号减法计（同 chassis/hmi/
+  scheduler 门控口径），不新开时间源（route 无 `clock.h`，时间经钩子参数注入，同 SCH01 Q1 定案）。
+- **不复做**（一律经既有所有者，§20.0 已列）：脉冲→距离 = odometry cfg；yaw 符号/unwrap = odometry/
+  heading；输出限幅/slew/换向/超时/刹车 = motor.c（经 chassis）；差速/基速/元素几何 = line_follow 子链。
+  route **新增唯一拥有**：段序 + 完成分派 + 交接 + 段级超时。
+- **头不暴露 Driver 类型**（§3.4）：新增面只用 `float`/`bool`/`uint*`/自持枚举/`LineFollow_Element` 位号。
+
+### 20.5 preserved_behavior
+
+- `app/service/{line_follow,motion,chassis,tuning,hmi}/**`、旧 `app/**`、`driver/**`、`middleware/**`
+  零改动；主机既有 310 用例全过；固件行为不变（route.o 进链接但**零调用者**——T01 未写，上层不泵
+  `Route_Update` 则不产生任何底盘命令，V07 同款过渡态）。
+
+### 20.6 证据行（≤6，恰 1 条固件构建行）
+
+| 行 | 名称 | 命令 | 预期 |
+|---|---|---|---|
+| E01 | 依赖纯净 | Grep `app/tasks/\|app/scheduler/\|app/ui/\|app/system/\|middleware/\|driver/\|ti_msp_dl_config\|ti/driverlib`（path=`hc-team/app/service/route`，`#include` 行） | 0 命中（`line_follow.h`/`motion.h` 同层 Service、`<stdint.h>`/`<stdbool.h>`/`<stddef.h>` 不在告警集；尤其 `app/scheduler/` 与 `middleware/track_elements` 零命中＝矩阵关键项） |
+| E02 | 范围审计 | `git status` + `git diff --stat` 对照 §20.1 | 无 allowed_files 之外的改动（尤其 `line_follow/**`、`motion/**`、`chassis/**` 零改） |
+| E03 | 主机测试 | PowerShell：`rtk proxy make -C tests/host all` | ≥326 PASS / 0 FAIL（310 基线 + ≥16 新用例）。必含——**生命周期/静默**：Setup+Start 前及 IDLE/DONE/FAULT 态 Update 不推子服务（零新电机命令刷新、刹车保持）；空表 Start→DONE+IsDone；Start 本身不驱动（进入拍无底盘命令）。**FOLLOW_UNTIL 段**：注入位图使目标元素连续 confirm_ticks 拍 → 命中 `until_elements` → 段完成+LineFollow_Stop 刹停+推进下一段；未命中不推进；`until_elements` OR 语义（多目标位任一命中即完成）；line_follow 丢线超时 LOST → ROUTE_FAULT+确定性刹停。**motion 段**：STRAIGHT/TURN/ARC 各注入编码器/IMU 使 `Motion_IsDone` → 推进；段参数非法（distance≤0 / turn=0 / R<track/2 / arc=0）→ 段启动被拒 → FAULT+静默。**进 motion 段 catch-up**：FOLLOW_UNTIL（odometry 冻结）期注入 IMU 航向漂移后进 STRAIGHT heading_hold —— 首个驱动拍不产生幻纠偏差速（heading0=catch-up 后真实航向）。**段间确定性交接**：FOLLOW_UNTIL→TURN 混合序，段 N 完成拍刹停、隔一拍再驱动段 N+1（进入拍无底盘命令）；交接无正负跳变。**每拍单子服务/无双泵**：任一拍 line_follow 与 motion 不同时被推进（Chassis_Update 驱动源≤1）。**段级超时**：timeout_ms>0 段超时未完成 → FAULT+确定性刹停；timeout_ms==0 不触发超时（自然完成路径不受影响）。**Route_Stop**：RUNNING 中（FOLLOW_UNTIL / motion 段）→ 停当前子服务+Chassis_Stop+IDLE，此后静默。**遥测**：state/segment_index/segment_count/current_kind 一致 |
+| E04 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 diagnostics、route.o 经 linkInfo.xml 确证进入 .out 链接 |
+
+- **主机测试链接组成**（事实登记，= line_follow 与 motion 两测试链接组成之并集）：test_route = 真实
+  `route.c` + `line_follow.c` + `lost_line.c` + `motion.c` + `chassis.c` + `odometry.c` + `heading.c`
+  + `track_error.c` + `track_elements.c` + `speed_plan.c` + `pid.c` + `encoder.c` + `motor.c` + `gray.c`
+  + `imu.c` + `board_uart/{imu,vision,vofa,stepmotor}_uart.c` + fake 端口（`fake_gray_port` /
+  `fake_board_gpio` / `fake_motor_hw` / `fake_uart_port` / `fake_clock`）。**链 `fake_clock.c` 不链
+  `fake_i2c_port.c`**（route 路径无 OLED/I2C，避免 `Clock_NowMs` 重定义——S04/M01/motion 已证坑）。
+  只 fake 端口/硬件边界，不 fake 被测 Service/Middleware/Driver 本体。`chassis.c`/`encoder.c`/`motor.c`/
+  `pid.c` 两子树共用同一真实 .o，单次链接无符号冲突。
+
+### 20.7 契约修订记录
+
+- **冻结初版**（本提交）。审计后处置若有，单独提交并在此追加修订原因 + 提交哈希（契约先于代码，
+  契约行有错在单独显式提交中修订，绝不与满足它的代码同一提交）。
+- **收工闭环待办登记**（TDD/施工会话执行，非本契约冻结范围）：施工完成后 topo-updater 须在拓扑
+  §6/§7 登记——V21 扩条（route 每拍≤1 子服务推进，非新增第四 Chassis_Update 推进点）、V23（route 经
+  motion 间接排空 IMU，非第二排空点）、route 新增所有权（段序状态机 + 完成分派 + 段间交接 + 段级超时）；
+  并在 §3 覆盖清单登记 route 服务、§10 追加日志。
