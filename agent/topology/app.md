@@ -121,6 +121,20 @@ class TrackError_API {
   +TrackError_FromDarkBitmap(const TrackError_Config_T*, dark_bitmap, out_error_mm*) bool
 }
 
+class Heading_API {
+  <<middleware:odometry, NEW M01>>
+  +Heading_Reset(Heading_T*)
+  +Heading_Unwrap(Heading_T*, yaw_wrapped_deg) float
+}
+
+class Odometry_API {
+  <<middleware:odometry, NEW M01>>
+  +Odometry_Init(Odometry_T*, const Odometry_Config_T*)
+  +Odometry_Reset(Odometry_T*)
+  +Odometry_Update(Odometry_T*, dL_pulses, dR_pulses, yaw_wrapped_deg, heading_valid)
+  +Odometry_GetPose(const Odometry_T*, Odometry_Pose_T*)
+}
+
 class Chassis_API {
   <<app:service>>
   +Chassis_Init()
@@ -394,6 +408,10 @@ LineFollow_API --> TrackError_API : pitch_mm and bit0_is_left passthrough, first
 LineFollow_API --> PID_API : outer Pid_UpdatePositional, out_limit = diff_limit_mps sole owner
 LineFollow_API --> LostLine_API : recovery fallback error, caller-owned LostLine_T
 LineFollow_API --> Chassis_API : same-layer controlled, SetTargetMps base±diff + cascade Update in TRACKING/RECOVERING
+
+%% Odometry_API / Heading_API (M01, new) — pure algorithm, no Encoder_API/IMU_API include
+%% (deltas and yaw passed by value); zero callers today (S15.1 expected state, S06/S05 not built).
+Odometry_API --> Heading_API : embeds Heading_T, sole caller of Heading_Unwrap
 
 Tuning_API --> Clock_API : 10ms self-gate, unsigned-subtract elapsed
 Tuning_API --> VofaDriver_API : vofa_clear_profile + vofa_run, Enter-time RX drain (contract amendment 1)
