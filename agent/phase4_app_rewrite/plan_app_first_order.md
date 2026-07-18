@@ -59,7 +59,8 @@
 | SCH01 | 调度器重写 | `app/scheduler/` | task_scheduler.c、run_registry.c | V13 残余（g_eSysFlagManage） | `DONE`（Q1 定案 74d421e；契约 56ced13，修订 c6bcc4a；代码 e801caf；审计处置 6bfe3f4。E01 0 命中 / E02 无越界 / E03 200 PASS 0 FAIL＝185 基线+15 / E04 exit 0、0 诊断、scheduler.o 经 linkInfo.xml 确证进链。V13 残余本体仍待 T01 删旧文件时关闭） |
 | UI01 | 菜单重写（含分问选择/参数表——大纲 P0-D） | `app/ui/menu/` | menu_core/menu_pages（冻结不删，T01 删除） | V14（替代面 UI01 建成，本体 T01 关闭——见 §13 裁定；拓扑保持 open） | `DONE`（契约 c05de1b，修订 1 2b54b8a→Menu_Init 改名 Menu_Setup；代码 e23176a；审计处置 82e6493。E01 0 命中 / E02 无越界 / E03 214 PASS 0 FAIL＝200 基线+14 / E04 exit 0、0 诊断、menu.o+menu_param.o 经 linkInfo.xml 确证进链、旧 menu_core.o 仍共链。arch-auditor 6/7 通过，1 建议级已删。V14 待 T01 删旧关闭。**r2 重构中（2026-07-18）：分问选择升级两级分类外壳，契约见 §13.5 修订 2**） |
 | M01 | 里程计+航向 unwrap（Middleware 纯算法：编码器 Δ→x,y,θ；imu.h 明示 unwrap 归此层） | `middleware/odometry/`（heading+odometry 双文件） | task1 姿态/里程零散逻辑（冻结不迁移，重建） | — | `DONE`（契约 §14 冻结 b856b23；代码 85d1e31；arch-auditor 三级无发现。E01 0 命中 / E02 无越界（.ccsproject 会话前既存，未纳入）/ E03 235 PASS 0 FAIL＝218 基线+17（heading 7+odometry 10）/ E04 exit 0、0 诊断、heading.o+odometry.o 经 linkInfo.xml 确证进链。IMU unwrap 权威 + 双文件拆分（用户 2026-07-18 裁定）；heading_sign/mm_per_pulse 单一所有者落定，V22 登记） |
-| S06 | motion 语义运动服务（直行 N cm/定角转/圆弧/定点停；IMU 航向保持可插拔） | `app/service/motion/` | task1 直行/转弯编排 | — | 排队（M01 后） |
+| S06 | motion 语义运动服务（v1：直行 N mm/定角转/定点停；IMU 航向保持可插拔） | `app/service/motion/` | task1 直行/转弯编排（冻结不迁移，重建） | — | `施工中`（契约 §15 冻结，本提交；圆弧移出 v1→S06b，用户裁定 2026-07-18） |
+| S06b | motion 圆弧原语（定半径+定角，双轮速度比 + 航向误差修正） | `app/service/motion/`（S06 契约修订流程扩面） | — | — | 排队（S06 后；用户 2026-07-18 裁定拆分，控制律/测试面更大单独立项） |
 | M02 | 循迹元素检测（可注册检测器：十字/直角弯/断线/终点横线…，特征+置信度计数） | `middleware/track_elements/` | — | — | 排队（S06 后） |
 | S02b | line_follow 深化：元素事件面 + M03 速度规划（`middleware/speed_plan`，直道加速/入弯减速）接入 | `app/service/line_follow/` | — | — | 排队（M02 后；S02 契约修订流程） |
 | S07 | route 分段路线执行服务（段表驱动：FOLLOW_UNTIL(元素)/STRAIGHT/TURN/ARC——新题=换段表） | `app/service/route/` | task1 分段状态机 | — | 排队（S02b 后；范围 Q6 契约裁定） |
@@ -900,5 +901,168 @@ void Odometry_GetPose(const Odometry_T *ctx, Odometry_Pose_T *out);  /* out/ctx=
   不链接任何 fake（M01 零端口依赖）。
 
 ### 14.5 契约修订记录
+
+- （冻结初版，无修订。）
+
+## 15. S06 契约（motion 语义运动服务 v1）——冻结
+
+- **task_id**: S06-motion
+- **goal**: 新建 `app/service/motion/`：语义运动服务，把「走直线 N mm（可选 IMU 航向保持）、
+  原地转到相对角度、随时确定性停车」这三条底盘语义动作，建成在 chassis 速度内环（S01）与
+  odometry 位姿源（M01）之上的**非阻塞状态机**。吸收旧 `task1.c` 的直行/原地转编排语义
+  （旧文件冻结不迁移，按新数据链重建；task1 用裸 Gz 积分判角，本服务改用 odometry 去卷连续航向）。
+  成为「pose + 语义目标 → chassis 速度目标」这条链的唯一编排所有者，为后续 S07 段路线执行与
+  S05 云台运动前馈提供语义运动基元。**圆弧原语移出 v1（用户 2026-07-18 裁定，→S06b 单独契约）**。
+- **接口辩护**（底盘能做什么）：底盘能走一段指定前进距离后停（可选按 IMU 航向纠偏保持直线）、
+  能原地转到一个相对角度后停、能随时确定性停止、能报告当前运动是否完成与位姿/状态遥测。
+  仅此成为公共面。
+- **IMU 泵所有权裁定（用户 2026-07-18 确认，选「motion 激活期独占」）**：新 Service 层此前无人
+  调 `Imu_Update()`（IMU FIFO 排空节奏无所有者）。本服务成为 `Imu_Update()` 的所有者——
+  `Motion_Update()` 每次调用先 `Imu_Update()` 排空并刷新快照，再 `Imu_GetSnapshot()` 读值。
+  类比 chassis 独占 `Encoder_Update()`；单活动条目不变量保证 motion 与 line_follow/tuning
+  不并发，故不存在第二个 `Imu_Update` 所有者。（登记为新增所有权，收工时进拓扑 §6/§7。）
+
+### 15.1 allowed_files（无 glob）
+
+| 文件 | 动作 |
+|---|---|
+| `hc-team/app/service/motion/motion.h` / `.c` | 新建 |
+| `tests/host/test_motion.c` | 新建 |
+| `tests/host/Makefile` | 追加 test_motion 目标/clean/.PHONY |
+| `.gitignore` | 追加 test_motion / test_motion.exe |
+| `Debug/makefile` | 登记 motion.o（ORDERED_OBJS、两处 -include、clean） |
+| `agent/phase4_app_rewrite/plan_app_first_order.md` | 状态回写 + 本契约 |
+
+forbidden_files：`hc-team/app/service/{chassis,line_follow,tuning,hmi}/**`（chassis 只调用不修改，
+其余零触碰）、`hc-team/app/{tasks,scheduler,system,ui}/**`、`hc-team/driver/**`（Encoder/Imu 只经
+公共 `*_GetSnapshot`/`Imu_Update` 调用，零改动）、`hc-team/middleware/**`（odometry/pid 只调用不改）、
+tests/host 既有 `test_*.c` 与 `fake_*.c`（fake_board_gpio 已有编码器原始计数注入面、
+fake_uart_port 已有 IMU 帧注入面、fake_clock 已有时间注入面、fake_motor_hw 已有电机抓取面）。
+
+### 15.2 公共接口（最小面）
+
+```c
+typedef enum {
+    MOTION_IDLE = 0,   /* 无原语；底盘静默（不泵内环，刹车真值表保持） */
+    MOTION_STRAIGHT,   /* 直行中 */
+    MOTION_TURN,       /* 原地转中 */
+    MOTION_DONE,       /* 原语完成；已 Chassis_Stop，底盘静默（同 IDLE 语义，确定性驻停） */
+} Motion_State;
+
+typedef struct {
+    /* 里程计标定（透传给 odometry；脉冲→距离、yaw 符号的单一所有者仍是 Odometry_Config） */
+    float mm_per_pulse;        /* >0，实测标定 */
+    float heading_sign;        /* +1/−1，实测标定 */
+    /* 运动基速 */
+    float straight_speed_mps;  /* 直行基速（前进为正） */
+    float turn_speed_mps;      /* 原地转单轮速度幅值上限（>0） */
+    /* 直行航向保持外环（位置式 PID：输入航向误差 deg → 输出差速修正 m/s） */
+    float hold_kp, hold_ki, hold_kd;
+    float hold_diff_limit_mps; /* 纠偏差速对称限幅 = 该 PID out_limit（限幅唯一所有者 = 此 cfg） */
+    /* 定角转（比例控制 deg→m/s） */
+    float turn_kp;
+    /* 到位判据 */
+    float straight_tol_mm;     /* 直行到位容差（>0） */
+    float turn_tol_deg;        /* 转角到位容差（>0） */
+} Motion_Config_T;
+
+typedef struct {
+    Motion_State state;
+    float x_mm, y_mm, heading_deg;  /* 当前 odometry 位姿快照 */
+    float target;                   /* 当前原语目标：STRAIGHT=距离 mm；TURN=相对角 deg；否则 0 */
+    float progress;                 /* 已完成量：STRAIGHT=已行进 mm；TURN=已转过 deg；否则 0 */
+} Motion_Telemetry_T;
+
+void Motion_Init(const Motion_Config_T *cfg);
+    /* Odometry_Init(cfg 透传) + 航向保持 PID Init + state=IDLE + last_total 待首拍同步标志置位。
+     * 不发电机命令、不采样、不调 Encoder_Update/Imu_Update。cfg==NULL 视为误用（同 pid/odometry
+     * 契约口径，不做运行期拒绝）。前置：装配层已 Chassis_Init 且已设 Chassis 速度环增益
+     * （否则底盘不出力、目标不被跟踪——底盘调参非 motion 职责）。 */
+
+bool Motion_StartStraight(float distance_mm, bool heading_hold);
+    /* distance_mm<=0 → 返回 false，保持当前态。否则：捕获当前位姿为起点参考、清航向保持 PID 史、
+     * 记录 heading_hold 开关、state=STRAIGHT、返回 true。 */
+
+bool Motion_StartTurn(float relative_deg);
+    /* relative_deg==0 → 返回 false。否则：捕获当前 heading 为基准、记录目标相对角、state=TURN、
+     * 返回 true。符号约定：+ = CCW（左转，odometry 航向递增方向），− = CW（右转）。 */
+
+void Motion_Update(void);
+    /* 每次调用（任意态，无自门控——事件驱动）：
+     *  ① Imu_Update()（motion 独占，排空 FIFO 刷新快照）；
+     *  ② Encoder_GetSnapshot() + Imu_GetSnapshot()（只读复制，不推进 Encoder，不构成双采样）；
+     *  ③ 首拍同步 last_total←total（不产生位移）；此后 dΔ = total − last_total、last_total←total，
+     *     以 dΔ[L/R]（total_pulses 差值，非 delta_pulses 字段）+ yaw + valid 推进 Odometry_Update；
+     *  ④ Odometry_GetPose() 取当前位姿；
+     *  ⑤ 依 state：
+     *     STRAIGHT：dist=hypot(x−x0,y−y0)；dist≥target → Chassis_Stop + state=DONE；否则
+     *       left=base∓corr、right=base±corr（heading_hold 且本拍 IMU 有效时 corr=位置式 PID(0, rel)，
+     *       rel=heading−heading0；heading_hold 关或 IMU 无效 → corr=0 直行开环，不在陈旧航向上纠偏）
+     *       → Chassis_SetTargetMps；
+     *     TURN：rel=heading−heading0；err=target−rel；|err|≤turn_tol_deg → Chassis_Stop + state=DONE；
+     *       否则 cmd=clamp(turn_kp·err, −turn_speed, +turn_speed)、left=−cmd、right=+cmd
+     *       → Chassis_SetTargetMps；
+     *     IDLE/DONE：不设新目标；
+     *  ⑥ STRAIGHT/TURN 末尾恒推进 Chassis_Update()（内环自门控 10ms，S02 同款级联）；
+     *     IDLE/DONE **完全静默**——不泵 Chassis_Update（刹车真值表保持，确定性驻停，
+     *     S02 修订 1 / tuning Exit 同款显示/驱动所有权隔离）。 */
+
+void Motion_Stop(void);
+    /* 任意态 → Chassis_Stop + state=IDLE。随时可从正常控制流调用的确定性停止（§8.1）。 */
+
+Motion_State Motion_GetState(void);
+bool Motion_IsDone(void);                 /* state==MOTION_DONE */
+void Motion_GetTelemetry(Motion_Telemetry_T *out);  /* out==NULL 无副作用 */
+```
+
+- **数据链（§8.2 登记，单位与所有者）**：
+  `BoardGpio 原始计数 → Encoder_Update(chassis 拥有,10ms) → Encoder_Snapshot.total_pulses[有符号累计脉冲]`；
+  motion 读 `total_pulses`，以「本服务持有的 last_total 差值」得**恰好消费一次**的增量脉冲
+  （不用 `delta_pulses` 字段——那是 chassis 速度环经 `speed_mps` 消费的口径；motion 用 total 差值
+  是对累计里程计只读一次消费，**非第二份 delta 计算**）→ `Odometry_Update` → `Odometry_Pose_T`
+  [x_mm,y_mm 毫米、heading_deg 连续度] → motion 语义误差（距离 mm / 相对角 deg）→ 控制律 →
+  `Chassis_SetTargetMps` [m/s]。IMU 链：`ImuUart FIFO → Imu_Update(motion 拥有) → Imu_Snapshot
+  [yaw_deg∈[-180,180), valid, age_ms]` → 按值喂 `Odometry_Update`。
+- **单一所有者声明**（motion 一律不复做）：编码器采样节奏/elapsed = chassis.c；输出限幅/slew/
+  换向过零+死区/命令超时归零/刹车真值表 = motor.c（经 chassis）；脉冲→距离换算 = `Odometry_Config.
+  mm_per_pulse`；IMU yaw 符号 = `Odometry_Config.heading_sign`；yaw unwrap = heading.c；
+  底盘目标限幅 = chassis 既有空缺（motion 不抢先补——见 chassis.h 注释）；底盘速度环增益 =
+  装配层/tuning。motion **唯一拥有**：IMU FIFO 排空节奏（新增）、里程计消费节奏（last_total 一次性
+  消费）、语义运动状态机 + 到位判据 + 航向保持外环 PID + 定角转比例律 + 起点/基准参考捕获。
+- **头不暴露 Driver 类型**（§3.4）：公共面只用自持枚举/结构与标量；不出现 `Encoder_*`/`Imu_*`/
+  `Motor_*`/`Chassis_Side` 类型。motion.c 依赖矩阵合法：调 Driver（Encoder/Imu 只读快照 + Imu_Update）、
+  Middleware（odometry/pid）、同层 Service（chassis）——均为允许边。
+- **确定性停止与安全态（§8.1）**：Init 不发电机命令（初始安全）；到位/Stop 走 `Chassis_Stop`
+  （刹车 + 目标清零 + PID 复位）后转 IDLE/DONE 静默，刹车真值表保持；motion 若中途停止被泵
+  （不再调 Motion_Update），chassis 停泵 → motor 100ms 命令超时归零兜底（Driver 既有保护）。
+  motion 不在陈旧 IMU 航向上纠偏（valid=false → corr=0）。无新增功率路径，全部经 chassis 下发。
+- **V21 双泵**：motion 是 `Chassis_Update()` 第三个泵送者（现有 line_follow、tuning），落进同一
+  缓解机制——单活动条目不变量（scheduler `EnterEntry/LeaveEntry` 互斥）；motion 的启停挂未来
+  scheduler 条目 `on_enter/on_exit`，不与 line_follow/tuning 同时驱动。收工时 topo-updater 把
+  motion 追加进 V21 条目文本。
+
+### 15.3 preserved_behavior
+
+- `app/service/{chassis,line_follow,tuning,hmi}/**`、旧 `app/**`、`driver/**`、`middleware/**` 零改动；
+  主机既有 235 用例全过；固件行为不变（motion.o 进链接但零调用者——Task 未写，V07 同款过渡态）。
+
+### 15.4 证据行（≤6，恰 1 条固件构建行）
+
+| 行 | 名称 | 命令 | 预期 |
+|---|---|---|---|
+| E01 | 依赖纯净 | Grep `app/tasks/\|app/scheduler/\|app/ui/\|app/system/\|ti_msp_dl_config\|ti/driverlib`（path=`hc-team/app/service/motion`，`#include` 行） | 0 命中（`chassis.h` 同层 Service、`odometry.h`/`pid.h` Middleware、`encoder.h`/`imu.h` Driver 均为矩阵允许边，不在告警集） |
+| E02 | 范围审计 | `git status` + `git diff --stat` 对照 §15.1 | 无 allowed_files 之外的改动 |
+| E03 | 主机测试 | PowerShell：`rtk proxy make -C tests/host all` | ≥249 PASS / 0 FAIL（235 基线 + ≥14 新用例）。必含安全/行为项：Init 静默（零电机命令、零 Encoder_Update/Imu_Update）+ state=IDLE + IsDone=false；StartStraight(d≤0)→false 保持、(d>0)→STRAIGHT；注入编码器增量→pose 前进、dist≥target→Chassis_Stop(BrakeAll)+DONE+IsDone；DONE/IDLE 静默（多拍 Update 不泵内环、刹车真值表保持、无新电机命令刷新）；直行航向保持 ON + 注入偏航→差速纠偏方向正确（rel>0 CCW 漂移→左快右慢 CW 修正）；IMU 本拍无效→corr=0（不在陈旧航向纠偏、仍按编码器测距前进）；StartTurn(0)→false、(+deg)→TURN 且原地转（左负右正=CCW）、(−deg)→反向、到 turn_tol_deg→Chassis_Stop+DONE；里程计恰好消费一次（两次连续 Update 间 total 不变→pose 不二次前进，无双计数）；Motion_Stop 任意态→Chassis_Stop+IDLE；Imu_Update 独占路径（注入 IMU 帧经真实 imu.c 解析后 valid 翻真喂入 odometry）；遥测 state/pose/target/progress 一致 |
+| E04 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 diagnostics、motion.o 经 linkInfo.xml 确证进入 .out 链接 |
+
+- **主机测试链接组成**（事实登记）：test_motion = 真实 `motion.c` + 真实 `chassis.c` + 真实
+  `odometry.c` + 真实 `heading.c` + 真实 `encoder.c` + 真实 `motor.c` + 真实 `pid.c` + 真实 `imu.c`
+  + 真实 `board_uart/{imu,vision,vofa,stepmotor}_uart.c`（imu_uart 与同表共链，同 test_imu）
+  + `fake_board_gpio.c`（编码器原始计数注入）+ `fake_motor_hw.c`（电机抓取）
+  + `fake_uart_port.c`（IMU 帧注入）+ `fake_clock.c`（时间注入）。**链 `fake_clock.c` 不链
+  `fake_i2c_port.c`**：后者自带 `Clock_NowMs` 会与 fake_clock 重定义（S04/M01 已证实的坑），
+  本测试无 OLED/I2C 路径，统一走 fake_clock 注入时间。
+
+### 15.5 契约修订记录
 
 - （冻结初版，无修订。）
