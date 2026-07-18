@@ -24,10 +24,11 @@
 
 **原顺序：A00 → S01 → S02 → S03 → S04 → SCH01 → UI01 → T01；SYS01 随各阶段增量推进。**
 
-**修订顺序（2026-07-18，依 §12 赛前能力预制编排；A00–SCH01 已全部 DONE）：**
-**UI01 → M01 里程计/航向 → S06 motion 语义运动 → M02 循迹元素检测 → S02b 循迹深化**
-**（含 M03 速度规划）→ S07 分段路线执行 → S05 云台/视觉服务群 → T01（赛题公布后）；**
-**SYS01 仍随各阶段增量推进。**
+**修订顺序（2026-07-18，依 §12 赛前能力预制编排；A00–M02 已全部 DONE）：**
+**UI01 → M01 里程计/航向 → S06 motion 语义运动 → M02 循迹元素检测 → M03 速度规划**
+**→ S02b 循迹深化（元素事件面 + M03 接入）→ S07 分段路线执行 → S05 云台/视觉服务群**
+**→ T01（赛题公布后）；SYS01 仍随各阶段增量推进。**
+**（M03 与 S02b 拆分裁定见 §2 第 7 条，用户 2026-07-18 确认。）**
 
 1. **依赖方向强制 Service 先行**：依赖矩阵里 Task/Scheduler/UI 只允许调 Service——
    先有 Service，上层才有东西可写。这也是用户裁定的重心。
@@ -45,6 +46,13 @@
    S05 排最后一个预制块（体量最大、且 Q7 帧解析归属需契约裁定）。
    UI01 提到最前：阻塞已清（SCH01+S04 DONE）、封箱裁定下按键+OLED 分问菜单是
    赛场生存必备、也是其后每个预制模块上板验证的入口。
+7. **S02b 拆分为 M03 + S02b 两个闭环（用户 2026-07-18 确认）**：沿用 phase4 既有节奏
+   「中间件纯算法先独立立契约（零消费者，如 M01/M02）→ 服务再接线（S06/S02）」——
+   `middleware/speed_plan` 速度规划先作为纯算法 Middleware 独立立项（M03，契约 §17），
+   TDD/审计/拓扑各自成闭环、零消费者；其后 S02b 只做 line_follow 服务接线（一次性把
+   已建成的 M03 速度调制 + M02 元素事件面接入 line_follow）。每个任务有界、可独立验收。
+   **速度规划减速触发信号定案（用户 2026-07-18）**：用 track_error 已算好的 `|error_mm|`
+   连续曲率代理（不重复量化、不采样、不耦合外环 PID 内部）——见 §17 契约。
 
 ## 3. 模块状态表
 
@@ -62,7 +70,8 @@
 | S06 | motion 语义运动服务（v1：直行 N mm/定角转/定点停；IMU 航向保持可插拔） | `app/service/motion/` | task1 直行/转弯编排（冻结不迁移，重建） | — | `DONE`（契约 §15 冻结 226f8fd；代码 e30c2a0；arch-auditor 6 项通过、1 建议级文档处置见 §15.5。E01 0 命中 / E02 无越界 / E03 253 PASS 0 FAIL＝235 基线+18 / E04 exit 0、0 诊断、motion.o 经 linkInfo.xml 确证进链（3 引用）。IMU 泵所有权 motion 激活期独占落定、里程计 total 差值一次性消费、V21 双泵第三泵送者、圆弧移出 v1→S06b） |
 | S06b | motion 圆弧原语（定半径+定角，双轮速度比 + 航向误差修正） | `app/service/motion/`（S06 契约修订流程扩面） | — | — | 排队（S06 后；用户 2026-07-18 裁定拆分，控制律/测试面更大单独立项） |
 | M02 | 循迹元素检测（几何类别检测器：断线/横线/左岔/右岔，特征+连续置信计数+上升沿事件） | `middleware/track_elements/` | — | — | `DONE`（契约 §16 冻结 b71b59b；代码 cf745f8；arch-auditor 无阻断/无重要级，1 建议级文档处置见 §16.5。E01 0 命中 / E02 无越界 / E03 269 PASS 0 FAIL＝253 基线+16 / E04 exit 0、0 诊断、track_elements.o 经 linkInfo.xml 确证进链（3 引用）。位图并列消费者不采样（非 V21 双泵）、bit0_is_left 无第二反转、V24 登记） |
-| S02b | line_follow 深化：元素事件面 + M03 速度规划（`middleware/speed_plan`，直道加速/入弯减速）接入 | `app/service/line_follow/` | — | — | 排队（M02 后；S02 契约修订流程） |
+| M03 | speed_plan 速度规划（Middleware 纯算法：`\|error_mm\|` → 有状态斜坡基速，直道加速/入弯减速，自持输出限幅） | `middleware/speed_plan/` | — | — | `施工中`（契约 §17 冻结；本轮） |
+| S02b | line_follow 深化：M02 元素事件面接入 + M03 速度调制接入（base_speed 合成点仍唯一在 line_follow_apply） | `app/service/line_follow/` | — | — | 排队（M03 后；S02 契约修订流程） |
 | S07 | route 分段路线执行服务（段表驱动：FOLLOW_UNTIL(元素)/STRAIGHT/TURN/ARC——新题=换段表） | `app/service/route/` | task1 分段状态机 | — | 排队（S02b 后；范围 Q6 契约裁定） |
 | SYS01 | 装配入口更新 | `app/system/` | sys_init.c 增量改造 | — | 随各阶段 |
 | T01 | 赛题 Task（薄编排）+ 旧 tasks 整体删除 | `app/tasks/` | 全部旧 `tasks/**` | V03/V07/V13 残余/V15 全关，baseline 清空 | **最后**（赛题公布后） |
@@ -1195,3 +1204,104 @@ uint8_t  TrackElements_GetConfidence(const TrackElements_Detector_T *det, TrackE
   头注释与 §16.2 一并改为「NULL 时静默无副作用返回吸收，不做断言/错误码」，贴合实际行为，
   不改任何逻辑与证据行。其余审计项（依赖矩阵纯净 / §8.2 不采样+bit0_is_left 无第二反转+GAP 与
   lost_line 职责正交 / 单一所有者 / §8.3 防御代码逐条有故障模型与测试 / 封装 / 16 用例覆盖）无发现。
+
+## 17. M03 契约（speed_plan 速度规划）——冻结
+
+- **task_id**: M03-speed_plan
+- **goal**: 新建 `middleware/speed_plan/`：纯算法速度规划器。把**调用者按值传入**的横向误差幅值
+  `|error_mm|`（曲率代理）映射为巡航基速目标，并对**调用者持有的**当前基速做**有状态有界斜坡**
+  （直道→朝 `straight_speed` 提速、入弯→朝 `min_speed` 降速），输出建议基速 m/s。成为「基速调制」
+  这一数据变换的唯一所有者，为 S02b 循迹深化提供可插拔的巡航速度规划基元。
+- **接口辩护**（算法能做什么）：能把一个曲率代理量（误差幅值）映射为目标基速、能以受限的加/减速率
+  平滑地把当前基速斜坡到目标、能报告当前规划基速、能复位重新起步。仅此成为公共面。
+- **输入所有权 / 数据链（§8.2 关键）**：M03 **不采样、不量化误差、不碰 Chassis/电机、不含任何
+  Driver/App/其他 Middleware 头**。误差量化的唯一所有者仍是 `track_error`（S02b 接线时由 line_follow
+  取 `TrackError` 已算好的 `error_mm`、`fabsf` 后按值喂入，M03 绝不复算误差、绝不新开采样点）。
+  M03 唯一拥有：`|error| → 目标基速` 的映射 + 基速斜坡状态 + **输出基速自持限幅**
+  （拓扑 §3 已登记「Chassis 无目标限幅」空缺——限速上/下限落在 M03 自身配置，同 `diff_limit_mps`
+  先例，不指望 Chassis 兜底）。差速修正与差速限幅仍归外环 PID（M03 零触碰）。
+
+### 17.1 allowed_files（无 glob）
+
+| 文件 | 动作 |
+|---|---|
+| `hc-team/middleware/speed_plan/speed_plan.h` / `.c` | 新建 |
+| `tests/host/test_speed_plan.c` | 新建 |
+| `tests/host/Makefile` | 追加 test_speed_plan 目标/clean/.PHONY |
+| `.gitignore` | 追加 test_speed_plan / test_speed_plan.exe |
+| `Debug/makefile` | 登记 speed_plan.o（ORDERED_OBJS、两处 -include、clean） |
+| `agent/phase4_app_rewrite/plan_app_first_order.md` | 状态回写 + 本契约 |
+
+forbidden_files：`hc-team/middleware/{track_error,track_elements,odometry,pid}/**`（同层，零触碰——
+M03 自持速度数学，不复用不包含）、`hc-team/driver/**`、`hc-team/app/**`（含 line_follow——S02b 才接线）、
+tests/host 既有 `test_*.c` 与 `fake_*.c`。（Debug/ 下 `subdir_*.mk` 为本地生成物，不入库，不列。）
+
+### 17.2 公共接口（最小面）
+
+```c
+/** 速度规划配置。全部是标定事实，由调用者提供，无默认值。 */
+typedef struct {
+    float straight_speed_mps;   /* 直道巡航基速（|error|≈0 时的目标上限），> 0 */
+    float min_speed_mps;        /* 入弯最低基速（|error|≥curve_error_mm 时的目标下限），0 ≤ min ≤ straight */
+    float curve_error_mm;       /* 达到 min_speed 的误差幅值阈（|error|≥此值→min_speed），> 0；
+                                   ≤ 0 视为退化配置：不做曲率降速，目标恒为 straight_speed */
+    float accel_mps_per_s;      /* 提速斜坡速率上限（m/s per second），> 0 */
+    float decel_mps_per_s;      /* 降速斜坡速率上限（m/s per second），> 0 */
+} SpeedPlan_Config_T;
+
+/** 规划器上下文。**调用者分配**（栈或静态皆可，无 malloc）。current_mps 为私有斜坡状态。 */
+typedef struct {
+    SpeedPlan_Config_T cfg;
+    float current_mps;          /* 当前规划基速（斜坡状态），恒被约束在 [min, straight] */
+} SpeedPlan_T;
+
+void  SpeedPlan_Init(SpeedPlan_T *sp, const SpeedPlan_Config_T *cfg);
+    /* 存配置；current_mps 复位为 min_speed_mps（安全起步：从最低速斜坡上来，不猛冲）。
+     * sp==NULL 或 cfg==NULL 时静默无副作用返回吸收（同 pid/track_elements/odometry 口径）。 */
+float SpeedPlan_Update(SpeedPlan_T *sp, float abs_error_mm, uint32_t elapsed_ms);
+    /* 一拍推进并返回新的规划基速：
+     *  ① e = fabsf(abs_error_mm)（内部取绝对值，防调用者误传符号误差）；
+     *  ② 映射目标：curve_error_mm ≤ 0 → target = straight_speed（退化：不降速）；
+     *     否则 frac = min(e / curve_error_mm, 1) → target = straight + frac × (min − straight)，
+     *     再夹到 [min, straight]（含 min>straight 误配的排序夹紧，防漂移）；
+     *  ③ 斜坡：Δcap = (target>current ? accel : decel) × elapsed_ms/1000；
+     *     |target−current| ≤ Δcap 直接到位、否则朝 target 步进 Δcap（elapsed_ms==0 → Δcap=0 → 不变）；
+     *  ④ 存并返回 current_mps。sp==NULL → 返回 0，无副作用。 */
+float SpeedPlan_GetSpeed(const SpeedPlan_T *sp);   /* 当前规划基速。sp==NULL → 0。 */
+void  SpeedPlan_Reset(SpeedPlan_T *sp);            /* current_mps 回 min_speed（重新起步，不改 cfg）。NULL 吸收。 */
+```
+
+- **单位链（§8.2 登记）**：输入 `abs_error_mm` = mm（track_error 出口误差的幅值，S02b 由调用者 `fabsf`）；
+  `elapsed_ms` = 真实毫秒（调用者 10ms 门控的 elapsed，与 line_follow/chassis 同源）；输出/内部
+  `current_mps` = m/s（Chassis 目标基速口径，与 `base_speed_mps` 同尺度）。斜坡速率 m/s per second，
+  乘 `elapsed_ms/1000` 化为每拍增量。**无反向/无滤波/无积分**——纯有界斜坡；曲率来源是误差幅值，
+  非重新量化。
+- **状态与所有权**：`current_mps` 是唯一斜坡状态，调用者持有（无模块 static、无 malloc）；与
+  `track_elements` 的置信去毛刺状态、`pid` 的积分状态互不干扰（各自独立上下文）。基速调制唯一所有者
+  = M03；S02b 接线后 line_follow 用 M03 输出替换其**固定** `base_speed_mps`，合成 `Chassis_SetTargetMps(base±diff)`
+  的**唯一**合成点仍在 `line_follow_apply`（M03 不下沉进 Chassis 语义）。
+- **不变量**：初始化/复位后 `current_mps == min_speed_mps`；任意次 Update 后 `min ≤ current ≤ straight`
+  （min≤straight 前提下，由 target 夹紧 + 朝 target 斜坡保证，永不越界）。
+- **头不暴露下层类型**（§3.3）：纯标准 C 类型 + 自持结构；不含任何 Driver / 其他 Middleware 头
+  （需要 `fabsf` 时仅 `<math.h>`，需要 `fminf/fmaxf` 亦 `<math.h>`）。
+
+### 17.3 preserved_behavior
+
+- 旧 `app/**`、`driver/**`、`middleware/{track_error,track_elements,odometry,pid}/**`、其余全部零改动；
+  主机既有 269 用例全过；固件行为不变（speed_plan.o 进链接但零调用者——S02b 未接线，V07 同款过渡态）。
+
+### 17.4 证据行（≤6，恰 1 条固件构建行）
+
+| 行 | 名称 | 命令 | 预期 |
+|---|---|---|---|
+| E01 | 依赖纯净 | Grep `driver/\|app/\|middleware/pid/\|middleware/track_error/\|middleware/track_elements/\|middleware/odometry/\|ti_msp_dl_config\|ti/driverlib`（path=`hc-team/middleware/speed_plan`，`#include` 行） | 0 命中（自身 `speed_plan.h`、`<stdint.h>`/`<stdbool.h>`/`<math.h>` 不在告警集） |
+| E02 | 范围审计 | `git status` + `git diff --stat` 对照 §17.1 | 无 allowed_files 之外的改动 |
+| E03 | 主机测试 | PowerShell：`rtk proxy make -C tests/host all` | ≥281 PASS / 0 FAIL（269 基线 + ≥12 新用例）。必含：Init/Reset 后 current==min_speed；直道（err=0）逐拍朝 straight **提速且受 accel 斜坡限制**（单拍增量=accel×elapsed/1000，非瞬跳）、足够拍后到 straight 不过冲；入弯（err≥curve_error）从 straight 朝 min **降速且受 decel 斜坡限制**、足够拍后到 min；中间误差线性插值（err=curve_error/2 稳态≈straight−0.5×(straight−min)）；输出恒夹在 [min,straight]；elapsed_ms==0 不改 current；超大 elapsed 一拍到位不过冲 target；curve_error_mm≤0 退化（目标恒 straight、大误差也不降速）；负 abs_error 内部取绝对值（与正误差同目标）；NULL 吸收（Init/Update/GetSpeed/Reset 不崩，Update/GetSpeed(NULL)→0）；GetSpeed 反映 current |
+| E04 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 diagnostics、speed_plan.o 经 linkInfo.xml 确证进入 .out 链接 |
+
+- **主机测试链接组成**（事实登记）：test_speed_plan = 真实 `speed_plan.c` + `test_speed_plan.c`
+  （纯逻辑，仅 `-lm`）；不链接任何 fake（M03 零端口依赖，同 track_elements / track_error / heading）。
+
+### 17.5 契约修订记录
+
+- （冻结初版。）
