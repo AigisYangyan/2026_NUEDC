@@ -76,7 +76,7 @@
 | S04 | 人机输入/显示服务（Key/OLED 包装） | `app/service/hmi/` | menu 对 Key/OLED 的直调、task_groups UI 泵送 | V14 的基础 | `DONE`（契约 f8311c8；代码 2dac572；审计处置 ad5ca08。E01 0 命中 / E02 无越界 / E03 185 PASS 0 FAIL＝173 基线+12 / E04 exit 0、0 诊断、hmi.o 经 linkInfo.xml 确证进链） |
 | S05a | 视觉链路 Driver 编解码（`driver/uart_vision`：0xAA55 坐标控制帧 RX + 0xFF 选题握手 TX/RX；vision_uart 增 TX） | `driver/uart_vision/` | vision_bus/vision_coord（帧解析职责） | — | `DONE`（契约 §21.1 冻结 c1d5421，修订 1 b22ad28；代码本提交；审计处置见 §21.1.5。E01 依赖纯净 0 命中 / E02 无越界 / E03 361 PASS 0 FAIL＝334 基线+27 / E04 exit 0、0 诊断、uart_vision.o+vision_uart.o 经 linkInfo.xml 确证进链。arch-auditor 阻断 finding（vision TX 完成 ISR 未接线）已修复：mspm0_runtime.c 补 VisionUart_IsrTxDone；topo-updater 同款交叉确认。自同步分帧不引 Clock、坐标 float32 透传、无弱钩子回调。三闭环第一环，S05b/S05c 待续） |
 | S05b | 视觉坐标→轴映射 Middleware（纯算法：像素误差→X/Y 轴脉冲增量，死区/步长/限幅/极性单一所有者） | `middleware/vision_aim/` | 2DPlatform 的 visionhdl_step/clamp 几何 | — | `DONE`（契约 §21.2 冻结 8b74cf0；代码本提交；审计处置见 §21.2.5。E01 依赖纯净 0 命中 / E02 无越界 / E03 377 PASS 0 FAIL＝361 基线+16 / E04 exit 0、0 诊断、vision_aim.o 经 linkInfo.xml 确证进链。arch-auditor 六轴全过、无阻断/无重要、2 建议级仅注释收敛（F1 active 单语义、F2 回拉超 max_step 有意不防御）。输出定为有符号 int32 脉冲增量/轴（非角度）；纯函数不持位置状态（cur_pulse 调用方传入）；极性唯一开关 sign[axis]、修 (int32)coord 早失精度 bug。零调用者预期态，S05c 待续） |
-| S05c | 云台服务（`app/service/gimbal`：选题握手编排 + 瞄准收敛环 + odometry 运动前馈 + 步进总线下沉） | `app/service/gimbal/` | stepmotor_bus/2DPlatform 控制编排 | stepmotor_bus 违规群 | 排队（S05b 后；含 motor-safety；前馈依赖 M01=DONE） |
+| S05c | 云台服务（`app/service/gimbal`：选题握手编排 + 瞄准收敛环 + odometry 运动前馈 + 步进总线下沉） | `app/service/gimbal/` | stepmotor_bus/2DPlatform 控制编排 | stepmotor_bus 违规群 | 施工中（契约 §21.3 本提交冻结；**Service 直连最小派发** + **前馈几何推迟只留读点**——用户 2026-07-18 双裁定；含 motor-safety；步进总线下沉走 emm42+stepmotor_uart 直连、禁依赖冻结 stepmotor_bus.c；stepmotor_bus 违规群本体待 T01 删文件时关闭） |
 | SCH01 | 调度器重写 | `app/scheduler/` | task_scheduler.c、run_registry.c | V13 残余（g_eSysFlagManage） | `DONE`（Q1 定案 74d421e；契约 56ced13，修订 c6bcc4a；代码 e801caf；审计处置 6bfe3f4。E01 0 命中 / E02 无越界 / E03 200 PASS 0 FAIL＝185 基线+15 / E04 exit 0、0 诊断、scheduler.o 经 linkInfo.xml 确证进链。V13 残余本体仍待 T01 删旧文件时关闭） |
 | UI01 | 菜单重写（含分问选择/参数表——大纲 P0-D） | `app/ui/menu/` | menu_core/menu_pages（冻结不删，T01 删除） | V14（替代面 UI01 建成，本体 T01 关闭——见 §13 裁定；拓扑保持 open） | `DONE`（契约 c05de1b，修订 1 2b54b8a→Menu_Init 改名 Menu_Setup；代码 e23176a；审计处置 82e6493。E01 0 命中 / E02 无越界 / E03 214 PASS 0 FAIL＝200 基线+14 / E04 exit 0、0 诊断、menu.o+menu_param.o 经 linkInfo.xml 确证进链、旧 menu_core.o 仍共链。arch-auditor 6/7 通过，1 建议级已删。V14 待 T01 删旧关闭。**r2 两级分类外壳 DONE（2026-07-18）：契约修订 2 冻结 71a0ec1；代码 cba97cb；拓扑同步 08d0424；见 §13.5 修订 2**） |
 | M01 | 里程计+航向 unwrap（Middleware 纯算法：编码器 Δ→x,y,θ；imu.h 明示 unwrap 归此层） | `middleware/odometry/`（heading+odometry 双文件） | task1 姿态/里程零散逻辑（冻结不迁移，重建） | — | `DONE`（契约 §14 冻结 b856b23；代码 85d1e31；arch-auditor 三级无发现。E01 0 命中 / E02 无越界（.ccsproject 会话前既存，未纳入）/ E03 235 PASS 0 FAIL＝218 基线+17（heading 7+odometry 10）/ E04 exit 0、0 诊断、heading.o+odometry.o 经 linkInfo.xml 确证进链。IMU unwrap 权威 + 双文件拆分（用户 2026-07-18 裁定）；heading_sign/mm_per_pulse 单一所有者落定，V22 登记） |
@@ -2111,3 +2111,182 @@ void VisionAim_Map(float coord_x, float coord_y,
     才可达，属无实测失败模型的场景，按嵌入式基线不加无依据防御代码；回拉方向朝安全区，非失控危险。
   - 两项均为注释级修订，不动任何证据行/allowed_files/公共接口签名，故并入完成提交（同 S06 §15.5 先例），
     不单开契约修订提交。E03/E04 因仅改注释不受影响（vision_aim 主机测试完成后复跑确证仍 16 全过）。
+
+### 21.3 S05c 契约（`app/service/gimbal` 云台视觉瞄准服务）——冻结
+
+- **task_id**: S05c-gimbal
+- **goal**: 新建 `app/service/gimbal/`：视觉三闭环最后一环，把 S05a `uart_vision`（坐标/握手编解码）
+  与 S05b `vision_aim`（像素误差→轴脉冲增量几何）接线成一条完整链路——**选题握手编排** + **像素瞄准
+  收敛环** + **确定性安全停**，并把步进总线**下沉为 Service→Driver 直连**（`emm42` 组包 + `stepmotor_uart`
+  字节层），不再依赖冻结的 App Task `stepmotor_bus.c`。零调用者是预期态（T01 未写前，同 S05a/b 先例）。
+- **接口辩护**（云台能做什么）：能向视觉下发选题并等确认帧后才动（防盲跑）、能按视觉最新目标坐标闭环
+  驱动 X/Y 双轴步进收敛到目标、能在坐标失联/握手超时/被叫停时确定性安全停、能报告状态与轴位姿遥测。
+  仅此四类成为公共面。
+- **设计定案（用户 2026-07-18 双裁定，见 §5 Q7 延伸）**：
+  1. **步进总线下沉 = Service 直连最小派发**（用户选定）：gimbal 直接用 `driver/step_motor/emm42`（组包）
+     + `driver/board_uart/stepmotor_uart`（字节层）自持**最小 TX 派发 / 脉冲→dir+magnitude 拆分 / 换向 /
+     安全停**；**不复刻** legacy `stepmotor_bus.c` 的 mgmt 队列 / RR 仲裁 / 0x35 读速度应答（那是给调试
+     profile 的，瞄准环不需要）。**严禁 include `app/tasks/platform_2d/stepmotor_bus.h`**（跨 task 目录 +
+     待删存量债，topo-navigator 明示的违规路径）。Driver 边界不破：字节/DMA 归 stepmotor_uart，协议帧归
+     emm42，gimbal 只决定「发什么 / 何时发」= 合法 Service 控制编排。
+  2. **odometry 运动前馈本轮只留读点 + 文档，几何推迟**（用户选定，Q10 模式）：仓库无「目标世界位置/
+     测距」模型（测距硬件 Q8 未定案），全量视差前馈几何无法定义。本轮交付握手+像素闭环+安全停；前馈
+     只在契约与 gimbal.c 注释**登记** `Odometry_GetPose()` 的预期接入点（AIMING 拍读位姿→折入瞄准），
+     **本轮不 include `odometry.h`、不发起该调用**（否则是弃值死代码 + 未用依赖，违嵌入式基线）。几何等
+     有目标世界模型时以契约修订补入（拓扑 §5.2 已有 gimbal 前馈虚线占位，V22 补注为届时检查点）。
+- **数据链（§8.2，逐值确认）**：
+  ```text
+  视觉像素坐标 float32 + 单调 seq（uart_vision RX，坐标系原样）
+    → gimbal 消费 seq 判时效（连续无进展达 coord_timeout_ms → 停）  [时效唯一所有者=gimbal]
+    → VisionAim_Map(coord, cur_pulse, cfg.aim) → 每轴有符号 delta_pulse   [死区/kp/步长/极性/轴程几何唯一所有者=vision_aim，gimbal 不复算]
+    → gimbal：delta≠0 且总线空 → 下发；成功后 cur_pulse += delta          [轴累计位置状态唯一所有者=gimbal，仅此一个累加点]
+    → gimbal_stepbus：pulses 拆 dir(EMM42_DIR_CW/CCW)+magnitude → emm42 相对位置帧   [脉冲→dir/magnitude 拆分=gimbal_stepbus，承 S05b §21.2 边界]
+    → StepmotorUart_TryWrite（字节/DMA）→ EMM42 硬件                       [RPM≤100 夹 + ×10 尺度唯一所有者=emm42.c，gimbal 传裸 speed 不复夹]
+  ```
+- **单一所有者复查（V26/V22 强制）**：① 坐标死区/比例/步长限幅/极性/轴程限幅几何**只在 vision_aim**，
+  gimbal 逐拍把自持的 `cur_pulse` 传入 `VisionAim_Map`、绝不另算第二份（V26）；② 轴累计物理**位置状态**
+  只在 gimbal（vision_aim 是纯函数不持位置，S05b §21.2 明文）；③ RPM 限幅+×10 只在 emm42.c；④ 坐标编
+  解码/CRC/分帧只在 uart_vision；⑤ odometry 的 `mm_per_pulse`/`heading_sign` 只在 `Odometry_Config_T`，
+  本轮不接线故不触碰（V22 补注留待前馈接线时复核）。
+- **motor-safety（§8.1，步进链路，逐项）**：
+  - **上电/Init 安全态**：`Gimbal_Init` 静默——不发选题、不发移动、**不 enable**（步进保持上电默认失能安全态）。
+  - **步长限幅**（每拍幅值封顶）= vision_aim `max_step_pulse`（唯一所有者）；**轴程软限位** = vision_aim
+    `travel_limit_pulse`（依 cur_pulse，唯一所有者）——gimbal 不复做。
+  - **速度限幅** = emm42 `emm42_clamp_speed_rpm`≤100 + ×10（唯一所有者）；`Emm42_BuildPositionFrame` 加速度
+    固定 0（器件事实），gimbal 传 `step_speed_rpm` 裸值。
+  - **命令/反馈过期 → 停**：AIMING 期坐标 seq 连续无进展达 `coord_timeout_ms` → `STOPPED` 停止下发
+    （gimbal 时效唯一所有者）；HANDSHAKING 期无确认帧达 `ack_timeout_ms` → `STOPPED`。短暂 seq 停顿
+    （<超时）保持 AIMING 静默不动（步进保持上一相对移动终点位置），不补发大命令。
+  - **换向**：步进经 UART 相对位置命令，方向是每帧 dir 位、EMM42 智能驱动器内部自管加减速；**无共享功率
+    桥臂**，H 桥过零死区规则不适用（显式登记：此链路非 PWM/H 桥，无桥臂直通风险）。相对移动每帧幅值有界
+    （≤max_step），逐帧到位即停，X→+5 后 X→−3 即两条独立到位命令，无脉冲震荡。
+  - **确定性停止接口**：`Gimbal_Stop` 可从正常控制流调用——停止下发、清待发、→STOPPED；步进保持使能
+    （保持瞄准位置力矩＝云台的硬件安全态，非失能垂落）。不依赖调试器暂停。
+  - **ISR**：gimbal 无自有 ISR；TX/RX 完成中断归 stepmotor_uart（既有、已接线，本轮不改 runtime）。
+- **文件层级**（不把全部塞一个文件）：`gimbal.{h,c}` = 公共面 + 握手/ARMING/AIMING 状态机 + 像素闭环 +
+  安全停（含 uart_vision/vision_aim/clock）；`gimbal_stepbus.{h,c}` = 服务内私有的最小步进 TX 派发
+  （含 emm42/stepmotor_uart，脉冲拆分 + 组包 + 发送 + RX drain/discard），可独立主机测试（同 S02 `lost_line` 先例）。
+
+#### 21.3.1 allowed_files（无 glob）
+
+| 文件 | 动作 |
+|---|---|
+| `hc-team/app/service/gimbal/gimbal.h` / `.c` | 新建（公共面 + 状态机 + 像素闭环 + 安全停） |
+| `hc-team/app/service/gimbal/gimbal_stepbus.h` / `.c` | 新建（服务内私有：最小步进 TX 派发 + 脉冲拆分 + 组包 + RX drain） |
+| `tests/host/test_gimbal_stepbus.c` | 新建 |
+| `tests/host/test_gimbal.c` | 新建 |
+| `tests/host/Makefile` | 追加 test_gimbal_stepbus / test_gimbal 目标/clean/.PHONY + SRC 变量 |
+| `.gitignore` | 追加两个测试产物 |
+| `Debug/makefile` | 登记 gimbal.o、gimbal_stepbus.o（ORDERED_OBJS、两处 -include、clean） |
+| `agent/phase4_app_rewrite/plan_app_first_order.md` | 状态回写 |
+
+forbidden_files：`hc-team/app/tasks/**`（尤其 `platform_2d/stepmotor_bus.h|c`、`2DPlatform_LaserStrike.*`、
+`vision_bus.*`、`vision_coord.*`——全部冻结存量，只可弃用不可依赖）、`hc-team/app/{scheduler,system,ui}/**`、
+`hc-team/app/service/**` 其余全部、`hc-team/driver/**`（`uart_vision`/`board_uart/{vision,stepmotor}_uart`/
+`step_motor/emm42`/`clock` 只调用不修改；`mspm0_runtime` 本轮**零改**——stepmotor_uart TX 既有已接线）、
+`hc-team/middleware/**`（`vision_aim` 只调用不修改；`odometry` 本轮不接线不 include）、`board.syscfg`、
+tests/host 既有 `test_*.c` 与全部 `fake_*.c`（`fake_uart_port` 已有 Vision RX 注入 + Stepmotor/Vision TX
+抓取/完成钩子，`fake_clock` 已有时间注入面，均无需改）。（Debug/ 下 `subdir_*.mk`/`sources.mk` 是本地生成物，不入库、不列。）
+
+#### 21.3.2 公共接口（最小面）
+
+```c
+/* app/service/gimbal/gimbal.h —— 云台视觉瞄准服务 */
+#include "middleware/vision_aim/vision_aim.h"   /* VisionAim_Config_T / VISION_AIM_AXIS_COUNT（同层 Middleware，矩阵允许边） */
+
+typedef enum {
+    GIMBAL_STATE_IDLE = 0,      /* 未选题 */
+    GIMBAL_STATE_HANDSHAKING,   /* 已发选题，等视觉确认帧 */
+    GIMBAL_STATE_ARMING,        /* 确认到达，逐拍下发 enable/set-zero 建立原点 */
+    GIMBAL_STATE_AIMING,        /* 运行期视觉像素闭环 */
+    GIMBAL_STATE_STOPPED,       /* 安全停 / 坐标超时 / 握手超时（需重新 SelectTopic） */
+} Gimbal_State;
+
+typedef struct {
+    VisionAim_Config_T aim;      /* 透传 vision_aim：死区/kp/步长/极性/轴程限幅几何唯一所有者（gimbal 不复算） */
+    uint16_t step_speed_rpm;     /* 相对移动下发速度；emm42 限幅唯一所有者夹到 ≤100，本服务不复夹 */
+    uint32_t coord_timeout_ms;   /* AIMING 期坐标 seq 连续无进展达此时长 → STOPPED（安全停） */
+    uint32_t ack_timeout_ms;     /* HANDSHAKING 期无确认帧达此时长 → STOPPED */
+} Gimbal_Config_T;
+
+typedef struct {
+    Gimbal_State state;
+    int32_t  cur_pulse[VISION_AIM_AXIS_COUNT];   /* 轴累计脉冲位置（gimbal 唯一所有者；仅成功下发后累加） */
+    float    last_coord_x;
+    float    last_coord_y;
+    uint32_t last_coord_seq;                     /* 最近消费的坐标 seq */
+    bool     axis_active[VISION_AIM_AXIS_COUNT]; /* 最近一拍该轴是否越死区（vision_aim active 透传） */
+    uint8_t  ack_main;                           /* 已确认主任务号 */
+    uint8_t  ack_sub;                            /* 已确认子任务号 */
+} Gimbal_Telemetry_T;
+
+void Gimbal_Init(const Gimbal_Config_T *config);
+    /* 拷贝配置 + VisionAim_Init(&cfg.aim) + GimbalStepbus_Init；清状态 + cur_pulse=0 → IDLE。
+     * 不发选题、不发移动、不 enable（安全起点）。config==NULL 视为误用，不写（同 pid/odometry 口径）。 */
+bool Gimbal_SelectTopic(uint8_t main_task, uint8_t sub_task);
+    /* setup 期：UartVision_SendTopic 下发 0xFF 选题帧 → 记待确认号 + 起始 ackseq → HANDSHAKING。
+     * TX 忙 → false 保持原态。任意态可调（重选题重置到 HANDSHAKING）。 */
+void Gimbal_Update(void);
+    /* 末尾恒推进 GimbalStepbus_Service（消费 TX 完成 + drain/discard 步进 RX）。
+     * 自门控 GIMBAL_UPDATE_PERIOD_MS=10（Clock_NowMs 无符号减法）；到期 → UartVision_Poll → 状态机：
+     *   HANDSHAKING：GetTopicAckSeq 进展且回显号匹配 → ARMING（cur_pulse=0）；超 ack_timeout_ms → STOPPED。
+     *   ARMING：总线空时逐拍下发一帧 enable(X)/enable(Y)/setzero(X)/setzero(Y)；四帧发完 → AIMING。
+     *   AIMING：GetLatestCoord + GetCoordSeq；seq 进展 → VisionAim_Map(coord,cur_pulse,out)
+     *           → 每 delta≠0 轴：总线空则下发相对移动，成功后 cur_pulse += delta（唯一累加点）；
+     *           seq 连续无进展达 coord_timeout_ms → STOPPED（短暂停顿保持 AIMING 静默不动）。 */
+void Gimbal_Stop(void);
+    /* 确定性安全停：停止下发、清待发、→STOPPED；步进保持使能（保持位置力矩）。可从正常控制流调用。 */
+Gimbal_State Gimbal_GetState(void);
+void Gimbal_GetTelemetry(Gimbal_Telemetry_T *out);   /* out==NULL 无副作用 */
+```
+
+```c
+/* app/service/gimbal/gimbal_stepbus.h —— 服务内私有：最小步进 TX 派发（Service→Driver 直连） */
+typedef enum { GIMBAL_STEPBUS_AXIS_X = 0, GIMBAL_STEPBUS_AXIS_Y, GIMBAL_STEPBUS_AXIS_COUNT } GimbalStepbus_Axis;
+
+void GimbalStepbus_Init(void);    /* 清 TX 忙镜像；底层 StepmotorUart_Init 由 system 装配（此处不重复初始化硬件） */
+void GimbalStepbus_Service(void); /* 消费 TX 完成（ConsumeTxDone）；drain+discard 步进 RX（界定 FIFO，不解析——
+                                   * 步进应答有意不用，视觉是唯一反馈路径） */
+bool GimbalStepbus_IsIdle(void);  /* 总线可发：未忙 && StepmotorUart_IsTxIdle */
+bool GimbalStepbus_TrySendRelative(GimbalStepbus_Axis axis, int32_t pulses, uint16_t speed_rpm);
+    /* 总线空且 pulses≠0 → 拆 dir(±→CW/CCW)+magnitude → Emm42_BuildPositionFrame(相对模式) → TryWrite，true；
+     * 忙 / pulses==0 → false 不发。speed 交 emm42 限幅，本层不夹。 */
+bool GimbalStepbus_TrySendEnable(GimbalStepbus_Axis axis, bool on);   /* 总线空 → 组 enable 帧 + TryWrite，true；忙 → false */
+bool GimbalStepbus_TrySendSetZero(GimbalStepbus_Axis axis);          /* 总线空 → 组 set-zero 帧 + TryWrite，true；忙 → false */
+```
+
+- **轴映射**：`GimbalStepbus_Axis` X=0/Y=1（与 `VisionAim_Axis` 同序）→ emm42 轴 id（`EMM42_AXIS_X=2`/
+  `EMM42_AXIS_Y=1`）在 gimbal_stepbus.c 内部转换，gimbal.c 不见 emm42 轴号。
+- **头不暴露 Driver 类型**（§3.4）：gimbal.h 不含 `Emm42_Axis_e`/`emm42.h`/`stepmotor_uart.h`；步进协议细节
+  全封在 gimbal_stepbus.c。gimbal.h 仅暴露 `VisionAim_Config_T`（同层 Middleware 配置，非 Driver 类型）。
+- **前置条件**：System 装配层已 `UartVision_Init`（含 VisionUart_Init）、`StepmotorUart_Init`、Clock 就绪。
+  本轮不接 odometry。硬件（步进使能/机械居中=逻辑零点）由用户上板对齐；ARMING 期 set-zero 假设 arm 时机械居中。
+
+#### 21.3.3 preserved_behavior
+
+- `driver/**`、`middleware/**`、其余 `app/**`（含冻结的 `platform_2d/*`、`stepmotor_bus.*`）零改动；主机既有
+  377 用例全过；固件行为不变（gimbal.o/gimbal_stepbus.o 进链接但零调用者——V07 同款过渡态，T01 接线）。
+
+#### 21.3.4 证据行（≤6，恰 1 条固件构建行）
+
+| 行 | 名称 | 命令 | 预期 |
+|---|---|---|---|
+| E01 | 依赖纯净 | Grep `app/tasks/\|app/scheduler/\|app/ui/\|app/system/\|ti_msp_dl_config\|ti/driverlib`（path=`hc-team/app/service/gimbal`，`#include` 行） | 0 命中（仅 `uart_vision.h`/`vision_aim.h`/`clock.h`/`step_motor/emm42.h`/`board_uart/stepmotor_uart.h` + 自身头 + `<stdint/stdbool/string>`；Service 禁 include 任何 `app/tasks/**`＝矩阵关键项，尤其 `platform_2d/stepmotor_bus.h` 零命中） |
+| E02 | 范围审计 | `git status` + `git diff --stat` 对照 §21.3.1 | 无 allowed_files 之外改动（尤其 `app/tasks/**`、`driver/**`、`middleware/**`、`board.syscfg`、`mspm0_runtime.c` 零改） |
+| E03 | 主机测试 | PowerShell：`rtk proxy make -C tests/host all` | ≥397 PASS / 0 FAIL（377 基线 + ≥20 新用例）。必含——**gimbal_stepbus**：TrySendRelative 总线空发出精确 emm42 相对位置帧（X/Y 轴 id 正确、+pulses→CW/−pulses→CCW、magnitude=\|pulses\|、speed 透传经 emm42 ×10、CopyStepmotorTx 比对）；pulses==0 不发 → false；TX 忙 → false 且不发；CompleteTx→IsIdle 翻转；enable/set-zero 帧正确；RX drain 后 GetRxOverflowCount 不增。**gimbal**：Init 静默（无 TX、无坐标）；SelectTopic 发精确 0xFF 选题帧 + →HANDSHAKING，TX 忙→false；喂确认帧+号匹配→ARMING、号不匹配不转；ack 超时→STOPPED；ARMING 逐拍发四帧 enable/zero 后→AIMING；AIMING 喂坐标帧→VisionAim_Map→相对移动下发且 cur_pulse 精确累加（=delta）；总线忙时 cur_pulse 不累加（仅成功下发才进）；死区内坐标→不下发不累加；轴程饱和→delta 被 vision_aim 截断、cur_pulse 不越 travel_limit；seq 短暂停顿保持 AIMING 静默；coord 超时→STOPPED 停下发；Gimbal_Stop 确定性→STOPPED；遥测一致 |
+| E04 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 diagnostics、gimbal.o 与 gimbal_stepbus.o 经 linkInfo.xml（`Debug/2026_Diansai_linkInfo.xml`）确证进入 .out 链接 |
+
+- **主机测试链接组成**（事实登记）：
+  - test_gimbal_stepbus = 真实 `gimbal_stepbus.c` + 真实 `emm42.c` + 真实 `stepmotor_uart.c` + `fake_uart_port.c`
+    + test_gimbal_stepbus.c。**不链 fake_clock**（stepbus 无 Clock 依赖）。
+  - test_gimbal = 真实 `gimbal.c` + `gimbal_stepbus.c` + `uart_vision.c` + `vision_uart.c` + `emm42.c`
+    + `stepmotor_uart.c` + `vision_aim.c` + `fake_uart_port.c` + `fake_clock.c` + test_gimbal.c。
+    仅 gimbal.c 需 Clock（自门控+超时），`fake_uart_port` 不定义 `Clock_NowMs`，与 `fake_clock` 无符号冲突。
+- **测试盲区登记**：主机测试证消费者契约（emm42 帧字节精确、状态机转移、cur_pulse 单一累加、超时停），
+  **不证**真实 UART7 DMA 往返与步进电机物理运动/方向/机械限位——由「emm42 帧与器件手册逐字节核对 + 固件
+  构建 + 用户上板分阶段带载验证（低速短行程先确认方向/停止，§8.1）」保证。
+
+#### 21.3.5 契约修订记录
+
+- **冻结初版**（本提交）。Service 直连最小派发 + odometry 前馈几何推迟＝用户 2026-07-18 双裁定（§5 Q7 延伸）；
+  TDD/施工/审计/拓扑为后续独立闭环（契约先于代码，闭环铁律）。
