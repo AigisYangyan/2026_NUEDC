@@ -71,16 +71,15 @@ class Menu_API {
 }
 
 class MenuUI_API {
-  <<app:ui, NEW UI01>>
-  +Menu_Setup(params, param_count)
+  <<app:ui, NEW UI01, revision 2 two-level>>
+  +Menu_Setup(groups, group_count)
   +Menu_Tick(now_ms)
   +Menu_GetScreen() Menu_Screen
 }
 
 class MenuParam_API {
   <<app:ui, private to menu, not in public face>>
-  +MenuParam_Init(params, count)
-  +MenuParam_Enter()
+  +MenuParam_Enter(params, count)
   +MenuParam_Handle(Hmi_Input) Menu_Screen
   +MenuParam_Render()
   +MenuParam_FormatValue(value, buf, cap)
