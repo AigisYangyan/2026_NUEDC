@@ -49,3 +49,5 @@ tests/host/test_track_elements
 tests/host/test_track_elements.exe
 tests/host/test_speed_plan
 tests/host/test_speed_plan.exe
+tests/host/test_route
+tests/host/test_route.exe
