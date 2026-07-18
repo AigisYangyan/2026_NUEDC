@@ -53,6 +53,10 @@
    已建成的 M03 速度调制 + M02 元素事件面接入 line_follow）。每个任务有界、可独立验收。
    **速度规划减速触发信号定案（用户 2026-07-18）**：用 track_error 已算好的 `|error_mm|`
    连续曲率代理（不重复量化、不采样、不耦合外环 PID 内部）——见 §17 契约。
+8. **S06b 插入 S02b 与 S07 之间（2026-07-18，用户本会话确认）**：修订顺序行把 S07 列在 S02b 之后，
+   但 S07 段类型集含 `ARC`，其执行依赖 motion 圆弧原语——S06b 是 S07 `ARC` 段的前置件，
+   故先做 S06b 再做 S07，S07 契约届时可一次性覆盖全部四种段类型，免二次修订。实际执行序为
+   **… → S02b → S06b → S07 → S05**（S06b 契约见 §19）。
 
 ## 3. 模块状态表
 
@@ -68,7 +72,7 @@
 | UI01 | 菜单重写（含分问选择/参数表——大纲 P0-D） | `app/ui/menu/` | menu_core/menu_pages（冻结不删，T01 删除） | V14（替代面 UI01 建成，本体 T01 关闭——见 §13 裁定；拓扑保持 open） | `DONE`（契约 c05de1b，修订 1 2b54b8a→Menu_Init 改名 Menu_Setup；代码 e23176a；审计处置 82e6493。E01 0 命中 / E02 无越界 / E03 214 PASS 0 FAIL＝200 基线+14 / E04 exit 0、0 诊断、menu.o+menu_param.o 经 linkInfo.xml 确证进链、旧 menu_core.o 仍共链。arch-auditor 6/7 通过，1 建议级已删。V14 待 T01 删旧关闭。**r2 两级分类外壳 DONE（2026-07-18）：契约修订 2 冻结 71a0ec1；代码 cba97cb；拓扑同步 08d0424；见 §13.5 修订 2**） |
 | M01 | 里程计+航向 unwrap（Middleware 纯算法：编码器 Δ→x,y,θ；imu.h 明示 unwrap 归此层） | `middleware/odometry/`（heading+odometry 双文件） | task1 姿态/里程零散逻辑（冻结不迁移，重建） | — | `DONE`（契约 §14 冻结 b856b23；代码 85d1e31；arch-auditor 三级无发现。E01 0 命中 / E02 无越界（.ccsproject 会话前既存，未纳入）/ E03 235 PASS 0 FAIL＝218 基线+17（heading 7+odometry 10）/ E04 exit 0、0 诊断、heading.o+odometry.o 经 linkInfo.xml 确证进链。IMU unwrap 权威 + 双文件拆分（用户 2026-07-18 裁定）；heading_sign/mm_per_pulse 单一所有者落定，V22 登记） |
 | S06 | motion 语义运动服务（v1：直行 N mm/定角转/定点停；IMU 航向保持可插拔） | `app/service/motion/` | task1 直行/转弯编排（冻结不迁移，重建） | — | `DONE`（契约 §15 冻结 226f8fd；代码 e30c2a0；arch-auditor 6 项通过、1 建议级文档处置见 §15.5。E01 0 命中 / E02 无越界 / E03 253 PASS 0 FAIL＝235 基线+18 / E04 exit 0、0 诊断、motion.o 经 linkInfo.xml 确证进链（3 引用）。IMU 泵所有权 motion 激活期独占落定、里程计 total 差值一次性消费、V21 双泵第三泵送者、圆弧移出 v1→S06b） |
-| S06b | motion 圆弧原语（定半径+定角，双轮速度比 + 航向误差修正） | `app/service/motion/`（S06 契约修订流程扩面） | — | — | 排队（S06 后；用户 2026-07-18 裁定拆分，控制律/测试面更大单独立项） |
+| S06b | motion 圆弧原语（定半径+定角，双轮速度比 + 航向误差修正） | `app/service/motion/`（S06 契约修订流程扩面） | — | — | `施工中`（契约 §19 冻结见 §10 日志；用户 2026-07-18 裁定先于 S07——S07 `ARC` 段前置件。轮距新单一所有者裁定入 §19.0） |
 | M02 | 循迹元素检测（几何类别检测器：断线/横线/左岔/右岔，特征+连续置信计数+上升沿事件） | `middleware/track_elements/` | — | — | `DONE`（契约 §16 冻结 b71b59b；代码 cf745f8；arch-auditor 无阻断/无重要级，1 建议级文档处置见 §16.5。E01 0 命中 / E02 无越界 / E03 269 PASS 0 FAIL＝253 基线+16 / E04 exit 0、0 诊断、track_elements.o 经 linkInfo.xml 确证进链（3 引用）。位图并列消费者不采样（非 V21 双泵）、bit0_is_left 无第二反转、V24 登记） |
 | M03 | speed_plan 速度规划（Middleware 纯算法：`\|error_mm\|` → 有状态斜坡基速，直道加速/入弯减速，自持输出限幅） | `middleware/speed_plan/` | — | — | `DONE`（契约 §17 冻结 61f4149；代码 8d84657；契约修订 1/审计处置 8975b2a；代码 fix 6ace23b；拓扑同步 3b92258。E01 0 命中 / E02 无越界 / E03 285 PASS 0 FAIL＝269 基线+16 / E04 exit 0、0 诊断、speed_plan.o 经 linkInfo.xml 确证进链。arch-auditor 无阻断/无重要级，2 建议级已处置（F1 删排序夹紧、F2 白名单更正）；基速调制单一所有者落定 speed_plan，V25 登记） |
 | S02b | line_follow 深化：M02 元素事件面接入 + M03 速度调制接入（base_speed 合成点仍唯一在 line_follow_apply） | `app/service/line_follow/` | — | — | `DONE`（契约 §18 冻结 b3b2d38；代码 f278894；拓扑同步见 §10。E01 0 命中 / E02 4 文件在范围 / E03 300 PASS 0 FAIL＝285 基线+15（速度调制 5 + 元素事件面 10）/ E04 exit 0、0 诊断、line_follow.o 重编并经 linkInfo.xml 确证进链（speed_plan.o/track_elements.o 已在链）。arch-auditor 三维无发现；base_speed 合成点未搬家、位图并列消费不新开采样点、V21 不新增第四推进点） |
@@ -1485,5 +1489,128 @@ base, diff → line_follow_apply: Chassis_SetTargetMps(base+diff, base−diff)  
   只 fake 端口/硬件边界，不 fake 被测 Service/Middleware/Driver 本体。
 
 ### 18.6 契约修订记录
+
+- （冻结初版。审计后处置若有，单独提交并在此追加修订原因 + 提交哈希。）
+
+## 19. S06b 契约（motion 圆弧原语：定半径 + 定角）——冻结
+
+- **task_id**: S06b-motion-arc
+- **goal**: 在既有 `app/service/motion/` 上扩面一条运动基元——「以定半径 R、按定角
+  `arc_deg` 走一段圆弧后停」的**非阻塞状态机**，建成在 chassis 速度内环（S01）与 odometry
+  连续航向/位姿（M01）之上。控制律 = **双轮速度比前馈**（由 R 与轮距推导内外轮速）
+  **+ 航向误差反馈修正**（用 odometry 连续航向纠正半径漂移）。为后续 S07 段路线执行的
+  `ARC` 段类型提供现成基元（本任务是 S07 该段的前置件，用户 2026-07-18 裁定先于 S07）。
+- **交付形态**：沿用 S06 motion 服务闭环流程**扩面**——`motion.{h,c}` 修改（非新建）：
+  新增一个公共函数 `Motion_StartArc`、一个状态 `MOTION_ARC`、两个 cfg 字段
+  （`track_width_mm`/`arc_speed_mps`）；`Motion_Update` 增一条 ARC 分支。既有 STRAIGHT/TURN
+  行为逐字不变。
+- **接口辩护**（底盘能做什么）：底盘能沿一个指定半径、转过指定圆心角后确定性停车，
+  行进中用航向反馈把半径守在标称值。仅此一条新能力进入公共面。
+- **IMU 泵 / 里程计消费 / 内环泵所有权（继承 S06，不新增所有者）**：ARC 复用
+  `Motion_Update` 同一主循环——`Imu_Update()` 仍是 motion 激活期独占的**唯一**排空点（V23，
+  不新增第二个）；里程计 `total_pulses` 差值仍**恰好消费一次**（V22，last_total 机制不变）；
+  `Chassis_Update()` 仍是 motion 既有第三推进点（V21），ARC 落进同一推进点，**不构成第四个
+  推进者**，未来挂 scheduler `on_enter/on_exit` 时与 STRAIGHT/TURN 一并纳管。
+
+### 19.0 轮距单一所有者裁定（本契约核心，回应拓扑 S06b 待裁项）
+
+- 全仓此前**无 `track_width` 常量**（M01 航向权威 = IMU 去卷，位姿 = 编码器位移，均不需轮距）。
+  圆弧「双轮速度比」需要轮距才能由 R 推导内外轮速——**新增单一所有者点
+  `Motion_Config_T.track_width_mm`**（mm，实测标定，装配层注入）。
+- **该字段仅用于圆弧前馈速度比，绝不构成第二个航向权威**：圆弧的实际航向仍由
+  odometry 连续航向（IMU 源）测量与判完成，轮距只设**标称**内外轮速；反馈修正读 odometry
+  航向。故不存在「轮差分测航向」与 IMU 航向竞争的双源。V22 登记扩一条：轮距新所有者
+  = motion cfg，用途限定前馈几何，收工时 topo-updater 记入 §6/§7。
+- **不复算**：轮距不参与脉冲→距离（那仍是 `Odometry_Config.mm_per_pulse` 唯一所有者）、
+  不参与航向符号（`heading_sign` 唯一所有者）、不参与 unwrap（`heading.c` 唯一所有者）。
+
+### 19.1 allowed_files（无 glob）
+
+| 文件 | 动作 |
+|---|---|
+| `hc-team/app/service/motion/motion.h` | 修改（+`MOTION_ARC`、+2 cfg 字段、+`Motion_StartArc` 声明与注释） |
+| `hc-team/app/service/motion/motion.c` | 修改（+ARC 状态机分支、+StartArc、+前馈/修正控制律、+轮距几何） |
+| `tests/host/test_motion.c` | 修改（追加 ≥10 条圆弧用例；既有直行/转弯用例逐字不动） |
+| `agent/phase4_app_rewrite/plan_app_first_order.md` | 状态回写 + 本契约冻结/修订 |
+
+forbidden_files：`hc-team/app/service/{chassis,line_follow,tuning,hmi}/**`（chassis 只调用不改，
+其余零触碰）、`hc-team/app/{tasks,scheduler,system,ui}/**`、`hc-team/driver/**`（Encoder/Imu 仍只经
+`*_GetSnapshot`/`Imu_Update`，零改）、`hc-team/middleware/**`（odometry/pid 只调用不改）、
+`Debug/makefile`（motion.o 已登记，无 ORDERED_OBJS 变更）、`tests/host/Makefile`（test_motion 目标
+已存在，无新增源）、`.gitignore`（已忽略 test_motion）、tests/host 其余既有 `test_*.c` 与 `fake_*.c`。
+
+### 19.2 公共接口变更（最小面）
+
+```c
+/* 状态枚举新增一项（其余不变） */
+typedef enum { MOTION_IDLE = 0, MOTION_STRAIGHT, MOTION_TURN, MOTION_ARC, MOTION_DONE } Motion_State;
+
+/* Motion_Config_T 新增两字段（其余字段不变；hold_kp/ki/kd + hold_diff_limit_mps + turn_tol_deg 被 ARC 复用） */
+    float track_width_mm;      /* >0，轮距实测标定；仅用于圆弧前馈内外轮速比（§19.0 单一所有者） */
+    float arc_speed_mps;       /* 圆弧圆心线速度基速（前进为正，>0） */
+
+bool Motion_StartArc(float radius_mm, float arc_deg);
+    /* 拒绝（返回 false，保持当前态）：radius_mm<=0；arc_deg==0；radius_mm < track_width_mm/2
+     *   （内轮将反向——本原语约束为前进圆弧，不做单轮倒转的原地掰弯，那属 TURN 语义）。
+     * 成功：捕获当前 odometry 航向为 heading0、当前位姿为路径长基准（arc_len=0、prev=当前 x/y）、
+     *   清航向修正 PID 史（复用 hold PID 实例，单活动原语保证不与直行纠偏并发）、记录 arc_deg、
+     *   state=MOTION_ARC、返回 true。符号约定同 TURN：arc_deg>0 = CCW（左转，航向递增），<0 = CW。 */
+```
+
+- `Motion_Update` ARC 分支（并入既有共享前段：`Imu_Update`→快照→`Odometry_Update`→`Odometry_GetPose`）：
+  1. `rel = heading − heading0`（odometry 连续角，签名带向）；
+  2. 路径长累计 `arc_len_mm += hypot(x−prev_x, y−prev_y)`（**消费 odometry 毫米位姿输出**，
+     非第二次脉冲→距离换算；motion 自持派生量）；`prev_x/prev_y ← x/y`；
+  3. 完成判据（**航向驱动，IMU 权威**）：`|arc_deg| − |rel| ≤ turn_tol_deg` → `Chassis_Stop`
+     + `state=MOTION_DONE`；
+  4. 否则前馈：`dir = sign(arc_deg)`；`half = track_width_mm/2`；
+     `v_inner = arc_speed_mps·(R−half)/R`、`v_outer = arc_speed_mps·(R+half)/R`（R=radius_mm）；
+     CCW(dir>0)：left=inner、right=outer；CW：left=outer、right=inner；
+  5. 航向修正（**读 odometry 航向**）：`exp = dir·deg(arc_len_mm/R)`，幅值夹至 `|arc_deg|`；
+     `corr = Pid_UpdatePositional(hold_pid, exp, rel)`（setpoint=exp、feedback=rel，
+     out_limit = `hold_diff_limit_mps` 唯一所有者）；`left −= corr`、`right += corr`
+     （与直行纠偏同一符号律：欠转→corr 推向「转更多」，CCW/CW 经 exp/rel 带号自洽）；
+  6. `Chassis_SetTargetMps(left, right)` → 末尾恒推 `Chassis_Update()`（内环自门控 10ms）。
+     IDLE/DONE 仍**完全静默**（不泵内环、刹车真值表保持，S06 同款）。
+- **遥测复用**（`Motion_Telemetry_T` 结构不变）：ARC 时 `target=arc_deg`、`progress=rel`（已转过度），
+  `x_mm/y_mm/heading_deg` 照旧。
+
+### 19.3 数据链与单一所有者声明（§8.2）
+
+- **前馈几何**：`R, half=track_width_mm/2 → (R±half)/R` 为无量纲比，乘 `arc_speed_mps`[m/s]
+  得左右 [m/s]。轮距唯一所有者 = motion cfg（§19.0），仅前馈用。
+- **完成与修正基准分离**：完成判据读 **odometry 连续航向**（IMU 源，权威）；修正参考
+  `exp` 由 **motion 自持路径长 arc_len_mm**（消费 odometry 毫米位姿，非复算脉冲）÷R 得。
+  已知特性（显式登记，不加无据防御）：`exp` 依赖里程标定与 R 一致；标定偏差使半径略偏，
+  但完成角由 IMU 航向锁定不受影响——实车整定归用户，本原语接受此裕度。
+- **不复做**（一律经既有所有者）：脉冲→距离 = `Odometry_Config.mm_per_pulse`；yaw 符号 =
+  `heading_sign`；unwrap = `heading.c`；输出限幅/slew/换向过零死区/命令超时/刹车真值表 =
+  `motor.c`（经 chassis）；差速修正限幅 = `hold_diff_limit_mps`(= 该 PID out_limit)；
+  底盘目标限幅 = chassis 既有空缺（motion 不抢先补——外轮速 `v_outer>arc_speed` 是几何必然，
+  不额外夹紧，与 STRAIGHT/TURN 同口径）。motion 本任务**新增唯一拥有**：轮距前馈几何 +
+  圆弧路径长累计 + 圆弧状态机 + 航向修正参考生成。
+- **头不暴露 Driver 类型**（§3.4）：新增面只用 `float`/`bool`/自持枚举，不出现 Driver 类型。
+
+### 19.4 preserved_behavior
+
+- `app/service/{chassis,line_follow,tuning,hmi}/**`、旧 `app/**`、`driver/**`、`middleware/**` 零改动；
+  既有 motion 直行/原地转行为逐字不变（新增 ARC 分支不改 STRAIGHT/TURN 路径）；主机既有
+  300 用例全过；固件行为不变（`motion.o` 重编后仍**零调用者**，上层不泵 `Motion_Update`
+  则不产生任何底盘命令——Task 未写，V07 同款过渡态）。
+
+### 19.5 证据行（≤6，恰 1 条固件构建行）
+
+| 行 | 名称 | 命令 | 预期 |
+|---|---|---|---|
+| E01 | 依赖纯净 | Grep `app/tasks/\|app/scheduler/\|app/ui/\|app/system/\|ti_msp_dl_config\|ti/driverlib`（path=`hc-team/app/service/motion`，`#include` 行） | 0 命中（`chassis.h` 同层、`odometry.h`/`pid.h` Middleware、`encoder.h`/`imu.h` Driver 均矩阵允许边） |
+| E02 | 范围审计 | `git status` + `git diff --stat` 对照 §19.1 | 无 allowed_files 之外的改动（尤其 `Debug/makefile`、`chassis/**`、`middleware/**`、`driver/**` 零改） |
+| E03 | 主机测试 | PowerShell：`rtk proxy make -C tests/host all` | ≥310 PASS / 0 FAIL（300 基线 + ≥10 新用例）。必含——**拒绝/起步**：StartArc(R≤0)/(arc_deg=0)/(R<track/2) 各返回 false 且保持前态；合法 StartArc→MOTION_ARC 且 IsDone=false。**前馈速度比**（起步 arc_len≈0、exp≈0、corr≈0 时）：CCW 圆弧右轮(外)>左轮(内)、比值 ≈ (R+L/2)/(R−L/2)（容差内）；CW 圆弧左轮(外)>右轮(内)。**航向修正**：注入编码器位移使 arc_len 增而 IMU 航向滞后（欠转）→ CCW 下修正使右轮更快/左轮更慢（转更多），CW 反向。**完成（IMU 权威）**：注入航向扫到 arc_deg → \|arc_deg\|−\|rel\|≤turn_tol_deg → Chassis_Stop(BrakeAll)+DONE+IsDone。**静默/安全**：DONE 后多拍 Update 不泵内环、刹车真值表保持、无新电机命令刷新；ARC 中 Motion_Stop→Chassis_Stop+IDLE。**无双计数**：ARC 中两次连续 Update 间 total 不变→arc_len/pose 不二次前进。**回归**：既有直行/原地转用例逐字全过。 |
+| E04 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 diagnostics、`motion.o` 重编并经 linkInfo.xml 确证仍在 .out 链接（无 ORDERED_OBJS 变更） |
+
+- **主机测试链接组成**（不变，事实登记）：test_motion = 真实 `motion.c` + `chassis.c` + `odometry.c`
+  + `heading.c` + `encoder.c` + `motor.c` + `pid.c` + `imu.c` + `board_uart/{imu,vision,vofa,stepmotor}_uart.c`
+  + fake 端口（`fake_board_gpio`/`fake_uart_port`/`fake_clock`/`fake_motor_hw`）。新增用例仍用同一链接组成。
+
+### 19.6 契约修订记录
 
 - （冻结初版。审计后处置若有，单独提交并在此追加修订原因 + 提交哈希。）
