@@ -74,7 +74,9 @@
 | S02 | line_follow 循迹服务（外环+丢线策略） | `app/service/line_follow/` | track_follow.c、task1 循迹部分、gray_test | V03、V03-DUP、V07（部分） | `DONE`（契约 6dfdc85，修订 88010fd；代码 bb4825c；审计处置 53e9967。E01 0 命中 / E02 无越界 / E03 159 PASS 0 FAIL＝140 基线+19 / E04 exit 0、0 诊断、两 .o 进链接。Q5 关闭：丢线策略显式重建于 lost_line） |
 | S03 | 遥测/调参链路服务（VOFA） | `app/service/tuning/` | vofa_register.c | V15（替代已建成，旧边待 T01）、V19（closed） | `DONE`（契约 ed4f416，修订 57b54de；代码 d0e4996；审计处置 5a4f089。E01 0 命中 / E02 无越界 / E03 173 PASS 0 FAIL＝159 基线+14 / E04 exit 0、0 诊断、两 .o 经 linkInfo.xml 确证进链 / E05 `u8` 0 命中。Q2 定案入 §5） |
 | S04 | 人机输入/显示服务（Key/OLED 包装） | `app/service/hmi/` | menu 对 Key/OLED 的直调、task_groups UI 泵送 | V14 的基础 | `DONE`（契约 f8311c8；代码 2dac572；审计处置 ad5ca08。E01 0 命中 / E02 无越界 / E03 185 PASS 0 FAIL＝173 基线+12 / E04 exit 0、0 诊断、hmi.o 经 linkInfo.xml 确证进链） |
-| S05 | 云台/视觉服务群（platform_2d 下沉：瞄准收敛/轨迹发生/运动前馈/视觉接入） | `app/service/`（契约时拆分） | vision_bus/vision_coord/stepmotor_bus/2DPlatform | stepmotor_bus 违规群 | 排队（S07 后预制，**不再等赛题**——§12；前馈依赖 M01） |
+| S05a | 视觉链路 Driver 编解码（`driver/uart_vision`：0xAA55 坐标控制帧 RX + 0xFF 选题握手 TX/RX；vision_uart 增 TX） | `driver/uart_vision/` | vision_bus/vision_coord（帧解析职责） | — | `施工中`（契约 §21.1 本提交冻结；三闭环第一环） |
+| S05b | 视觉坐标→轴映射 Middleware（纯算法：像素误差→X/Y 轴角/脉冲增量，死区/限幅/极性单一所有者） | `middleware/vision_aim/`（名暂定） | 2DPlatform 的 visionhdl_step/clamp 几何 | — | 排队（S05a 后，契约各自冻结） |
+| S05c | 云台服务（`app/service/gimbal`：选题握手编排 + 瞄准收敛环 + odometry 运动前馈 + 步进总线下沉） | `app/service/gimbal/` | stepmotor_bus/2DPlatform 控制编排 | stepmotor_bus 违规群 | 排队（S05b 后；含 motor-safety；前馈依赖 M01=DONE） |
 | SCH01 | 调度器重写 | `app/scheduler/` | task_scheduler.c、run_registry.c | V13 残余（g_eSysFlagManage） | `DONE`（Q1 定案 74d421e；契约 56ced13，修订 c6bcc4a；代码 e801caf；审计处置 6bfe3f4。E01 0 命中 / E02 无越界 / E03 200 PASS 0 FAIL＝185 基线+15 / E04 exit 0、0 诊断、scheduler.o 经 linkInfo.xml 确证进链。V13 残余本体仍待 T01 删旧文件时关闭） |
 | UI01 | 菜单重写（含分问选择/参数表——大纲 P0-D） | `app/ui/menu/` | menu_core/menu_pages（冻结不删，T01 删除） | V14（替代面 UI01 建成，本体 T01 关闭——见 §13 裁定；拓扑保持 open） | `DONE`（契约 c05de1b，修订 1 2b54b8a→Menu_Init 改名 Menu_Setup；代码 e23176a；审计处置 82e6493。E01 0 命中 / E02 无越界 / E03 214 PASS 0 FAIL＝200 基线+14 / E04 exit 0、0 诊断、menu.o+menu_param.o 经 linkInfo.xml 确证进链、旧 menu_core.o 仍共链。arch-auditor 6/7 通过，1 建议级已删。V14 待 T01 删旧关闭。**r2 两级分类外壳 DONE（2026-07-18）：契约修订 2 冻结 71a0ec1；代码 cba97cb；拓扑同步 08d0424；见 §13.5 修订 2**） |
 | M01 | 里程计+航向 unwrap（Middleware 纯算法：编码器 Δ→x,y,θ；imu.h 明示 unwrap 归此层） | `middleware/odometry/`（heading+odometry 双文件） | task1 姿态/里程零散逻辑（冻结不迁移，重建） | — | `DONE`（契约 §14 冻结 b856b23；代码 85d1e31；arch-auditor 三级无发现。E01 0 命中 / E02 无越界（.ccsproject 会话前既存，未纳入）/ E03 235 PASS 0 FAIL＝218 基线+17（heading 7+odometry 10）/ E04 exit 0、0 诊断、heading.o+odometry.o 经 linkInfo.xml 确证进链。IMU unwrap 权威 + 双文件拆分（用户 2026-07-18 裁定）；heading_sign/mm_per_pulse 单一所有者落定，V22 登记） |
@@ -113,7 +115,7 @@
 | Q4 | ~~`arch-baseline.txt` vofa_register.c→pid.h 滞后行~~ **已关闭（S03 复核 2026-07-17）**：该行已不在 baseline 中（A00 chore 已清）；现存第 9 行 vofa_register.c→uart_vofa.h 与代码事实一致，属冻结违规如实登记。 | A00 随手 chore |
 | Q5 | ~~S02 丢线策略需显式重建~~ **已关闭（S02）**：`lost_line` 子模块=方向记忆+固定回退+有界超时（超时上限是新增安全项，旧实现没有）。 | S02 契约 |
 | Q6 | ~~S07 分段路线执行器的范围：段类型集合、段表由谁持有、主触发源~~ **已定案（S07 契约 §20，2026-07-18 用户三问裁定）**：① **段类型集合** = FOLLOW_UNTIL(元素事件)/STRAIGHT/TURN/ARC 四类，支持任意混合序；② **段表由装配层/T01 持有并经 `Route_Setup` 注入**（route 是纯执行机制，同 scheduler 条目表 / menu 分组表先例，换赛题=换段表 route 零改动）；③ **主触发源按段类型自然完成分派**——FOLLOW_UNTIL 以 `LineFollow_PollElementEvents` 元素上升沿事件为完成源，STRAIGHT/TURN/ARC 以 `Motion_IsDone`（motion 内部里程/航向判据）为完成源，无单一「里程 vs 元素」全局主触发；④ 段间**确定性交接**（隔拍刹停间隙 + 进 motion 段前 odometry catch-up）+ 每段**可选完成超时兜底**（承 S06 §15.5 deferred，超时/LOST/段启动被拒 → FAULT+确定性刹停）。 | S07 契约 §20 |
-| Q7 | 视觉帧解析归属：Q2 先例是「字节流解析归 Driver（uart_vofa），分发应用归 Service」——vision 同构方案 = 新建 `driver/uart_vision` 帧解析（吸收冻结的 vision_bus 职责），坐标→角度映射归 Middleware，收敛/触发归 Service。是否照搬待 S05 契约核对协议差异后定。**视觉组协议原件已登记（见 §5.1 + `docs/通信协议.md`，2026-07-18）；两种候选帧格式二选一与本裁定同在 S05 契约定案。** | S05 契约 |
+| Q7 | ~~视觉帧解析归属 + 帧格式二选一~~ **已定案（S05 契约 §21.0，2026-07-18 用户三轮裁定）**：照搬 Q2 先例——帧编解码归 Driver 新建 `driver/uart_vision`（吸收 vision_bus/vision_coord 帧职责，`vision_uart` 增 TX），坐标→轴映射归 Middleware（S05b），选题握手+收敛+前馈归 Service（S05c）。**协议非「二选一」而是两条并行链**：`0xAA 0x55`+len+payload+CRC16-MODBUS = 控制/坐标帧（视觉→主控 RX，运行期，坐标 float32）；`0xFF`+主任务+子任务+`0xFE`（无校验，4B）= 选题/握手帧（双向，setup 期）。运行期只收坐标、不混包、不要回馈帧。冻结 `vision_coord.c`（0x55AA+和校验+int16）判为过时，S05a 全重写不照搬。详见 §21.0。 | S05 契约 §21.0（closed） |
 | Q8 | 双机协同（大纲 P2-B：双车蓝牙）与测距/避障（P3）：本仓库无对应硬件与 Driver，硬件未定案。登记为余力项，赛题/硬件明确后再立项，不预支协议设计。 | 赛题后 |
 | Q9 | 声光提示（大纲 P0-D：buzzer/LED 时序）：Driver 库存无 buzzer；题目普遍要求声光。硬件确认引脚后补小 Driver + 上层包装（归属 hmi 扩展 or 独立，届时定）。 | 硬件定案后 |
 | Q10 | PID 特性缺口（大纲 P0-B 要求积分分离/死区/微分先行；现库有增量/位置/双限幅/微分滤波）：**按需契约时补**，不预支——首个真实需求最可能出现在 S05 云台收敛环或 S06 航向环，届时以契约修订进 `middleware/pid`。 | 需求出现时 |
@@ -1869,3 +1871,119 @@ Route_Update(now_ms)
   写计数≠0——原「静默＝零写」断言误解，改判 FAULT+刹车生效，属证据行内实现修正非契约行修订）。
   topo-updater 已同步：索引 §6（V21 扩条 + V23 补注）、§7（Route 覆盖行）、§10 日志，app.md §3
   （Route_API 类块 + 2 条出边到 line_follow/motion）。
+
+## 21. S05 契约群（云台/视觉服务群，三闭环）——§21.1 S05a 冻结
+
+> S05 体量最大，按 §2.6 与用户裁定「契约时拆分」为三个独立闭环，各自走完整
+> embedded-closed-loop（契约冻结 → TDD → 施工 → 证据 → 审计 → 拓扑 → 收官）。
+> 本提交只冻结 **§21.0 共享协议定案** + **§21.1 S05a Driver 契约**；S05b/S05c 在各自闭环冻结，
+> 不预支其内部设计。
+
+### 21.0 协议定案（用户 2026-07-18 三轮裁定，Q7 closed）——所有三闭环共享事实
+
+视觉链路 = 单条物理 UART `UART_VISION`（board.syscfg：UART1 外设，PA8 tx / PA9 rx，230400 8N1，
+收发均 DMA——**TX 通道已在 syscfg provision，本阶段不改 syscfg**）。链路上并行**两条协议**，
+按首字节区分，方向与用途不同（**非二选一**）：
+
+- **控制/坐标帧（视觉 → 主控，RX，运行期）**：`0xAA 0x55` + 长度(1B) + payload + CRC16-MODBUS(2B 小端)。
+  - CRC 范围 = **长度字节 + payload**（承 `docs/通信协议.md` 包二）。
+  - payload = `[cmd(1B)] + 数据`；坐标帧 `cmd=0x01` + x:float32 小端(4B) + y:float32 小端(4B)，故 len=9、整帧 14B。
+  - **坐标是 float32**（非冻结代码的 int16）；Middleware（S05b）按浮点像素坐标做映射。
+  - 运行期视觉**只发这一种包**（用户不变量：不混包）；同帧框架未来若载 `0x02` 目标状态属 T01 赛题事，
+    S05a 按 CRC 通用分帧、未知 cmd 校验通过后静默丢弃，不预建 0x02 处理。
+- **选题/握手帧（双向，setup 期，非运行期）**：`0xFF` + 主任务号(1B) + 子任务号(1B) + `0xFE`（无校验，定长 4B，中间不带数据字段）。
+  - 主控 → 视觉：下发主/子任务号选题（告诉视觉用哪套算法）。
+  - 视觉 → 主控：**同格式回一帧确认**（回显任务号）。主控收到确认帧才执行题目运行——防止视觉解析失败而小车盲跑。
+- **两条硬不变量（用户裁定，写入 S05c 编排约束）**：① 运行期只允许视觉发一种数据包，不允许混包；
+  ② 运行期主控**绝不**向视觉要回馈帧（高精度云台运行时海量坐标流里夹几帧回馈帧难以成功解析）——
+  故 0xFF 握手严格限 setup 期，运行期 TX 静默。
+- **与 VOFA 隔离（用户提示 2026-07-18）**：VOFA 是调试链路（uart_vofa，归 S03 tuning）；视觉**另开独立 bus**
+  `driver/uart_vision`，不复用 uart_vofa、不走 vofa_register。
+- **归属（照搬 Q2/Q7 先例）**：帧编解码归 Driver（`driver/uart_vision`，坐落于 `vision_uart` 字节层之上，
+  Driver→Driver 同层受控）；坐标→轴映射归 Middleware（S05b）；选题握手 + 收敛 + odometry 前馈归 Service（S05c）。
+- **过时件处置**：冻结的 `app/tasks/platform_2d/{vision_bus,vision_coord}.*`（0x55AA + 8 位和校验 + int16）
+  判为过时，S05a **全部重写不照搬**；旧文件继续冻结（arch-baseline 第 19–21 行登记），随 T01 删除。
+
+### 21.1 S05a 契约（`driver/uart_vision` 视觉链路编解码 Driver）——冻结
+
+- **task_id**: S05a-uart_vision
+- **goal**: 新建 `driver/uart_vision/`：`UART_VISION` 之上的**视觉协议编解码 Driver**——RX 侧自同步分帧
+  解析 `0xAA 0x55` 坐标控制帧（CRC16-MODBUS 校验 → float32 坐标）与 `0xFF` 选题确认帧；TX 侧组 `0xFF`
+  选题帧下发。为支持握手 TX，**给 `driver/board_uart/vision_uart` 增补 TX 字节搬运**（镜像 stepmotor_uart：
+  `TryWrite`/`IsTxIdle`/`ConsumeTxDone`；board.syscfg 已 provision UART_VISION DMA TX）。零调用者是预期状态
+  （S05c 未写前）。
+- **接口辩护**（视觉链路能做什么）：主控能取到视觉最新目标坐标（float32，带单调序号供判时效）、
+  能向视觉下发选题（主/子任务号）、能查询视觉是否已回选题确认帧。仅此四类成为公共面。
+- **设计定案（自同步分帧，不引 Clock）**：长度前缀 + CRC16 + cmd/len 白名单校验使分帧**确定性自恢复**
+  （CRC 失败/未知 cmd → 丢一字节重扫），故**不设逐字节超时、不依赖 `Clock`**——codec 保持纯字节→结构体
+  变换（比冻结 vision_bus 的 20ms 超时更简、更可测）。时效判定归 Service（消费 seq 变化），codec 不持墙钟。
+
+#### 21.1.1 allowed_files（无 glob）
+
+| 文件 | 动作 |
+|---|---|
+| `hc-team/driver/uart_vision/uart_vision.h` / `.c` | 新建（视觉协议编解码：RX 分帧 + TX 组帧） |
+| `hc-team/driver/board_uart/vision_uart.h` | 修改（增 TX API：`VisionUart_TryWrite`/`IsTxIdle`/`ConsumeTxDone`） |
+| `hc-team/driver/board_uart/vision_uart.c` | 修改（增 TX 字节搬运 + HOST_TEST 注入/抓取钩子，镜像 stepmotor_uart.c） |
+| `tests/host/test_uart_vision.c` | 新建 |
+| `tests/host/fake_uart_port.c` | 修改（增 `FakeUartPort_CompleteVisionTx`/`CopyVisionTx` + 声明 Vision TX 测试钩子） |
+| `tests/host/Makefile` | 追加 test_uart_vision 目标/clean/.PHONY + `UART_VISION_DRIVER_SRC` |
+| `.gitignore` | 追加 test_uart_vision / test_uart_vision.exe |
+| `Debug/makefile` | 登记 uart_vision.o（ORDERED_OBJS、两处 -include、clean）；vision_uart.o 已登记 |
+| `agent/phase4_app_rewrite/plan_app_first_order.md` | 状态回写 |
+
+forbidden_files：`hc-team/app/**` 全部、`hc-team/middleware/**` 全部、`hc-team/driver/**` 其余
+（含 `uart_vofa/**`、`step_motor/**`、其它 `board_uart/*`）、`board.syscfg`、tests/host 既有 `test_*.c`
+与其它 `fake_*.c`。（Debug/ 下本地生成物不入库，不列。）
+
+#### 21.1.2 公共接口（最小面）
+
+```c
+/* driver/uart_vision/uart_vision.h —— 视觉协议编解码，坐落 vision_uart 字节层之上 */
+typedef struct { float x; float y; } UartVision_Coord_T;   /* 视觉像素坐标，float32，视觉坐标系原样透传 */
+
+void UartVision_Init(void);   /* 清编解码状态 + VisionUart_Init；不发任何帧 */
+void UartVision_Poll(void);   /* 任务态：drain VisionUart_Read → 自同步分帧 → 更新坐标/确认缓存 */
+
+/* 坐标控制帧（RX，运行期）——单一所有者：坐标 float32 解析只在此 */
+bool     UartVision_GetLatestCoord(UartVision_Coord_T *out); /* 收到过坐标帧→true+写出；否则 false */
+uint32_t UartVision_GetCoordSeq(void);                       /* 单调递增序号（每成功坐标帧 +1）；Service 判时效 */
+
+/* 选题/握手帧（setup 期）——TX 组帧 + RX 确认解析 */
+bool     UartVision_SendTopic(uint8_t main_task, uint8_t sub_task); /* 组 0xFF 帧经 VisionUart_TryWrite 下发；TX 忙→false */
+bool     UartVision_GetTopicAck(uint8_t *main_task, uint8_t *sub_task); /* 收到确认帧→true+回显任务号 */
+uint32_t UartVision_GetTopicAckSeq(void);                    /* 确认帧单调序号；Service 判「本轮选题是否已确认」 */
+```
+
+- **单一所有者声明**：视觉帧框架/同步字/CRC16/分帧缓冲/float32 拆包全部唯一在 `uart_vision.c`；
+  `vision_uart` 只做字节搬运（RX FIFO + 新增 TX），不认帧；坐标时效判定归 S05c（消费 seq），codec 不持墙钟；
+  坐标→轴映射归 S05b，本层坐标**原样透传不做单位/极性变换**（不预支 Middleware 职责）。
+- **`vision_uart` TX 增补**：镜像 `stepmotor_uart` 语义——`TryWrite(data,len)` 提交一帧（TX 忙→false），
+  `IsTxIdle()`/`ConsumeTxDone()` 暴露事实不做策略。固件侧 DMA TX 走 UART_VISION 既有 syscfg 通道；
+  HOST_TEST 侧提供 `VisionUart_TestCompleteTx`/`VisionUart_TestCopyLastTx`（镜像既有 stepmotor/vofa 钩子）。
+- **前置条件**：System 装配层已 `UartVision_Init`（含 VisionUart_Init）。本层无电机/功率路径，无 §8.1 安全项。
+
+#### 21.1.3 preserved_behavior
+
+- 其余 `driver/**`（除 vision_uart 增 TX）、`app/**`、`middleware/**` 零改动；主机既有 334 用例全过；
+  固件行为不变（uart_vision.o 进链接但零调用者；vision_uart 增 TX 但旧 RX 路径与既有 4 个 uart_fifo/vofa_rx/
+  stepmotor_uart/imu 测试的既有断言不变——TX 为纯新增面）。
+
+#### 21.1.4 证据行（≤6，恰 1 条固件构建行）
+
+| 行 | 名称 | 命令 | 预期 |
+|---|---|---|---|
+| E01 | 依赖纯净 | Grep `hc-team/app/\|hc-team/middleware/\|ti_msp_dl_config\|ti/driverlib`（path=`hc-team/driver/uart_vision`，`#include` 行） | 0 命中（仅 `driver/board_uart/vision_uart.h` + `<stdint/stdbool/string>`；Driver→上层/HAL-config 零命中＝矩阵关键项。vision_uart.c 固件段含 `ti_msp_dl_config` 属既有 board_uart 层，不在本 path） |
+| E02 | 范围审计 | `git status` + `git diff --stat` 对照 §21.1.1 | 无 allowed_files 之外的改动（尤其 `app/**`、`middleware/**`、`board.syscfg` 零改） |
+| E03 | 主机测试 | PowerShell：`rtk proxy make -C tests/host all` | ≥346 PASS / 0 FAIL（334 基线 + ≥12 新用例）。必含——**坐标帧 RX**：合法 0xAA55 帧 CRC 正确→坐标 float32 精确解析 + seq+1；CRC 错→拒收、seq 不变；分两次喂（半帧→补齐）成功；前置垃圾字节 + 帧→重同步成功；校验通过但未知 cmd→静默丢弃、无坐标更新；连续两坐标帧 seq 递增且取最新。**选题 TX**：SendTopic 经 VisionUart TryWrite 发出精确 `0xFF main sub 0xFE`（CopyVisionTx 比对）；TX 忙→false 且不发。**确认帧 RX**：喂 0xFF 确认帧→GetTopicAck true+回显任务号 + ackseq+1；无确认→false。**vision_uart TX 面**：TryWrite→IsTxIdle 翻转、CompleteTx→ConsumeTxDone 语义。**Init 静默**：Init 后无 TX、无坐标（GetLatestCoord false） |
+| E04 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 diagnostics、uart_vision.o 与重编的 vision_uart.o 经 linkInfo.xml 确证进入 .out 链接 |
+
+- **主机测试链接组成**（事实登记）：test_uart_vision = 真实 `uart_vision.c` + 真实 `vision_uart.c`（含新 TX）
+  + `fake_uart_port.c`（视觉 RX 注入 + TX 抓取/完成钩子）+ test_uart_vision.c。**不链 fake_clock/fake_i2c_port**
+  （codec 不依赖 Clock，无 I2C）。既有 uart_fifo/vofa_rx/stepmotor_uart/imu 四测试仍各自链 vision_uart.c，
+  TX 为纯新增符号故既有断言不受影响。
+
+#### 21.1.5 契约修订记录
+
+- **冻结初版**（本提交）。审计后处置若有，单独提交并在此追加修订原因 + 提交哈希（契约先于代码，
+  契约行有错在单独显式提交中修订，绝不与满足它的代码同一提交）。
