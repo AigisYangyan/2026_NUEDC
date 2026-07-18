@@ -121,6 +121,15 @@ class TrackError_API {
   +TrackError_FromDarkBitmap(const TrackError_Config_T*, dark_bitmap, out_error_mm*) bool
 }
 
+class TrackElements_API {
+  <<middleware:track_elements, NEW M02, zero callers>>
+  +TrackElements_Init(det, cfg)
+  +TrackElements_Update(det, dark_bitmap)
+  +TrackElements_PollEvents(det) uint16_t
+  +TrackElements_GetConfirmed(det) uint16_t
+  +TrackElements_GetConfidence(det, kind) uint8_t
+}
+
 class Heading_API {
   <<middleware:odometry, NEW M01>>
   +Heading_Reset(Heading_T*)
@@ -425,6 +434,13 @@ LineFollow_API --> Chassis_API : same-layer controlled, SetTargetMps base±diff 
 %% Odometry_API / Heading_API (M01) — pure algorithm, no Encoder_API/IMU_API include
 %% (deltas and yaw passed by value). First real caller landed S06 (Motion_API below).
 Odometry_API --> Heading_API : embeds Heading_T, sole caller of Heading_Unwrap
+
+%% TrackElements_API (M02, landed 2026-07-18) — pure algorithm, zero edges: E01 dependency scan
+%% 0 hits against Driver/App/middleware:pid/middleware:track_error/middleware:odometry/DL HAL
+%% (position/count/span/touch computed from dark_bitmap passed by value, same pattern as
+%% TrackError_API). Zero callers today (S02b not yet built, same V07 transitional state as
+%% TrackError_API before S02); consumer will feed it the same dark_bitmap LineFollow_Update
+%% already samples via Gray_ReadDarkBitmap — TrackElements_API does not sample.
 
 Tuning_API --> Clock_API : 10ms self-gate, unsigned-subtract elapsed
 Tuning_API --> VofaDriver_API : vofa_clear_profile + vofa_run, Enter-time RX drain (contract amendment 1)

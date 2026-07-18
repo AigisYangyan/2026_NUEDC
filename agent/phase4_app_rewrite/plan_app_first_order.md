@@ -61,7 +61,7 @@
 | M01 | 里程计+航向 unwrap（Middleware 纯算法：编码器 Δ→x,y,θ；imu.h 明示 unwrap 归此层） | `middleware/odometry/`（heading+odometry 双文件） | task1 姿态/里程零散逻辑（冻结不迁移，重建） | — | `DONE`（契约 §14 冻结 b856b23；代码 85d1e31；arch-auditor 三级无发现。E01 0 命中 / E02 无越界（.ccsproject 会话前既存，未纳入）/ E03 235 PASS 0 FAIL＝218 基线+17（heading 7+odometry 10）/ E04 exit 0、0 诊断、heading.o+odometry.o 经 linkInfo.xml 确证进链。IMU unwrap 权威 + 双文件拆分（用户 2026-07-18 裁定）；heading_sign/mm_per_pulse 单一所有者落定，V22 登记） |
 | S06 | motion 语义运动服务（v1：直行 N mm/定角转/定点停；IMU 航向保持可插拔） | `app/service/motion/` | task1 直行/转弯编排（冻结不迁移，重建） | — | `DONE`（契约 §15 冻结 226f8fd；代码 e30c2a0；arch-auditor 6 项通过、1 建议级文档处置见 §15.5。E01 0 命中 / E02 无越界 / E03 253 PASS 0 FAIL＝235 基线+18 / E04 exit 0、0 诊断、motion.o 经 linkInfo.xml 确证进链（3 引用）。IMU 泵所有权 motion 激活期独占落定、里程计 total 差值一次性消费、V21 双泵第三泵送者、圆弧移出 v1→S06b） |
 | S06b | motion 圆弧原语（定半径+定角，双轮速度比 + 航向误差修正） | `app/service/motion/`（S06 契约修订流程扩面） | — | — | 排队（S06 后；用户 2026-07-18 裁定拆分，控制律/测试面更大单独立项） |
-| M02 | 循迹元素检测（几何类别检测器：断线/横线/左岔/右岔，特征+连续置信计数+上升沿事件） | `middleware/track_elements/` | — | — | `施工中`（契约 §16 冻结） |
+| M02 | 循迹元素检测（几何类别检测器：断线/横线/左岔/右岔，特征+连续置信计数+上升沿事件） | `middleware/track_elements/` | — | — | `DONE`（契约 §16 冻结 b71b59b；代码 cf745f8；arch-auditor 无阻断/无重要级，1 建议级文档处置见 §16.5。E01 0 命中 / E02 无越界 / E03 269 PASS 0 FAIL＝253 基线+16 / E04 exit 0、0 诊断、track_elements.o 经 linkInfo.xml 确证进链（3 引用）。位图并列消费者不采样（非 V21 双泵）、bit0_is_left 无第二反转、V24 登记） |
 | S02b | line_follow 深化：元素事件面 + M03 速度规划（`middleware/speed_plan`，直道加速/入弯减速）接入 | `app/service/line_follow/` | — | — | 排队（M02 后；S02 契约修订流程） |
 | S07 | route 分段路线执行服务（段表驱动：FOLLOW_UNTIL(元素)/STRAIGHT/TURN/ARC——新题=换段表） | `app/service/route/` | task1 分段状态机 | — | 排队（S02b 后；范围 Q6 契约裁定） |
 | SYS01 | 装配入口更新 | `app/system/` | sys_init.c 增量改造 | — | 随各阶段 |
@@ -1139,8 +1139,8 @@ typedef struct {
 } TrackElements_Detector_T;
 
 void     TrackElements_Init(TrackElements_Detector_T *det, const TrackElements_Config_T *cfg);
-    /* 存配置、计数/掩码清零。cfg==NULL 或 det==NULL 视为误用（同 pid/odometry 口径，不做运行期拒绝）。
-     * confirm_ticks==0 归一化为 1。 */
+    /* 存配置、计数/掩码清零。cfg==NULL 或 det==NULL 时静默无副作用返回吸收（同 pid/odometry 口径：
+     * NULL 视为调用者误用，不做断言/错误码，也不改任何状态）。confirm_ticks==0 归一化为 1。 */
 void     TrackElements_Update(TrackElements_Detector_T *det, uint16_t dark_bitmap);
     /* 一拍推进：屏蔽高位 → 按 bit0_is_left 求 car 坐标下的 count/leftmost/rightmost/span/touch →
      * 每个启用检测器谓词成立则 count 饱和自增至 confirm_ticks、否则清 0；count≥confirm_ticks 置
@@ -1188,4 +1188,10 @@ uint8_t  TrackElements_GetConfidence(const TrackElements_Detector_T *det, TrackE
 
 ### 16.5 契约修订记录
 
-- （冻结初版，无修订。）
+- （冻结初版，无控制律/接口/证据行修订。）
+- **审计处置（2026-07-18，arch-auditor 无阻断/无重要级，1 建议级 finding——文档级，无证据行修订）**：
+  `TrackElements_Init` 头注释原写「不做运行期拒绝」与实现的 `if(NULL) return;` 字面矛盾
+  （行为与兄弟模块 odometry 的 return-on-NULL 一致，非新增违规）。处置为**措辞澄清**：
+  头注释与 §16.2 一并改为「NULL 时静默无副作用返回吸收，不做断言/错误码」，贴合实际行为，
+  不改任何逻辑与证据行。其余审计项（依赖矩阵纯净 / §8.2 不采样+bit0_is_left 无第二反转+GAP 与
+  lost_line 职责正交 / 单一所有者 / §8.3 防御代码逐条有故障模型与测试 / 封装 / 16 用例覆盖）无发现。
