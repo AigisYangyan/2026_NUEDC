@@ -122,7 +122,7 @@ class TrackError_API {
 }
 
 class TrackElements_API {
-  <<middleware:track_elements, NEW M02, zero callers>>
+  <<middleware:track_elements, consumed by LineFollow_API S02b 2026-07-18>>
   +TrackElements_Init(det, cfg)
   +TrackElements_Update(det, dark_bitmap)
   +TrackElements_PollEvents(det) uint16_t
@@ -131,7 +131,7 @@ class TrackElements_API {
 }
 
 class SpeedPlan_API {
-  <<middleware:speed_plan, NEW M03, zero callers>>
+  <<middleware:speed_plan, consumed by LineFollow_API S02b 2026-07-18>>
   +SpeedPlan_Init(sp, const SpeedPlan_Config_T*)
   +SpeedPlan_Update(sp, abs_error_mm, elapsed_ms) float
   +SpeedPlan_GetSpeed(const sp) float
@@ -171,6 +171,7 @@ class LineFollow_API {
   +LineFollow_Stop()
   +LineFollow_GetState() LineFollow_State
   +LineFollow_GetTelemetry(LineFollow_Telemetry_T*)
+  +LineFollow_PollElementEvents() uint16_t
 }
 
 class LostLine_API {
@@ -438,23 +439,27 @@ LineFollow_API --> TrackError_API : pitch_mm and bit0_is_left passthrough, first
 LineFollow_API --> PID_API : outer Pid_UpdatePositional, out_limit = diff_limit_mps sole owner
 LineFollow_API --> LostLine_API : recovery fallback error, caller-owned LostLine_T
 LineFollow_API --> Chassis_API : same-layer controlled, SetTargetMps base±diff + cascade Update in TRACKING/RECOVERING
+LineFollow_API --> TrackElements_API : same dark_bitmap by value, parallel consumer, wired S02b 2026-07-18
+LineFollow_API --> SpeedPlan_API : fabsf(error_mm) and elapsed_ms -> base speed feeding base±diff, wired S02b 2026-07-18
 
 %% Odometry_API / Heading_API (M01) — pure algorithm, no Encoder_API/IMU_API include
 %% (deltas and yaw passed by value). First real caller landed S06 (Motion_API below).
 Odometry_API --> Heading_API : embeds Heading_T, sole caller of Heading_Unwrap
 
-%% TrackElements_API (M02, landed 2026-07-18) — pure algorithm, zero edges: E01 dependency scan
+%% TrackElements_API (M02, landed 2026-07-18) — pure algorithm, E01 dependency scan
 %% 0 hits against Driver/App/middleware:pid/middleware:track_error/middleware:odometry/DL HAL
 %% (position/count/span/touch computed from dark_bitmap passed by value, same pattern as
-%% TrackError_API). Zero callers today (S02b not yet built, same V07 transitional state as
-%% TrackError_API before S02); consumer will feed it the same dark_bitmap LineFollow_Update
-%% already samples via Gray_ReadDarkBitmap — TrackElements_API does not sample.
+%% TrackError_API). First real caller landed S02b 2026-07-18 (LineFollow_API edge above):
+%% line_follow.c feeds it the same dark_bitmap LineFollow_Update already samples via
+%% Gray_ReadDarkBitmap (not a second sample point) and exposes confirmed events via the new
+%% public LineFollow_PollElementEvents() exit (zero consumers today, S07 future trigger).
 
-%% SpeedPlan_API (M03, landed 2026-07-18) — pure algorithm, zero edges: E01 dependency scan
+%% SpeedPlan_API (M03, landed 2026-07-18) — pure algorithm, E01 dependency scan
 %% 0 hits against Driver/App/other middleware/DL HAL (header only <stdint.h>). Consumes the
-%% same abs(error_mm) TrackError_API already produces, no second quantization. Zero callers
-%% today (S02b not yet built); future consumer replaces LineFollow_API's static
-%% base_speed_mps constant (line_follow.c:63-64) with SpeedPlan_GetSpeed() output.
+%% same abs(error_mm) TrackError_API already produces, no second quantization. First real
+%% caller landed S02b 2026-07-18 (LineFollow_API edge above): its output replaces the former
+%% static base_speed_mps constant (line_follow.c:63-64, field removed) as the base in
+%% base±diff at the sole synthesis point line_follow_apply().
 
 Tuning_API --> Clock_API : 10ms self-gate, unsigned-subtract elapsed
 Tuning_API --> VofaDriver_API : vofa_clear_profile + vofa_run, Enter-time RX drain (contract amendment 1)
