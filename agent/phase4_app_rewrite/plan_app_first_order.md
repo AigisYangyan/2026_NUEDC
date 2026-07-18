@@ -58,7 +58,7 @@
 | S05 | 云台/视觉服务群（platform_2d 下沉：瞄准收敛/轨迹发生/运动前馈/视觉接入） | `app/service/`（契约时拆分） | vision_bus/vision_coord/stepmotor_bus/2DPlatform | stepmotor_bus 违规群 | 排队（S07 后预制，**不再等赛题**——§12；前馈依赖 M01） |
 | SCH01 | 调度器重写 | `app/scheduler/` | task_scheduler.c、run_registry.c | V13 残余（g_eSysFlagManage） | `DONE`（Q1 定案 74d421e；契约 56ced13，修订 c6bcc4a；代码 e801caf；审计处置 6bfe3f4。E01 0 命中 / E02 无越界 / E03 200 PASS 0 FAIL＝185 基线+15 / E04 exit 0、0 诊断、scheduler.o 经 linkInfo.xml 确证进链。V13 残余本体仍待 T01 删旧文件时关闭） |
 | UI01 | 菜单重写（含分问选择/参数表——大纲 P0-D） | `app/ui/menu/` | menu_core/menu_pages（冻结不删，T01 删除） | V14（替代面 UI01 建成，本体 T01 关闭——见 §13 裁定；拓扑保持 open） | `DONE`（契约 c05de1b，修订 1 2b54b8a→Menu_Init 改名 Menu_Setup；代码 e23176a；审计处置 82e6493。E01 0 命中 / E02 无越界 / E03 214 PASS 0 FAIL＝200 基线+14 / E04 exit 0、0 诊断、menu.o+menu_param.o 经 linkInfo.xml 确证进链、旧 menu_core.o 仍共链。arch-auditor 6/7 通过，1 建议级已删。V14 待 T01 删旧关闭。**r2 重构中（2026-07-18）：分问选择升级两级分类外壳，契约见 §13.5 修订 2**） |
-| M01 | 里程计+航向 unwrap（Middleware 纯算法：编码器 Δ→x,y,θ；imu.h 明示 unwrap 归此层） | `middleware/odometry/`（契约时定拆分） | task1 姿态/里程零散逻辑（冻结不迁移，重建） | — | 排队（UI01 后） |
+| M01 | 里程计+航向 unwrap（Middleware 纯算法：编码器 Δ→x,y,θ；imu.h 明示 unwrap 归此层） | `middleware/odometry/`（heading+odometry 双文件） | task1 姿态/里程零散逻辑（冻结不迁移，重建） | — | `施工中`（契约 §14 冻结，本提交；IMU unwrap 权威 + 双文件拆分，用户 2026-07-18 裁定） |
 | S06 | motion 语义运动服务（直行 N cm/定角转/圆弧/定点停；IMU 航向保持可插拔） | `app/service/motion/` | task1 直行/转弯编排 | — | 排队（M01 后） |
 | M02 | 循迹元素检测（可注册检测器：十字/直角弯/断线/终点横线…，特征+置信度计数） | `middleware/track_elements/` | — | — | 排队（S06 后） |
 | S02b | line_follow 深化：元素事件面 + M03 速度规划（`middleware/speed_plan`，直道加速/入弯减速）接入 | `app/service/line_follow/` | — | — | 排队（M02 后；S02 契约修订流程） |
@@ -792,3 +792,113 @@ Menu_Screen Menu_GetScreen(void);   /* 当前界面（查询/渲染/测试所需
      契约非 NULL」与「scheduler 返回值边界收敛」。E03 追加 1 必含用例
      `test_run_list_tolerates_stale_entry_index`（越界 entries 渲染不解引用 NULL），
      总数相应 ≥217（200 非菜单 + 18 菜单）。其余审计点（依赖矩阵/单一所有者/ISR/边界/数据链）无发现。
+
+## 14. M01 契约（odometry 里程计 + 航向 unwrap）——冻结
+
+- **task_id**: M01-odometry
+- **goal**: 新建 `middleware/odometry/`：Middleware 纯算法，把编码器增量与 IMU 航向融成底盘平面
+  位姿。两个同层子模块：`heading.{h,c}` = IMU yaw 去卷（[-180,180) → 连续多圈角，`imu.h:12`
+  明示 unwrap 归本层的落点，**unwrap 唯一所有者**）；`odometry.{h,c}` = 位姿 dead-reckoning
+  （前进距离 × 航向积分 x,y，内嵌 `Heading_T`）。成为「编码器 Δ + IMU 航向 → x,y,θ」这条新链的
+  唯一算法所有者，为后续 S06 语义运动与 S05 云台运动前馈供位姿源（§12 行进间耦合前馈通道）。
+- **航向来源裁定（用户确认 2026-07-18，选 IMU unwrap 为权威）**：位姿 θ = IMU yaw 去卷 × 符号
+  修正；前进距离 = (ΔL+ΔR)/2 × mm_per_pulse 沿该航向积分。**不用轮差分航向**（抗轮滑、免 track_width
+  这一无实测机械常数），IMU 无效拍保持上次航向续走。
+- **文件拆分裁定（用户确认 2026-07-18）**：heading + odometry 双文件双主机测试（unwrap 跨界边界
+  独立验证 + 沿用 S02 line_follow/lost_line 拆分先例 + §3「契约时定拆分」）。
+- **接口辩护**（里程计能做什么）：底盘能报告自己的连续航向角、能报告平面位置 (x,y)、能被喂
+  「一拍编码器增量 + 一拍 IMU 航向」推进位姿、能复位到原点。仅此成为公共面。
+
+### 14.1 allowed_files（无 glob）
+
+| 文件 | 动作 |
+|---|---|
+| `hc-team/middleware/odometry/heading.h` / `.c` | 新建 |
+| `hc-team/middleware/odometry/odometry.h` / `.c` | 新建 |
+| `tests/host/test_heading.c` / `test_odometry.c` | 新建 |
+| `tests/host/Makefile` | 追加两 target/run/clean/.PHONY |
+| `.gitignore` | 追加两测试产物 |
+| `Debug/makefile` | 登记 heading.o、odometry.o（ORDERED_OBJS、两处 -include、clean） |
+| `agent/phase4_app_rewrite/plan_app_first_order.md` | 状态回写 + 本契约 |
+
+forbidden_files：`hc-team/driver/**`、`hc-team/app/**`、`hc-team/middleware/{pid,track_error}/**`、
+tests/host 既有 `test_*.c` 与 `fake_*.c`。（Debug/ 下本地生成物 `subdir_vars.mk`/`sources.mk`/
+`ccsObjs.opt` 是本地补列不入库，不列入 allowed。）
+
+### 14.2 公共接口（最小面）
+
+```c
+/* ---- heading.h：IMU yaw 去卷（唯一所有者） ---- */
+typedef struct {                 /* 字段全私有，调用者不得读写 */
+    float   last_wrapped_deg;    /* 上一有效样本 */
+    int32_t wrap_count;          /* 累计跨界圈数 */
+    bool    seeded;              /* 是否已收首样本 */
+} Heading_T;
+
+void  Heading_Reset(Heading_T *ctx);                       /* 清零，seeded=false */
+float Heading_Unwrap(Heading_T *ctx, float yaw_wrapped_deg);
+    /* 首样本：seed（last=yaw, wrap=0）并原值返回。后续：delta = yaw − last；
+     * delta < −180 → wrap_count++；delta > 180 → wrap_count−−；last = yaw；
+     * 返回 yaw + wrap_count×360。ctx==NULL 返回传入值（无副作用）。
+     * 假设 |连续有效样本间 yaw 变化| < 180°（航向 Nyquist；200/500Hz IMU 下
+     * 任何现实 yaw rate 成立）；掉线 gap 期转向 >180° 会误计（dead-reckoning 固有）。 */
+
+/* ---- odometry.h：位姿 dead-reckoning ---- */
+typedef struct {
+    float mm_per_pulse;   /* 脉冲→距离换算，>0 机械安装事实，无默认值，实测标定 */
+    float heading_sign;   /* IMU yaw 符号修正唯一点（imu.h:11），+1/−1，默认 +1 不预设 */
+} Odometry_Config_T;
+typedef struct { float x_mm, y_mm, heading_deg; } Odometry_Pose_T;
+typedef struct {          /* cfg 之外字段全私有 */
+    Odometry_Config_T cfg;
+    Heading_T heading;    /* 内嵌 unwrap 状态 */
+    float x_mm, y_mm, heading_deg;
+} Odometry_T;
+
+void Odometry_Init(Odometry_T *ctx, const Odometry_Config_T *cfg);
+    /* 拷 cfg（按值）+ 清位姿（x/y/heading=0）+ Heading_Reset。cfg==NULL 时 cfg 归零。 */
+void Odometry_Reset(Odometry_T *ctx);          /* 清位姿 + Heading_Reset，保留 cfg */
+void Odometry_Update(Odometry_T *ctx, int32_t delta_left_pulses,
+                     int32_t delta_right_pulses, float yaw_wrapped_deg, bool heading_valid);
+    /* ① heading_valid → heading_deg = Heading_Unwrap(&heading, yaw_wrapped_deg) × cfg.heading_sign；
+     *    否则保持上次 heading_deg（不推进 unwrap 状态）。
+     * ② fwd_mm = (delta_left + delta_right) × 0.5 × cfg.mm_per_pulse。
+     * ③ x_mm += fwd_mm × cos(heading_deg·π/180)；y_mm += fwd_mm × sin(...)。
+     * ctx==NULL 无副作用返回。不含时间门控（空间积分，不需 elapsed_ms）。 */
+void Odometry_GetPose(const Odometry_T *ctx, Odometry_Pose_T *out);  /* out/ctx==NULL 无副作用 */
+```
+
+- **单位链**：`delta_pulses` 有符号增量脉冲（`encoder.c` 已方向修正，V06）；`yaw_deg` 度、器件
+  已 Kalman 解算未 unwrap；`mm_per_pulse` mm/脉冲（实测）；输出 x/y 毫米、heading 度连续。
+- **单一所有者声明**：编码器方向反转归 `encoder.c s_direction_sign`（M01 收到已修正 delta，不复反转）；
+  IMU yaw 符号修正**唯一点** = `cfg.heading_sign`（答 imu.h:11 强制单点，别处无第二开关）；
+  脉冲→距离换算**唯一点** = `cfg.mm_per_pulse`（新变换，不碰 `speed_mps` 速度链）；yaw unwrap
+  **唯一点** = `heading.c`（imu.h:12 指定本层，≠ 二次滤波，无损提升，不再对 yaw 滤波/积分）；
+  采样与 elapsed 所有权归 `chassis.c`（M01 按值收参，永不调 Encoder_Update/GetSnapshot/Imu_*）。
+- **头不含 Driver 类型**（§3.3）：公共面只用自持类型与标量；不 `#include` encoder.h/imu.h，
+  编码器增量与 yaw 按字段值传入（同 track_error「位图按值传入」范式）。
+- **前置条件**：调用方（未来 S06/装配层）每拍读 `Encoder_GetSnapshot()`+`Imu_GetSnapshot()`，把
+  `delta_pulses[L/R]`/`yaw_deg`/`valid` 作参数喂入；运行起点建议 `Imu_ZeroYaw()` 使首航向≈0。
+  M01 不采样、不推进 Encoder（唯一状态推进点仍是 Chassis，多处 GetSnapshot 只读复制不构成双采样）。
+
+### 14.3 preserved_behavior
+
+- `middleware/{pid,track_error}`、`driver/**`、`app/**` 零改动；主机既有 218 用例全过；
+  固件行为不变（heading.o/odometry.o 进链接但零调用者——S06/S05 未建，V07 同款过渡态）。
+
+### 14.4 证据行（≤6，恰 1 条固件构建行）
+
+| 行 | 名称 | 命令 | 预期 |
+|---|---|---|---|
+| E01 | 依赖纯净 | Grep `driver/\|app/\|middleware/pid/\|middleware/track_error/\|ti_msp_dl_config\|ti/driverlib`（path=`hc-team/middleware/odometry`，`#include` 行） | 0 命中（同模块 `heading.h`、`<math.h>` 不在告警集） |
+| E02 | 范围审计 | `git status` + `git diff --stat` 对照 §14.1 | 无 allowed_files 之外的改动 |
+| E03 | 主机测试 | PowerShell：`rtk proxy make -C tests/host all` | ≥232 PASS / 0 FAIL（218 基线 + ≥14 新用例）。必含 —— **heading**：首样本 seed 原值返回；CCW 跨界 +179→−179 连续角单调越 +180；CW 跨界越 −180；多圈累计（连续同向多次跨界）；微小 delta 不改 wrap；Reset 清零后重新 seed；ctx==NULL 返回原值。**odometry**：Init/Reset 清位姿；θ=0 直行 x 增 y≈0；θ=90° 走 +y；mm_per_pulse 尺度正确；heading_sign=−1 翻转转向感；`heading_valid=false` 保持上次航向续走且无 NaN；负增量倒退 x 减；跨 wrap 曲线路径位姿有限且合理；GetPose/ctx NULL 安全 |
+| E04 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 diagnostics、heading.o 与 odometry.o 经 linkInfo.xml 确证进入 .out 链接 |
+
+- **主机测试链接组成**（事实登记）：test_heading = 真实 `heading.c` + `test_heading.c`（纯逻辑，
+  仅 `-lm`）；test_odometry = 真实 `odometry.c` + 真实 `heading.c` + `test_odometry.c`（`-lm`）。
+  不链接任何 fake（M01 零端口依赖）。
+
+### 14.5 契约修订记录
+
+- （冻结初版，无修订。）
