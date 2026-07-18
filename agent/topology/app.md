@@ -130,6 +130,14 @@ class TrackElements_API {
   +TrackElements_GetConfidence(det, kind) uint8_t
 }
 
+class SpeedPlan_API {
+  <<middleware:speed_plan, NEW M03, zero callers>>
+  +SpeedPlan_Init(sp, const SpeedPlan_Config_T*)
+  +SpeedPlan_Update(sp, abs_error_mm, elapsed_ms) float
+  +SpeedPlan_GetSpeed(const sp) float
+  +SpeedPlan_Reset(sp)
+}
+
 class Heading_API {
   <<middleware:odometry, NEW M01>>
   +Heading_Reset(Heading_T*)
@@ -441,6 +449,12 @@ Odometry_API --> Heading_API : embeds Heading_T, sole caller of Heading_Unwrap
 %% TrackError_API). Zero callers today (S02b not yet built, same V07 transitional state as
 %% TrackError_API before S02); consumer will feed it the same dark_bitmap LineFollow_Update
 %% already samples via Gray_ReadDarkBitmap — TrackElements_API does not sample.
+
+%% SpeedPlan_API (M03, landed 2026-07-18) — pure algorithm, zero edges: E01 dependency scan
+%% 0 hits against Driver/App/other middleware/DL HAL (header only <stdint.h>). Consumes the
+%% same abs(error_mm) TrackError_API already produces, no second quantization. Zero callers
+%% today (S02b not yet built); future consumer replaces LineFollow_API's static
+%% base_speed_mps constant (line_follow.c:63-64) with SpeedPlan_GetSpeed() output.
 
 Tuning_API --> Clock_API : 10ms self-gate, unsigned-subtract elapsed
 Tuning_API --> VofaDriver_API : vofa_clear_profile + vofa_run, Enter-time RX drain (contract amendment 1)
