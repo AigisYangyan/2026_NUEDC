@@ -191,6 +191,18 @@ class Hmi_API {
   +Hmi_ClearDisplay() bool
 }
 
+class Motion_API {
+  <<app:service, NEW S06>>
+  +Motion_Init(const Motion_Config_T*)
+  +Motion_StartStraight(distance_mm, heading_hold) bool
+  +Motion_StartTurn(relative_deg) bool
+  +Motion_Update()
+  +Motion_Stop()
+  +Motion_GetState() Motion_State
+  +Motion_IsDone() bool
+  +Motion_GetTelemetry(Motion_Telemetry_T*)
+}
+
 class SpeedLoop_API {
   <<app:task>>
   +SpeedLoop_Init()
@@ -297,6 +309,7 @@ class OLED_API { <<driver>> }
 class Emm42_API { <<driver>> }
 class VofaDriver_API { <<driver>> }
 class ImuUart_API { <<driver>> }
+class IMU_API { <<driver:imu, NEW consumer S06>> }
 class DL_HAL { <<external>> }
 
 System_API --> Scheduler_API : starts scheduler
@@ -409,8 +422,8 @@ LineFollow_API --> PID_API : outer Pid_UpdatePositional, out_limit = diff_limit_
 LineFollow_API --> LostLine_API : recovery fallback error, caller-owned LostLine_T
 LineFollow_API --> Chassis_API : same-layer controlled, SetTargetMps base±diff + cascade Update in TRACKING/RECOVERING
 
-%% Odometry_API / Heading_API (M01, new) — pure algorithm, no Encoder_API/IMU_API include
-%% (deltas and yaw passed by value); zero callers today (S15.1 expected state, S06/S05 not built).
+%% Odometry_API / Heading_API (M01) — pure algorithm, no Encoder_API/IMU_API include
+%% (deltas and yaw passed by value). First real caller landed S06 (Motion_API below).
 Odometry_API --> Heading_API : embeds Heading_T, sole caller of Heading_Unwrap
 
 Tuning_API --> Clock_API : 10ms self-gate, unsigned-subtract elapsed
@@ -422,6 +435,12 @@ TuningChassis_API --> VofaDriver_API : vofa_register_float ×6 tx + vofa_bind_cm
 Hmi_API --> Key_API : Key_Scan pump + Key_PollPressEvent read-clear
 Hmi_API --> OLED_API : OLED_IsReady/OLED_Process/OLED_ShowString/OLED_Clear
 Hmi_API --> Clock_API : 5ms self-gate, unsigned-subtract elapsed
+
+Motion_API --> Encoder_API : GetSnapshot read-only, never calls Encoder_Update
+Motion_API --> IMU_API : Imu_Update sole owner during active period + Imu_GetSnapshot
+Motion_API --> Odometry_API : Init passthrough cfg + one-shot total_pulses delta consume + GetPose, first real caller S06
+Motion_API --> PID_API : straight heading-hold outer loop, Pid_UpdatePositional, out_limit = hold_diff_limit_mps sole owner
+Motion_API --> Chassis_API : same-layer controlled, SetTargetMps + cascaded Update (STRAIGHT/TURN) + Stop (DONE/Stop)
 ```
 
 ## 4. 当前启动与调度逻辑图
