@@ -222,6 +222,17 @@ class Motion_API {
   +Motion_GetTelemetry(Motion_Telemetry_T*)
 }
 
+class Route_API {
+  <<app:service, NEW S07, zero callers>>
+  +Route_Setup(const Route_Segment_T*, count)
+  +Route_Start()
+  +Route_Update(now_ms)
+  +Route_Stop()
+  +Route_GetState() Route_State
+  +Route_IsDone() bool
+  +Route_GetTelemetry(Route_Telemetry_T*)
+}
+
 class SpeedLoop_API {
   <<app:task>>
   +SpeedLoop_Init()
@@ -477,6 +488,16 @@ Motion_API --> IMU_API : Imu_Update sole owner during active period + Imu_GetSna
 Motion_API --> Odometry_API : Init passthrough cfg + one-shot total_pulses delta consume + GetPose, first real caller S06
 Motion_API --> PID_API : straight/arc heading-correction outer loop (shared instance), Pid_UpdatePositional, out_limit = hold_diff_limit_mps sole owner
 Motion_API --> Chassis_API : same-layer controlled, SetTargetMps + cascaded Update (STRAIGHT/TURN/ARC, S06b reuses same drive point) + Stop (DONE/Stop)
+
+%% Route_API (S07, landed 2026-07-18) — segment-table orchestration, E01 dependency scan
+%% 0 hits against app:tasks/app:scheduler/app:ui/app:system/middleware/driver/DL HAL (only
+%% line_follow.h + motion.h, same-layer Service->Service). Per-tick single-drive invariant
+%% (Route_Update RUNNING advances at most one sub-service per tick: FOLLOW_UNTIL->LineFollow_Update
+%% XOR motion segment->Motion_Update) means route is NOT a 4th Chassis_Update drive point and NOT
+%% a 2nd Imu_Update drain point (see V21/V23). Zero callers today (T01 not yet written, same
+%% expected-transition state as Motion_API/LineFollow_API/Chassis_API before their Task wiring).
+Route_API --> LineFollow_API : FOLLOW_UNTIL segments — Start/Update/Stop/GetState/PollElementEvents, at most one drive per tick
+Route_API --> Motion_API : STRAIGHT/TURN/ARC segments — Update (incl. IDLE catch-up)/StartStraight/StartTurn/StartArc/Stop/IsDone, at most one drive per tick
 ```
 
 ## 4. 当前启动与调度逻辑图

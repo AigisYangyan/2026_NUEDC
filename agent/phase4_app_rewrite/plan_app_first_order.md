@@ -83,7 +83,7 @@
 | M02 | 循迹元素检测（几何类别检测器：断线/横线/左岔/右岔，特征+连续置信计数+上升沿事件） | `middleware/track_elements/` | — | — | `DONE`（契约 §16 冻结 b71b59b；代码 cf745f8；arch-auditor 无阻断/无重要级，1 建议级文档处置见 §16.5。E01 0 命中 / E02 无越界 / E03 269 PASS 0 FAIL＝253 基线+16 / E04 exit 0、0 诊断、track_elements.o 经 linkInfo.xml 确证进链（3 引用）。位图并列消费者不采样（非 V21 双泵）、bit0_is_left 无第二反转、V24 登记） |
 | M03 | speed_plan 速度规划（Middleware 纯算法：`\|error_mm\|` → 有状态斜坡基速，直道加速/入弯减速，自持输出限幅） | `middleware/speed_plan/` | — | — | `DONE`（契约 §17 冻结 61f4149；代码 8d84657；契约修订 1/审计处置 8975b2a；代码 fix 6ace23b；拓扑同步 3b92258。E01 0 命中 / E02 无越界 / E03 285 PASS 0 FAIL＝269 基线+16 / E04 exit 0、0 诊断、speed_plan.o 经 linkInfo.xml 确证进链。arch-auditor 无阻断/无重要级，2 建议级已处置（F1 删排序夹紧、F2 白名单更正）；基速调制单一所有者落定 speed_plan，V25 登记） |
 | S02b | line_follow 深化：M02 元素事件面接入 + M03 速度调制接入（base_speed 合成点仍唯一在 line_follow_apply） | `app/service/line_follow/` | — | — | `DONE`（契约 §18 冻结 b3b2d38；代码 f278894；拓扑同步见 §10。E01 0 命中 / E02 4 文件在范围 / E03 300 PASS 0 FAIL＝285 基线+15（速度调制 5 + 元素事件面 10）/ E04 exit 0、0 诊断、line_follow.o 重编并经 linkInfo.xml 确证进链（speed_plan.o/track_elements.o 已在链）。arch-auditor 三维无发现；base_speed 合成点未搬家、位图并列消费不新开采样点、V21 不新增第四推进点） |
-| S07 | route 分段路线执行服务（段表驱动：FOLLOW_UNTIL(元素)/STRAIGHT/TURN/ARC——新题=换段表） | `app/service/route/` | task1 分段状态机 | — | **契约冻结（§20，本提交）**；范围 Q6 已裁定（§5/§2.9），TDD/施工/审计/拓扑待后续闭环 |
+| S07 | route 分段路线执行服务（段表驱动：FOLLOW_UNTIL(元素)/STRAIGHT/TURN/ARC——新题=换段表） | `app/service/route/` | task1 分段状态机 | — | `DONE`（契约 §20 冻结 5eaa41f；代码 6cb338c；审计无发现；拓扑同步见 §10。E01 0 命中 / E02 无越界 / E03 334 PASS 0 FAIL＝310 基线+24 / E04 exit 0、0 诊断、route.o 经 linkInfo.xml 确证进链 3 引用。arch-auditor 六轴全过、亲验 motion.c IDLE/DONE drive-free；route 每拍≤1 子服务、不构成第四 Chassis_Update 推进点/第二 Imu_Update 排空点，V21 扩条/V23 登记；catch-up 防幻纠偏落定 §20.3） |
 | SYS01 | 装配入口更新 | `app/system/` | sys_init.c 增量改造 | — | 随各阶段 |
 | T01 | 赛题 Task（薄编排）+ 旧 tasks 整体删除 | `app/tasks/` | 全部旧 `tasks/**` | V03/V07/V13 残余/V15 全关，baseline 清空 | **最后**（赛题公布后） |
 
@@ -1860,3 +1860,12 @@ Route_Update(now_ms)
   §6/§7 登记——V21 扩条（route 每拍≤1 子服务推进，非新增第四 Chassis_Update 推进点）、V23（route 经
   motion 间接排空 IMU，非第二排空点）、route 新增所有权（段序状态机 + 完成分派 + 段间交接 + 段级超时）；
   并在 §3 覆盖清单登记 route 服务、§10 追加日志。
+- **收官（2026-07-18，代码 6cb338c）**：契约**零修订**——arch-auditor 六轴无发现，route.c 与
+  §20.0/§20.3/§20.4 逐条一致（亲验 motion.c `MOTION_IDLE/DONE` 分支 drive-free，证实进 motion 段前
+  catch-up 不破坏单一推进不变量）。四证据行复现：E01 依赖纯净 0 命中 / E02 范围无越界
+  （改 route.{h,c}、test_route.c、tests/host/Makefile、Debug/makefile、.gitignore，本地 subdir_*.mk 未入库）/
+  E03 334 PASS 0 FAIL（310 基线+24）/ E04 固件 exit 0、0 诊断、route.o 经 linkInfo.xml 确证进链（3 引用）。
+  test_route.c 一处断言在施工中修正（STRAIGHT(0) 被拒后 abort_fault 恒经子服务 Chassis_Stop 发刹车命令，
+  写计数≠0——原「静默＝零写」断言误解，改判 FAULT+刹车生效，属证据行内实现修正非契约行修订）。
+  topo-updater 已同步：索引 §6（V21 扩条 + V23 补注）、§7（Route 覆盖行）、§10 日志，app.md §3
+  （Route_API 类块 + 2 条出边到 line_follow/motion）。
