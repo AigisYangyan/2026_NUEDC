@@ -61,7 +61,7 @@
 | M01 | 里程计+航向 unwrap（Middleware 纯算法：编码器 Δ→x,y,θ；imu.h 明示 unwrap 归此层） | `middleware/odometry/`（heading+odometry 双文件） | task1 姿态/里程零散逻辑（冻结不迁移，重建） | — | `DONE`（契约 §14 冻结 b856b23；代码 85d1e31；arch-auditor 三级无发现。E01 0 命中 / E02 无越界（.ccsproject 会话前既存，未纳入）/ E03 235 PASS 0 FAIL＝218 基线+17（heading 7+odometry 10）/ E04 exit 0、0 诊断、heading.o+odometry.o 经 linkInfo.xml 确证进链。IMU unwrap 权威 + 双文件拆分（用户 2026-07-18 裁定）；heading_sign/mm_per_pulse 单一所有者落定，V22 登记） |
 | S06 | motion 语义运动服务（v1：直行 N mm/定角转/定点停；IMU 航向保持可插拔） | `app/service/motion/` | task1 直行/转弯编排（冻结不迁移，重建） | — | `DONE`（契约 §15 冻结 226f8fd；代码 e30c2a0；arch-auditor 6 项通过、1 建议级文档处置见 §15.5。E01 0 命中 / E02 无越界 / E03 253 PASS 0 FAIL＝235 基线+18 / E04 exit 0、0 诊断、motion.o 经 linkInfo.xml 确证进链（3 引用）。IMU 泵所有权 motion 激活期独占落定、里程计 total 差值一次性消费、V21 双泵第三泵送者、圆弧移出 v1→S06b） |
 | S06b | motion 圆弧原语（定半径+定角，双轮速度比 + 航向误差修正） | `app/service/motion/`（S06 契约修订流程扩面） | — | — | 排队（S06 后；用户 2026-07-18 裁定拆分，控制律/测试面更大单独立项） |
-| M02 | 循迹元素检测（可注册检测器：十字/直角弯/断线/终点横线…，特征+置信度计数） | `middleware/track_elements/` | — | — | 排队（S06 后） |
+| M02 | 循迹元素检测（几何类别检测器：断线/横线/左岔/右岔，特征+连续置信计数+上升沿事件） | `middleware/track_elements/` | — | — | `施工中`（契约 §16 冻结） |
 | S02b | line_follow 深化：元素事件面 + M03 速度规划（`middleware/speed_plan`，直道加速/入弯减速）接入 | `app/service/line_follow/` | — | — | 排队（M02 后；S02 契约修订流程） |
 | S07 | route 分段路线执行服务（段表驱动：FOLLOW_UNTIL(元素)/STRAIGHT/TURN/ARC——新题=换段表） | `app/service/route/` | task1 分段状态机 | — | 排队（S02b 后；范围 Q6 契约裁定） |
 | SYS01 | 装配入口更新 | `app/system/` | sys_init.c 增量改造 | — | 随各阶段 |
@@ -1075,3 +1075,117 @@ void Motion_GetTelemetry(Motion_Telemetry_T *out);  /* out==NULL 无副作用 */
   （T01 编排）对单次转向设完成超时兜底（`Motion_Stop` 恒可用）。落点：`motion.c motion_step_turn` 代码
   注释 + 本条。最小驱动下限/转向完成超时作为 S06b 或 T01 阶段的候选加固，v1 接受此裕度。
   其余审计项（依赖矩阵/重复数据处理/采样所有权/V21 双泵/电机安全/控制律符号/防御代码）无发现。
+
+## 16. M02 契约（track_elements 循迹元素检测）——冻结
+
+- **task_id**: M02-track_elements
+- **goal**: 新建 `middleware/track_elements/`：纯算法循迹元素检测器。从**调用者按值传入**的
+  12 路深色位图流中，逐拍提取几何特征（深色路数 / 跨度 / 触边），经**逐检测器连续置信计数**去毛刺，
+  在确认时输出**上升沿事件**。检测的是位图的**几何类别**（断线 / 横线 / 左岔 / 右岔），**不做赛道语义
+  裁定**（十字 vs 终点、第几次横线归 S07/T01——Q6 不预支）。成为 gray.h / track_error.h 明示
+  「不做赛道特征识别」所留 Middleware 空白的唯一所有者。为 S02b 循迹深化提供段切换触发源基元。
+- **接口辩护**（算法能做什么）：能对一串深色位图判定当前压在哪一类循迹路面元素上、能用连续拍
+  置信计数把瞬时毛刺与确认元素区分、能报告元素确认的上升沿事件与当前置信电平。仅此成为公共面。
+- **输入所有权（§8.2 关键）**：M02 **不采样**。`Gray_ReadDarkBitmap()` 的唯一触发所有者仍是
+  `LineFollow_Update()`（10ms 门控，未来 S02b 同址喂入）；M02 以位图**按值入参**消费，绝不新开
+  第二个 `Gray_ReadDarkBitmap()` 调用点（否则同 V21 双泵）。位序左右修正只用**同一个**
+  `bit0_is_left` 标志（H2 实测值，track_error 已落点）：M02 与 track_error 一致地应用它计算
+  「车左→车右」position，**不新增第二个反转开关**（encoder `s_direction_sign` 教训，§8.2）。
+
+### 16.1 allowed_files（无 glob）
+
+| 文件 | 动作 |
+|---|---|
+| `hc-team/middleware/track_elements/track_elements.h` / `.c` | 新建 |
+| `tests/host/test_track_elements.c` | 新建 |
+| `tests/host/Makefile` | 追加 test_track_elements 目标/clean/.PHONY |
+| `.gitignore` | 追加 test_track_elements / test_track_elements.exe |
+| `Debug/makefile` | 登记 track_elements.o（ORDERED_OBJS、两处 -include、clean） |
+| `agent/phase4_app_rewrite/plan_app_first_order.md` | 状态回写 + 本契约 |
+
+forbidden_files：`hc-team/middleware/track_error/**`、`hc-team/middleware/odometry/**`、
+`hc-team/middleware/pid/**`（同层，零触碰——M02 自持位图数学，不复用不包含）、
+`hc-team/driver/**`、`hc-team/app/**`、tests/host 既有 `test_*.c` 与 `fake_*.c`。
+（Debug/ 下 `subdir_*.mk` 为本地生成物，不入库，不列。）
+
+### 16.2 公共接口（最小面）
+
+```c
+#define TRACK_ELEMENTS_CHANNEL_COUNT 12u
+
+/* 元素类别 = 单张位图可区分的几何形态；语义（十字/终点、第几次）归调用者（S07/T01），此处不判。 */
+typedef enum {
+    TRACK_ELEMENT_GAP = 0,      /* 断线：有效位全 0 */
+    TRACK_ELEMENT_FULL_BAR,     /* 横线：触车左且触车右、深色路数 ≥ full_bar_min_count（十字或终点横线，不分语义） */
+    TRACK_ELEMENT_BRANCH_LEFT,  /* 左岔/左直角：触车左、未触车右、深色跨度 ≥ branch_min_span */
+    TRACK_ELEMENT_BRANCH_RIGHT, /* 右岔/右直角：触车右、未触车左、深色跨度 ≥ branch_min_span */
+    TRACK_ELEMENT_COUNT
+} TrackElement_Kind;
+
+typedef struct {
+    bool     bit0_is_left;       /* 位序左右唯一修正点（与 track_error 同语义透传），决定 car-left→car-right */
+    uint8_t  full_bar_min_count; /* FULL_BAR 最小深色路数（几何相关，安装标定后给定），1..12 */
+    uint8_t  branch_min_span;    /* BRANCH 最小深色跨度（几何相关），1..12 */
+    uint8_t  confirm_ticks;      /* 连续满足多少拍置 confirmed（去毛刺）；0 归一化为 1 */
+    uint16_t enable_mask;        /* bit(kind)=1 启用该检测器；未启用者永不计数/触发 */
+} TrackElements_Config_T;
+
+typedef struct {
+    /* 私有状态——调用者分配（无 malloc）、不得直接读写，一律经下方 API 访问。 */
+    TrackElements_Config_T cfg;
+    uint8_t  count[TRACK_ELEMENT_COUNT];
+    uint16_t confirmed_mask;
+    uint16_t just_confirmed_mask;
+} TrackElements_Detector_T;
+
+void     TrackElements_Init(TrackElements_Detector_T *det, const TrackElements_Config_T *cfg);
+    /* 存配置、计数/掩码清零。cfg==NULL 或 det==NULL 视为误用（同 pid/odometry 口径，不做运行期拒绝）。
+     * confirm_ticks==0 归一化为 1。 */
+void     TrackElements_Update(TrackElements_Detector_T *det, uint16_t dark_bitmap);
+    /* 一拍推进：屏蔽高位 → 按 bit0_is_left 求 car 坐标下的 count/leftmost/rightmost/span/touch →
+     * 每个启用检测器谓词成立则 count 饱和自增至 confirm_ticks、否则清 0；count≥confirm_ticks 置
+     * confirmed，false→true 的那一拍进 just_confirmed_mask。dark_bitmap 仅低 12 位有效。 */
+uint16_t TrackElements_PollEvents(TrackElements_Detector_T *det);
+    /* 取并清 just_confirmed_mask（元素确认上升沿事件掩码，段切换触发源）。det==NULL 返回 0。 */
+uint16_t TrackElements_GetConfirmed(const TrackElements_Detector_T *det);
+    /* 当前确认电平掩码（谓词持续成立期间保持置位）。det==NULL 返回 0。 */
+uint8_t  TrackElements_GetConfidence(const TrackElements_Detector_T *det, TrackElement_Kind kind);
+    /* 该检测器当前连续置信计数 0..confirm_ticks（硬件标定 confirm_ticks / 阈值用）；kind 越界或 NULL 返回 0。 */
+```
+
+- **置信计数口径**：以「连续 Update 拍数」计（非时间）——由 S02b 在 10ms 循迹门控内每拍喂一次，
+  故 confirm_ticks 单位 ≈ 10ms。谓词一旦某拍不成立立即清 0（要求连续），去除单拍毛刺。
+- **谓词（car-left→car-right 坐标，position 0=车左，11=车右）**：先 `bitmap &= 低 12 位`；
+  `count`=置位数，`leftmost/rightmost`=最小/最大 position，`span`=rightmost−leftmost+1，
+  `touch_left`=(leftmost==0)、`touch_right`=(rightmost==11)。
+  GAP: count==0；FULL_BAR: touch_left && touch_right && count≥full_bar_min_count（用路数=实心度，
+  抗稀疏噪声）；BRANCH_LEFT: touch_left && !touch_right && span≥branch_min_span；
+  BRANCH_RIGHT: touch_right && !touch_left && span≥branch_min_span（用跨度=延伸度，抗中间缺路）。
+  四类天然互斥（count 0 vs >0、触双边 vs 触单边），正常窄线簇触发 0 类（无误报）。
+- **单一所有者声明**（M02 一律不复做）：位图采样 / 端口读 = gray Driver（触发 owner = 调用者
+  LineFollow_Update / S02b）；位序左右修正 = 唯一 `bit0_is_left`（M02 与 track_error 同值同用，不新增
+  开关）；误差重心量化 mm = track_error（M02 不算误差，输出是元素身份）；丢线**控制响应**
+  （RECOVERING / 停车）= line_follow/lost_line（M02 的 GAP 是元素身份事件，**不驱动底盘**、不参与控制恢复）。
+  M02 **唯一拥有**：几何特征提取（count/span/touch）、逐检测器连续置信去毛刺、元素上升沿事件。
+- **头不暴露下层类型**（§3.3）：纯标准 C 类型 + 自持枚举 / 结构；不含任何 Driver / 其他 Middleware 头。
+
+### 16.3 preserved_behavior
+
+- 旧 `app/**`、`driver/**`、`middleware/{track_error,odometry,pid}/**`、其余全部零改动；主机既有
+  253 用例全过；固件行为不变（track_elements.o 进链接但零调用者——S02b 未写，V07 同款过渡态）。
+
+### 16.4 证据行（≤6，恰 1 条固件构建行）
+
+| 行 | 名称 | 命令 | 预期 |
+|---|---|---|---|
+| E01 | 依赖纯净 | Grep `driver/\|app/\|middleware/pid/\|middleware/track_error/\|middleware/odometry/\|ti_msp_dl_config\|ti/driverlib`（path=`hc-team/middleware/track_elements`，`#include` 行） | 0 命中（自身 `track_elements.h`、`<stdint.h>`/`<stdbool.h>` 不在告警集） |
+| E02 | 范围审计 | `git status` + `git diff --stat` 对照 §16.1 | 无 allowed_files 之外的改动 |
+| E03 | 主机测试 | PowerShell：`rtk proxy make -C tests/host all` | ≥267 PASS / 0 FAIL（253 基线 + ≥14 新用例）。必含：Init 清零（计数/掩码 0、无事件）；GAP 连续 confirm_ticks 拍 → 确认+上升沿事件，非空位图 → 计数清 0、电平落；FULL_BAR 触双边且路数达阈 → 确认，稀疏（触双边但路数不足）不确认；BRANCH_LEFT 触左未触右且跨度达阈 → 确认、BRANCH_RIGHT 不确认；BRANCH_RIGHT 对称；bit0_is_left 反转使 BRANCH_LEFT↔BRANCH_RIGHT 互换（唯一修正点，无第二开关）；去毛刺（confirm_ticks−1 拍不确认、单拍毛刺不确认）；中途 miss 清 0 须重新累计；PollEvents 上升沿取一次即清（无新变化再取=0）、GetConfirmed 电平持续；enable_mask 关闭的检测器即使形态出现也永不计数/确认；高位屏蔽（0xF000==空==GAP）；正常窄线簇不误报任何元素；confirm_ticks==0 归一化为 1；GetConfidence 反映计数 |
+| E04 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 diagnostics、track_elements.o 经 linkInfo.xml 确证进入 .out 链接 |
+
+- **主机测试链接组成**（事实登记）：test_track_elements = 真实 `track_elements.c` + `test_track_elements.c`
+  （纯逻辑，仅 `-lm`）；不链接任何 fake（M02 零端口依赖，同 track_error / heading）。
+
+### 16.5 契约修订记录
+
+- （冻结初版，无修订。）
