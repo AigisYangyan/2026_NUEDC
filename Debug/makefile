@@ -49,6 +49,8 @@ ORDERED_OBJS += \
 	"./hc-team/driver/board_uart/vofa_uart.o" \
 "./hc-team/driver/board/board.o" \
 "./hc-team/driver/board_gpio/board_gpio.o" \
+"./hc-team/driver/bsl_entry/bsl_entry.o" \
+"./hc-team/driver/bsl_entry/bsl_entry_invoke.o" \
 "./hc-team/driver/clock/clock.o" \
 "./hc-team/driver/encoder/encoder.o" \
 "./hc-team/driver/gray/gray.o" \
@@ -103,6 +105,7 @@ RMDIR := RMDIR /S/Q
 -include hc-team/driver/board_uart/subdir_vars.mk
 -include hc-team/driver/board/subdir_vars.mk
 -include hc-team/driver/board_gpio/subdir_vars.mk
+-include hc-team/driver/bsl_entry/subdir_vars.mk
 -include hc-team/driver/clock/subdir_vars.mk
 -include hc-team/driver/encoder/subdir_vars.mk
 -include hc-team/driver/gray/subdir_vars.mk
@@ -143,6 +146,7 @@ RMDIR := RMDIR /S/Q
 -include hc-team/driver/board_uart/subdir_rules.mk
 -include hc-team/driver/board/subdir_rules.mk
 -include hc-team/driver/board_gpio/subdir_rules.mk
+-include hc-team/driver/bsl_entry/subdir_rules.mk
 -include hc-team/driver/clock/subdir_rules.mk
 -include hc-team/driver/encoder/subdir_rules.mk
 -include hc-team/driver/gray/subdir_rules.mk

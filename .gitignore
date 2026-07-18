@@ -59,3 +59,5 @@ tests/host/test_gimbal_stepbus
 tests/host/test_gimbal_stepbus.exe
 tests/host/test_gimbal
 tests/host/test_gimbal.exe
+tests/host/test_bsl_entry
+tests/host/test_bsl_entry.exe

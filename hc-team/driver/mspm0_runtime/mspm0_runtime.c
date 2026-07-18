@@ -12,6 +12,7 @@
  */
 #include "driver/mspm0_runtime/mspm0_runtime.h"
 
+#include "driver/bsl_entry/bsl_entry.h"
 #include "driver/clock/clock.h"
 #include "ti_msp_dl_config.h"
 
@@ -51,6 +52,8 @@ void VofaUart_IsrTxDone(void);
 void VisionUart_IsrPushByte(uint8_t data);
 void VisionUart_IsrTxDone(void);
 void ImuUart_IsrPushByte(uint8_t data);
+/* BslEntry_IsrOnByte 声明取自 driver/bsl_entry/bsl_entry.h（其头暴露该 ISR 契约符号，
+ * 故 include 获原型校验；board_uart 各 *_IsrPushByte 未在头暴露才用上面的本地前向声明）。 */
 
 static uint32_t runtime_dma_irq_mask(uint8_t dma_ch_num)
 {
@@ -375,4 +378,11 @@ void UART_VISION_INST_IRQHandler(void)
 void UART_IMU_INST_IRQHandler(void)
 {
     runtime_handle_uart_irq(UART_IMU_INST, ImuUart_IsrPushByte);
+}
+
+/* UART_BSL_ENTRY（UART0）RX：逐字节喂给 bsl_entry 判触发。命中 0x22 时
+ * BslEntry_IsrOnByte 内部跳 BSL 永不返回（契约 D14 ISR 豁免）；否则同其他角色仅搬运。 */
+void UART_BSL_ENTRY_INST_IRQHandler(void)
+{
+    runtime_handle_uart_irq(UART_BSL_ENTRY_INST, BslEntry_IsrOnByte);
 }

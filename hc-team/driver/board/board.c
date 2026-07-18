@@ -26,6 +26,7 @@ void Board_EnableInterrupts(void)
     NVIC_EnableIRQ(UART_VISION_INST_INT_IRQN);
     NVIC_EnableIRQ(UART_STEPPER_BUS_INST_INT_IRQN);
     NVIC_EnableIRQ(UART_IMU_INST_INT_IRQN);
+    NVIC_EnableIRQ(UART_BSL_ENTRY_INST_INT_IRQN); /* D14：0x22 软触发 BSL 入口，逐字节 RX 中断 */
 
     __enable_irq();
 }

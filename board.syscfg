@@ -374,13 +374,16 @@ UART4.rxPinConfig.$name                = "ti_driverlib_gpio_GPIOPinGeneric13";
  * 定义 BSL_UART_DEFAULT_BAUD=9600，且 TI 的 BSL GUI 把 baudrate=9600 写死。
  * PA10/PA11 亦为 ROM BSL 固定引脚。
  *
- * 无 DMA、无中断：本口运行期只需接收上位机的 ENTRY 字节 0x22 触发软件跳
- * BSL（参考 SDK bsl_software_invoke_app_demo_uart），单字节事件不值得占用
- * DMA 通道。中断待 ENTRY 监听器落地时再开——现在开了却没有 IRQ handler，
- * 首个到达字节就会落进 startup 的默认处理程序死循环。 */
+ * 无 DMA、RX 逐字节中断：本口运行期只需接收上位机的 ENTRY 字节 0x22 触发软件跳
+ * BSL（参考 SDK bsl_software_invoke_app_demo_uart），单字节事件不值得占用 DMA 通道。
+ * ENTRY 监听器已落地（契约 D14，driver/bsl_entry）：IRQ handler 在 mspm0_runtime.c
+ * 的 UART_BSL_ENTRY_INST_IRQHandler，NVIC 使能在 driver/board/board.c，
+ * 阈值取 1 让每个字节都触发（同 UART_IMU）——不再落 startup 默认死循环。 */
 UART5.$name                            = "UART_BSL_ENTRY";
 UART5.targetBaudRate                   = 9600;
 UART5.enableFIFO                       = true;
+UART5.enabledInterrupts                = ["RX"];
+UART5.rxFifoThreshold                  = "DL_UART_RX_FIFO_LEVEL_ONE_ENTRY";
 UART5.peripheral.$assign               = "UART0";
 UART5.peripheral.rxPin.$assign         = "PA11";
 UART5.peripheral.txPin.$assign         = "PA10";
