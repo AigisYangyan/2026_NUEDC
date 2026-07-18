@@ -39,13 +39,13 @@
 | D11 | imu（单轴 Z） | `driver/imu/` | `DONE` | **P8 / P8B** | ⚠ **上位机配置 230400+500Hz + 装平 + 正方向实测**（见 §4.2） |
 | **D12** | **gray（12 路灰度）** | `driver/gray/` | **`DONE`** | **P9.T1** | ⚠ **供电电压确认 + 位序实测**（见 §4.4） |
 | D13 | board_gpio → runtime 过渡边 | `driver/board_gpio/` | `DEBT` | 未立 | 见 §5.1 |
-| D14 | BSL ENTRY 监听器 | 未定 | `GAP` | 未立 | 见 §5.2 |
+| D14 | BSL ENTRY 监听器 | `driver/bsl_entry/` | `DONE` | 未立 | 契约 `5e3cf95` / 实现 `c84bf3c`，见 §5.2 |
 
 ### 结论（2026-07-17 更新）
 
 > **Driver 层已收官。** 用户于 2026-07-17 解除灰度暂缓裁定，D12 随即由 P9.T1 补齐 ——
 > 「用户解除灰度裁定之时，就是 Driver 层收官之时」这句话已经兑现。
-> D13/D14 是小体量债，不阻塞任何功能。
+> D13 是小体量债，不阻塞任何功能；D14 已于 2026-07-18 收口（见 §5.2）。
 >
 > **瓶颈已经不在 Driver 层，而在 §4 的硬件实测项** —— 其中 **H1 灰度供电电压会烧 IO**。
 > 总汇报见 **`docs/driver层总汇报.md`**。
@@ -156,10 +156,25 @@
 编码器已改硬件 QEI 后，这条边的「raw counts」部分是否还有存在必要，需要一次巡查再定。
 **不要在没读代码前就假设它该删。**
 
-### 5.2 D14 —— BSL ENTRY 监听器
+### 5.2 D14 —— BSL ENTRY 监听器 `DONE`（2026-07-18，契约 `5e3cf95` / 实现 `c84bf3c`）
 
-`UART_BSL_ENTRY`（UART0/9600/无 DMA）已配好但**无消费者**：ENTRY 字节 `0x22` 的监听与软件跳 BSL 未落地。
-在此之前**软件跳 BSL 不可用**，只能硬件 BSL invoke 引脚 + 复位。
+新建 `hc-team/driver/bsl_entry/`：`bsl_entry.h`（公共面 `BslEntry_IsrOnByte(uint8_t)` ISR 契约符号 +
+边界 seam `BslEntry_InvokeBsl(void)`）+ `bsl_entry.c`（判触发字节 0x22 → 调 `BslEntry_InvokeBsl`，
+单一所有者）+ `bsl_entry_invoke.c`（target-only，`invokeBSLAsm` 内联汇编：擦 SRAM 绕行 BSL_ERR_01
+勘误 + RESETLEVEL/RESETCMD，永不返回；主机测试用 `fake_bsl_invoke.c` 替身计数）。
+`mspm0_runtime.c` 新增 `UART_BSL_ENTRY_INST_IRQHandler`（= UART0 向量）委派
+`runtime_handle_uart_irq(UART_BSL_ENTRY_INST, BslEntry_IsrOnByte)`；`board.c:Board_EnableInterrupts`
+新增 `NVIC_EnableIRQ(UART_BSL_ENTRY_INST_INT_IRQN)`；`board.syscfg` 同步
+`UART_BSL_ENTRY.enabledInterrupts=["RX"]`+`rxFifoThreshold=ONE_ENTRY`。
+
+触发时机 = ISR 内直接跳 BSL，对 V09「ISR 只做最小搬运/置位」的显式豁免（契约冻结，正当性 = 跳转即
+复位、永不返回、无返回栈、无共享态竞争），登记为拓扑 §6 `V27`。
+
+四证据行：E01 全仓依赖扫描 0 命中越层引用；E02 变更范围仅命中 allowed_files；
+E03 主机测试 **404 PASS / 0 FAIL**（401 基线 + 3 新增）；E04 固件 clean 构建 exit 0，
+两 `.o` 经 `Debug/2026_Diansai_linkInfo.xml` 确证进链，`UART0_IRQHandler` 向量绑定
+`runtime_handle_uart_irq` 分发确认。
+
 参考实现：SDK `bsl_software_invoke_app_demo_uart/main.c:197`（判 `0x22`）+ `invokeBSLAsm()`
 （擦 SRAM + `DL_SYSCTL_RESET_BOOTLOADER_ENTRY`，含 BSL_ERR_01 勘误绕行）。
 

@@ -83,13 +83,13 @@ agent/
    - **D12 灰度补齐** —— 器件 NCHD1「迹」。配置手册：**`docs/12路灰度传感器配置指南.md`**。
    - **总汇报：`docs/driver层总汇报.md`** —— 14 个模块逐个核对，含「实测过但故意不动」的清单（避免下次重复巡查）。
    - **★ 瓶颈已不在 Driver 层，而在 4 项硬件实测**（总汇报 §5）：灰度供电电压（**会烧 IO**）、灰度位序、编码器方向、IMU 上位机配置。
-   - 未修的账：V19（`u8` 污染）、V20（`board.h` 措辞过宽，属文档错）、D13/D14、`emm42.c` 可补主机测试。
+   - 未修的账：V19（`u8` 污染）、V20（`board.h` 措辞过宽，属文档错）、D13、`emm42.c` 可补主机测试。D14 已于 2026-07-18 收口（`driver/bsl_entry/`，契约 `5e3cf95`/实现 `c84bf3c`）。
 
 10. **Service 层承接**（**裁定解除后才启动，当前不得施工**）：关闭 V03(残留)/V07/V10/V13/V14/V15。现有 `app/**` 不是范例，它就是这堆违规本身。
 
 ## 3.1 待办（有裁定但未立计划）
 
-- **BSL ENTRY 监听器未实现**（调试串口迁移遗留，需立计划）：`UART_BSL_ENTRY`(UART0/9600) 已配好但**无消费者**——上位机 ENTRY 字节 `0x22` 的监听与软件跳 BSL 尚未落地。在此之前，**软件跳 BSL 不可用**，只能用硬件 BSL invoke 引脚 + 复位。参考实现：SDK `bsl_software_invoke_app_demo_uart/main.c:197`（判 0x22）+ `invokeBSLAsm()`（擦 SRAM + `DL_SYSCTL_RESET_BOOTLOADER_ENTRY`，含 BSL_ERR_01 勘误绕行）。
+- ~~**BSL ENTRY 监听器未实现**~~ **已于 2026-07-18 收口**（D14，契约 `5e3cf95`/实现 `c84bf3c`）：新建 `driver/bsl_entry/`，`bsl_entry.c` 判触发字节 0x22 → 调 `BslEntry_InvokeBsl()`（`bsl_entry_invoke.c` target-only asm，擦 SRAM + BSL_ERR_01 勘误绕行 + RESETLEVEL/RESETCMD，永不返回）；`mspm0_runtime.c` 新增 `UART_BSL_ENTRY_INST_IRQHandler` 委派分发；ISR 内直调触发，登记拓扑 `V27`（对 V09 的显式豁免）。详见 `agent/phase2_driver_rewrite/plan_driver_first_order.md` §5.2。
 - **PA0/PA1 待硬件组引出**（调试串口迁移遗留）：用户 2026-07-16 明示板上尚无这两个脚，将要求硬件组新画。**在引出前 VOFA 在实物上不可用**（固件已就绪）。
 - **BSL 波特率提升到 230400（可选，高风险）**：需自定义 UART BSL flash 插件（`BSL_UART_DEFAULT_BAUD` 改 230400）。代价：动 NONMAIN + linker + BCR 写保护，插件默认落 0x2000 与 app 撞车（建议挪 flash 顶部），配错要 SWD 工厂复位。不做则 BSL 恒为 9600（ROM 固定）。
 - ~~旧引脚表删除待确认~~ **已闭环**（2026-07-16 用户裁定）：`docs/` 现只保留给硬件组的最新文件（`主控板引脚表(2).xlsx` 一份）；旧表 `_G3519.xlsx` 与可读导出 `pin_table_v2/` 均已删除；`MIGRATION_G3507_TO_G3519.md` 移入 `agent/`（它是固件侧文档，被 `AGENTS.md` 等 11 处引用）。历史版本经 git 追溯。

@@ -170,6 +170,14 @@ class Emm42_API {
   +Emm42_BuildPidConfigFrame()
 }
 
+class BslEntry_API {
+  <<driver:bsl_entry>>
+  +BslEntry_IsrOnByte(byte)
+  +BslEntry_InvokeBsl()
+  note: BslEntry_InvokeBsl 擦 SRAM 后复位进官方 ROM BSL，永不返回
+  note: ISR 内直接触发跳转 —— 对 V09 的显式豁免（契约冻结，跳转即复位无返回栈无共享态竞争）
+}
+
 class VofaDriver_API {
   <<driver:uart_vofa>>
   +vofa_init()
@@ -197,6 +205,7 @@ Runtime_API --> VisionUart_API : fixed RX TX DMA dispatch, VISION_TX IRQ clear +
 Runtime_API --> VofaUart_API : fixed RX DMA completion
 Runtime_API --> StepmotorUart_API : fixed RX TX DMA dispatch
 Runtime_API --> ImuUart_API : fixed UART_IMU IRQ RX dispatch, no DMA
+Runtime_API --> BslEntry_API : fixed UART_BSL_ENTRY IRQ RX dispatch, no DMA, ISR calls BslEntry_IsrOnByte
 Motor_API --> DL_HAL : GPIO and PWM via motor_hw.c
 Encoder_API --> BoardGpio_API : raw snapshot
 Key_API --> BoardGpio_API : pull raw key bitmap
@@ -211,5 +220,6 @@ IMU_API --> ImuUart_API : 5-byte frame TX and RX drain
 IMU_API --> Clock_API : frame freshness timestamp
 IMU_API --> Runtime_API : bounded delay between device commands
 VofaDriver_API --> VofaUart_API : UART transport
+BslEntry_API --> DL_HAL : invokeBSLAsm inline asm, target-only, SRAM erase + RESETLEVEL/RESETCMD
 ```
 
