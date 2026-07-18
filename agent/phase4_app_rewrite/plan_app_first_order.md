@@ -75,7 +75,7 @@
 | S03 | 遥测/调参链路服务（VOFA） | `app/service/tuning/` | vofa_register.c | V15（替代已建成，旧边待 T01）、V19（closed） | `DONE`（契约 ed4f416，修订 57b54de；代码 d0e4996；审计处置 5a4f089。E01 0 命中 / E02 无越界 / E03 173 PASS 0 FAIL＝159 基线+14 / E04 exit 0、0 诊断、两 .o 经 linkInfo.xml 确证进链 / E05 `u8` 0 命中。Q2 定案入 §5） |
 | S04 | 人机输入/显示服务（Key/OLED 包装） | `app/service/hmi/` | menu 对 Key/OLED 的直调、task_groups UI 泵送 | V14 的基础 | `DONE`（契约 f8311c8；代码 2dac572；审计处置 ad5ca08。E01 0 命中 / E02 无越界 / E03 185 PASS 0 FAIL＝173 基线+12 / E04 exit 0、0 诊断、hmi.o 经 linkInfo.xml 确证进链） |
 | S05a | 视觉链路 Driver 编解码（`driver/uart_vision`：0xAA55 坐标控制帧 RX + 0xFF 选题握手 TX/RX；vision_uart 增 TX） | `driver/uart_vision/` | vision_bus/vision_coord（帧解析职责） | — | `DONE`（契约 §21.1 冻结 c1d5421，修订 1 b22ad28；代码本提交；审计处置见 §21.1.5。E01 依赖纯净 0 命中 / E02 无越界 / E03 361 PASS 0 FAIL＝334 基线+27 / E04 exit 0、0 诊断、uart_vision.o+vision_uart.o 经 linkInfo.xml 确证进链。arch-auditor 阻断 finding（vision TX 完成 ISR 未接线）已修复：mspm0_runtime.c 补 VisionUart_IsrTxDone；topo-updater 同款交叉确认。自同步分帧不引 Clock、坐标 float32 透传、无弱钩子回调。三闭环第一环，S05b/S05c 待续） |
-| S05b | 视觉坐标→轴映射 Middleware（纯算法：像素误差→X/Y 轴角/脉冲增量，死区/限幅/极性单一所有者） | `middleware/vision_aim/`（名暂定） | 2DPlatform 的 visionhdl_step/clamp 几何 | — | 排队（S05a 后，契约各自冻结） |
+| S05b | 视觉坐标→轴映射 Middleware（纯算法：像素误差→X/Y 轴脉冲增量，死区/步长/限幅/极性单一所有者） | `middleware/vision_aim/` | 2DPlatform 的 visionhdl_step/clamp 几何 | — | `DONE`（契约 §21.2 冻结 8b74cf0；代码本提交；审计处置见 §21.2.5。E01 依赖纯净 0 命中 / E02 无越界 / E03 377 PASS 0 FAIL＝361 基线+16 / E04 exit 0、0 诊断、vision_aim.o 经 linkInfo.xml 确证进链。arch-auditor 六轴全过、无阻断/无重要、2 建议级仅注释收敛（F1 active 单语义、F2 回拉超 max_step 有意不防御）。输出定为有符号 int32 脉冲增量/轴（非角度）；纯函数不持位置状态（cur_pulse 调用方传入）；极性唯一开关 sign[axis]、修 (int32)coord 早失精度 bug。零调用者预期态，S05c 待续） |
 | S05c | 云台服务（`app/service/gimbal`：选题握手编排 + 瞄准收敛环 + odometry 运动前馈 + 步进总线下沉） | `app/service/gimbal/` | stepmotor_bus/2DPlatform 控制编排 | stepmotor_bus 违规群 | 排队（S05b 后；含 motor-safety；前馈依赖 M01=DONE） |
 | SCH01 | 调度器重写 | `app/scheduler/` | task_scheduler.c、run_registry.c | V13 残余（g_eSysFlagManage） | `DONE`（Q1 定案 74d421e；契约 56ced13，修订 c6bcc4a；代码 e801caf；审计处置 6bfe3f4。E01 0 命中 / E02 无越界 / E03 200 PASS 0 FAIL＝185 基线+15 / E04 exit 0、0 诊断、scheduler.o 经 linkInfo.xml 确证进链。V13 残余本体仍待 T01 删旧文件时关闭） |
 | UI01 | 菜单重写（含分问选择/参数表——大纲 P0-D） | `app/ui/menu/` | menu_core/menu_pages（冻结不删，T01 删除） | V14（替代面 UI01 建成，本体 T01 关闭——见 §13 裁定；拓扑保持 open） | `DONE`（契约 c05de1b，修订 1 2b54b8a→Menu_Init 改名 Menu_Setup；代码 e23176a；审计处置 82e6493。E01 0 命中 / E02 无越界 / E03 214 PASS 0 FAIL＝200 基线+14 / E04 exit 0、0 诊断、menu.o+menu_param.o 经 linkInfo.xml 确证进链、旧 menu_core.o 仍共链。arch-auditor 6/7 通过，1 建议级已删。V14 待 T01 删旧关闭。**r2 两级分类外壳 DONE（2026-07-18）：契约修订 2 冻结 71a0ec1；代码 cba97cb；拓扑同步 08d0424；见 §13.5 修订 2**） |
@@ -2099,4 +2099,15 @@ void VisionAim_Map(float coord_x, float coord_y,
 
 #### 21.2.5 契约修订记录
 
-- **冻结初版**（本提交）。
+- **冻结初版**（提交 8b74cf0）。
+- **审计处置（本完成提交，arch-auditor 无阻断/无重要，2 建议级——仅文档收敛，零行为改动）**：
+  - F1（`active` 双语义）：头注释把 `active` 收敛为单一语义「误差是否在死区外」，并显式声明
+    「轴程饱和拍 active 可为 true 而 delta 被限幅为 0，是否真的位移由调用方以 `delta_pulse!=0` 判断」。
+    不改行为（`active` 仍在死区门控处置位，先于轴程限幅）——`active`=越死区 与 `delta_pulse!=0`=本拍位移
+    是两个正交信号，供 S05c 分别使用。
+  - F2（越界 `cur` 回拉幅值可超 `max_step`）：`vision_aim_clamp_to_travel` 注释注明「回拉增量幅值可超过
+    每拍步长封顶，属有意的安全方向优先；常态闭环 faithful 回灌 cur+delta 永在界内、不走此分支」。
+    **不加再夹 max_step 的防御**——该分支仅当调用方喂入越界 `cur`（运行中调小 travel_limit / 位置种子越界）
+    才可达，属无实测失败模型的场景，按嵌入式基线不加无依据防御代码；回拉方向朝安全区，非失控危险。
+  - 两项均为注释级修订，不动任何证据行/allowed_files/公共接口签名，故并入完成提交（同 S06 §15.5 先例），
+    不单开契约修订提交。E03/E04 因仅改注释不受影响（vision_aim 主机测试完成后复跑确证仍 16 全过）。
