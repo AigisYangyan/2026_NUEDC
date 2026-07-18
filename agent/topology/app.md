@@ -210,10 +210,11 @@ class Hmi_API {
 }
 
 class Motion_API {
-  <<app:service, NEW S06>>
+  <<app:service, NEW S06, +S06b arc>>
   +Motion_Init(const Motion_Config_T*)
   +Motion_StartStraight(distance_mm, heading_hold) bool
   +Motion_StartTurn(relative_deg) bool
+  +Motion_StartArc(radius_mm, arc_deg) bool
   +Motion_Update()
   +Motion_Stop()
   +Motion_GetState() Motion_State
@@ -474,8 +475,8 @@ Hmi_API --> Clock_API : 5ms self-gate, unsigned-subtract elapsed
 Motion_API --> Encoder_API : GetSnapshot read-only, never calls Encoder_Update
 Motion_API --> IMU_API : Imu_Update sole owner during active period + Imu_GetSnapshot
 Motion_API --> Odometry_API : Init passthrough cfg + one-shot total_pulses delta consume + GetPose, first real caller S06
-Motion_API --> PID_API : straight heading-hold outer loop, Pid_UpdatePositional, out_limit = hold_diff_limit_mps sole owner
-Motion_API --> Chassis_API : same-layer controlled, SetTargetMps + cascaded Update (STRAIGHT/TURN) + Stop (DONE/Stop)
+Motion_API --> PID_API : straight/arc heading-correction outer loop (shared instance), Pid_UpdatePositional, out_limit = hold_diff_limit_mps sole owner
+Motion_API --> Chassis_API : same-layer controlled, SetTargetMps + cascaded Update (STRAIGHT/TURN/ARC, S06b reuses same drive point) + Stop (DONE/Stop)
 ```
 
 ## 4. 当前启动与调度逻辑图
