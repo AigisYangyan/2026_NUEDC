@@ -57,8 +57,10 @@ HEADING_SRC = ../../hc-team/middleware/odometry/heading.c
 HEADING_TEST_SRC = test_heading.c
 ODOMETRY_SRC = ../../hc-team/middleware/odometry/odometry.c
 ODOMETRY_TEST_SRC = test_odometry.c
+MOTION_SRC = ../../hc-team/app/service/motion/motion.c
+MOTION_TEST_SRC = test_motion.c
 
-all: test_encoder run test_pid run_pid test_motor run_motor test_key run_key test_uart_fifo run_uart_fifo test_vofa_rx run_vofa_rx test_stepmotor_uart run_stepmotor_uart test_oled run_oled test_imu run_imu test_gray run_gray test_track_error run_track_error test_chassis run_chassis test_lost_line run_lost_line test_line_follow run_line_follow test_tuning run_tuning test_hmi run_hmi test_scheduler run_scheduler test_menu run_menu test_heading run_heading test_odometry run_odometry
+all: test_encoder run test_pid run_pid test_motor run_motor test_key run_key test_uart_fifo run_uart_fifo test_vofa_rx run_vofa_rx test_stepmotor_uart run_stepmotor_uart test_oled run_oled test_imu run_imu test_gray run_gray test_track_error run_track_error test_chassis run_chassis test_lost_line run_lost_line test_line_follow run_line_follow test_tuning run_tuning test_hmi run_hmi test_scheduler run_scheduler test_menu run_menu test_heading run_heading test_odometry run_odometry test_motion run_motion
 
 test_encoder: $(DRIVER_SRC) $(ENCODER_OWNER_SRC) $(FAKE_SRC) $(MOTOR_DRIVER_SRC) $(MOTOR_FAKE_SRC) $(PID_SRC) $(TEST_SRC)
 	$(CC) $(CFLAGS) -o $@ $(DRIVER_SRC) $(ENCODER_OWNER_SRC) $(FAKE_SRC) $(MOTOR_DRIVER_SRC) $(MOTOR_FAKE_SRC) $(PID_SRC) $(TEST_SRC) $(GC_LDFLAGS) -lm
@@ -174,6 +176,12 @@ test_odometry: $(ODOMETRY_SRC) $(HEADING_SRC) ../../hc-team/middleware/odometry/
 run_odometry: test_odometry
 	./test_odometry
 
+test_motion: $(MOTION_SRC) ../../hc-team/app/service/motion/motion.h $(CHASSIS_SRC) $(DRIVER_SRC) $(FAKE_SRC) $(MOTOR_DRIVER_SRC) $(MOTOR_FAKE_SRC) $(PID_SRC) $(ODOMETRY_SRC) $(HEADING_SRC) $(IMU_DRIVER_SRC) $(BOARD_UART_VISION_SRC) $(BOARD_UART_VOFA_SRC) $(BOARD_UART_STEPMOTOR_SRC) $(BOARD_UART_IMU_SRC) $(FAKE_UART_PORT_SRC) $(FAKE_CLOCK_SRC) $(MOTION_TEST_SRC)
+	$(CC) $(CFLAGS) -o $@ $(MOTION_SRC) $(CHASSIS_SRC) $(DRIVER_SRC) $(FAKE_SRC) $(MOTOR_DRIVER_SRC) $(MOTOR_FAKE_SRC) $(PID_SRC) $(ODOMETRY_SRC) $(HEADING_SRC) $(IMU_DRIVER_SRC) $(BOARD_UART_VISION_SRC) $(BOARD_UART_VOFA_SRC) $(BOARD_UART_STEPMOTOR_SRC) $(BOARD_UART_IMU_SRC) $(FAKE_UART_PORT_SRC) $(FAKE_CLOCK_SRC) $(MOTION_TEST_SRC) $(GC_LDFLAGS) -lm
+
+run_motion: test_motion
+	./test_motion
+
 test_oled: $(OLED_DRIVER_SRC) $(FAKE_I2C_PORT_SRC) $(OLED_TEST_SRC)
 	$(CC) $(CFLAGS) -o $@ $(OLED_DRIVER_SRC) $(FAKE_I2C_PORT_SRC) $(OLED_TEST_SRC) $(GC_LDFLAGS) -lm
 
@@ -222,9 +230,11 @@ clean:
 	cmd.exe /D /C "if exist test_heading del /Q /F test_heading"
 	cmd.exe /D /C "if exist test_odometry.exe del /Q /F test_odometry.exe"
 	cmd.exe /D /C "if exist test_odometry del /Q /F test_odometry"
+	cmd.exe /D /C "if exist test_motion.exe del /Q /F test_motion.exe"
+	cmd.exe /D /C "if exist test_motion del /Q /F test_motion"
 else
 clean:
-	rm -f test_encoder test_encoder.exe test_pid test_pid.exe test_motor test_motor.exe test_key test_key.exe test_uart_fifo test_uart_fifo.exe test_vofa_rx test_vofa_rx.exe test_stepmotor_uart test_stepmotor_uart.exe test_oled test_oled.exe test_imu test_imu.exe test_gray test_gray.exe test_track_error test_track_error.exe test_chassis test_chassis.exe test_lost_line test_lost_line.exe test_line_follow test_line_follow.exe test_tuning test_tuning.exe test_hmi test_hmi.exe test_scheduler test_scheduler.exe test_menu test_menu.exe test_heading test_heading.exe test_odometry test_odometry.exe
+	rm -f test_encoder test_encoder.exe test_pid test_pid.exe test_motor test_motor.exe test_key test_key.exe test_uart_fifo test_uart_fifo.exe test_vofa_rx test_vofa_rx.exe test_stepmotor_uart test_stepmotor_uart.exe test_oled test_oled.exe test_imu test_imu.exe test_gray test_gray.exe test_track_error test_track_error.exe test_chassis test_chassis.exe test_lost_line test_lost_line.exe test_line_follow test_line_follow.exe test_tuning test_tuning.exe test_hmi test_hmi.exe test_scheduler test_scheduler.exe test_menu test_menu.exe test_heading test_heading.exe test_odometry test_odometry.exe test_motion test_motion.exe
 endif
 
-.PHONY: all run run_pid run_motor run_key run_uart_fifo run_vofa_rx run_stepmotor_uart run_oled run_imu run_gray run_track_error run_chassis run_lost_line run_line_follow run_tuning run_hmi run_scheduler run_menu run_heading run_odometry clean
+.PHONY: all run run_pid run_motor run_key run_uart_fifo run_vofa_rx run_stepmotor_uart run_oled run_imu run_gray run_track_error run_chassis run_lost_line run_line_follow run_tuning run_hmi run_scheduler run_menu run_heading run_odometry run_motion clean

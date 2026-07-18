@@ -43,3 +43,5 @@ tests/host/test_heading
 tests/host/test_heading.exe
 tests/host/test_odometry
 tests/host/test_odometry.exe
+tests/host/test_motion
+tests/host/test_motion.exe
