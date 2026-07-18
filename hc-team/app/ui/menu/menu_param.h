@@ -2,7 +2,7 @@
  * @file    menu_param.h
  * @brief   参数表子视图（app/ui/menu 私有子模块）——PARAM_LIST/PARAM_EDIT 两界面。
  *
- * 职责：持有调用者参数表指针（不拷贝值），拥有参数界面的光标/滚动窗口/编辑焦点，
+ * 职责：持有当前参数分类的参数表指针（不拷贝值），拥有参数界面的光标/滚动窗口/编辑焦点，
  * 经 hmi 渲染，经 accessor 就地读写。值存储与限幅归拥有 Service（本子模块零复做）。
  *
  * 本头仅供同目录 menu.c 引用；不进入对上层的公共面。
@@ -21,17 +21,19 @@
 extern "C" {
 #endif
 
-/** 登记参数表并复位光标/窗口/编辑焦点为列表顶、非编辑。 */
-void MenuParam_Init(const Menu_Param_T *params, uint8_t count);
-
-/** 进入参数界面：复位到列表顶、非编辑（供 menu.c 从 RUN_LIST 切入时调用）。 */
-void MenuParam_Enter(void);
+/**
+ * @brief 进入参数分类：绑定该分类参数表并复位光标/窗口/编辑焦点为列表顶、非编辑。
+ * @param params  该参数分类的参数表；调用方保证生命周期覆盖使用期。NULL 配 count=0 合法。
+ * @param count   参数个数。
+ * @note  由 menu.c 从 GROUP_LIST 选中一个 MENU_GROUP_PARAM 分类时调用。
+ */
+void MenuParam_Enter(const Menu_Param_T *params, uint8_t count);
 
 /**
  * @brief 处理一个语义输入事件，返回处理后应处于的界面。
  * @param ev  语义输入（透传自 hmi）。
  * @return MENU_SCREEN_PARAM_LIST / MENU_SCREEN_PARAM_EDIT 表示仍在参数界面；
- *         MENU_SCREEN_RUN_LIST 表示请求退回运行选择界面。
+ *         MENU_SCREEN_GROUP_LIST 表示请求退回一级分类界面（PARAM_LIST 上 BACK）。
  */
 Menu_Screen MenuParam_Handle(Hmi_Input ev);
 

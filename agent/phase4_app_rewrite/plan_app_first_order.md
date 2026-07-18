@@ -783,3 +783,12 @@ Menu_Screen Menu_GetScreen(void);   /* 当前界面（查询/渲染/测试所需
   6. **零调用者仍是预期**：新面无真实调用者（装配在 T01）；V14/V21/V10 关闭条件不变（本轮不挂 line_follow/
      tuning 钩子，双泵仍靠 scheduler 单活动条目不变量结构性排除）。三层参数中文子分类（速度环/循迹/云台）
      属**装配层内容或未来三级**，两级外壳不承载（用户选「只做两级」）。
+  7. **审计处置（2026-07-18，arch-auditor 1 建议级 finding，含代码修订）**：`run_entry_name_of`
+     把 `Scheduler_GetEntryName` 的**返回值**喂给共享 `render_item`，而 scheduler 契约文档化该
+     返回值「越界返回 NULL」——`entries[]` 与 scheduler 登记表是两张独立维护的表，失步时
+     索引越界→NULL→硬件 HardFault，且旧注释「条目名契约非 NULL」会误导修复者。处置采纳
+     审计方案 1：在 `run_entry_name_of` 这**唯一**可空边界把 NULL 收敛为占位串 `"?"`
+     （scheduler 仍是名字所有者，menu 不复算），并更正 `render_item` 注释区分「结构体字段名
+     契约非 NULL」与「scheduler 返回值边界收敛」。E03 追加 1 必含用例
+     `test_run_list_tolerates_stale_entry_index`（越界 entries 渲染不解引用 NULL），
+     总数相应 ≥217（200 非菜单 + 18 菜单）。其余审计点（依赖矩阵/单一所有者/ISR/边界/数据链）无发现。

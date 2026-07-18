@@ -1,12 +1,16 @@
 /**
  * @file    menu.c
- * @brief   板载菜单实现——顶层界面状态机 + 分问选择（RUN_LIST/RUN_ACTIVE）+ 泵送/渲染编排。
+ * @brief   板载菜单实现——两级导航状态机（GROUP_LIST/RUN_LIST/RUN_ACTIVE）+ 泵送/渲染编排。
  *
- * 顶层状态机（转移见下方注释与各处理函数）：
- *   RUN_LIST --ENTER 条目--> RUN_ACTIVE --BACK--> RUN_LIST
- *   RUN_LIST --ENTER Params--> PARAM_LIST <--BACK--> (menu_param 子状态机)
+ * 两级状态机（转移见下方注释与各处理函数）：
+ *   GROUP_LIST --ENTER RUN 组--> RUN_LIST --ENTER 条目--> RUN_ACTIVE --BACK--> RUN_LIST
+ *   GROUP_LIST --ENTER PARAM 组--> PARAM_LIST <--BACK--> (menu_param 子状态机) --BACK--> GROUP_LIST
+ *   RUN_LIST --BACK--> GROUP_LIST
  * RUN_ACTIVE 期：菜单不写任何显示行——整屏显示所有权归激活条目的 on_step
  * （避免双写者冲突，与 V21 双泵同构的显示所有权隔离）；仅 BACK 触发 Scheduler_LeaveEntry。
+ *
+ * 活动一级分类索引 = GROUP_LIST 光标 s_group_cursor（下探 L2 期间不变）；RUN 组的条目
+ * 子列表位 j 经 g->entries[j] 映射为 scheduler 全局条目索引（scheduler 是条目唯一所有者）。
  *
  * 渲染门控：仅当「有待渲染 且 非 RUN_ACTIVE 且 显示就绪」时渲染一次并清待渲染位——
  * 无输入事件即不重绘（避免冗余 I2C 事务）；显示未就绪则保持待渲染，就绪后补绘。
@@ -23,25 +27,23 @@
 /* 标题行 + 3 个可视项行（64px / 16px 字模 = 4 行）。 */
 #define MENU_VISIBLE_ITEMS 3u
 
-static Menu_Screen s_screen;
-static uint8_t     s_run_cursor;   /* RUN_LIST 焦点：0..entry_count-1 = 条目，entry_count = Params 尾项 */
-static uint8_t     s_param_count;  /* >0 时 RUN_LIST 追加 Params 尾项 */
-static bool        s_dirty;        /* 有待渲染 */
+static Menu_Screen         s_screen;
+static const Menu_Group_T *s_groups;
+static uint8_t             s_group_count;
+static uint8_t             s_group_cursor; /* L1 焦点 = 活动一级分类索引 */
+static uint8_t             s_run_cursor;   /* L2 运行条目子列表焦点 */
+static bool                s_dirty;        /* 有待渲染 */
 
-/* RUN_LIST 总项数 = 条目数 +（有参数时）Params 尾项。 */
-static uint8_t run_list_total(void)
+/* 当前活动一级分类（GROUP_LIST 光标所指；调用前 s_group_count>0 由各处理函数保证）。 */
+static const Menu_Group_T *active_group(void)
 {
-    uint8_t total = Scheduler_GetEntryCount();
-
-    if (s_param_count > 0u) {
-        total = (uint8_t)(total + 1u);
-    }
-    return total;
+    return &s_groups[s_group_cursor];
 }
 
 /* 整行项：焦点前缀 + ASCII 文本（hmi 截断到 16 列并空格填满）。
- * text 由契约保证非 NULL（scheduler.h 条目名 / menu.h 参数名 / "Params" 字面量），
- * 不在此逐层兜底——契约破坏应在拥有者侧断言（§8.3：无失败模型的防御分支应删）。 */
+ * text 契约非 NULL：结构体字段名（Menu_Group_T/Menu_Param_T.name）由 menu.h 契约保证；
+ * scheduler 条目名是返回值型可空来源（越界返回 NULL），已在 run_entry_name_of 唯一边界收敛。
+ * 故此处不逐层兜底——无失败模型的防御分支应删（§8.3）。 */
 static void render_item(uint8_t row, bool focused, const char *text)
 {
     char buf[HMI_DISPLAY_COLS + 1u];
@@ -55,14 +57,14 @@ static void render_item(uint8_t row, bool focused, const char *text)
     (void)Hmi_PrintLine(row, buf);
 }
 
-static void render_run_list(void)
+/* 通用列表渲染：标题 + 以 cursor 为焦点的 3 行滚动窗口；name_of(idx) 取第 idx 项名。 */
+static void render_list(const char *title, uint8_t total, uint8_t cursor,
+                        const char *(*name_of)(uint8_t idx))
 {
-    uint8_t entry_count = Scheduler_GetEntryCount();
-    uint8_t total = run_list_total();
     uint8_t top;
     uint8_t i;
 
-    (void)Hmi_PrintLine(0u, "-- SELECT --");
+    (void)Hmi_PrintLine(0u, title);
 
     if (total == 0u) {
         for (i = 1u; i <= MENU_VISIBLE_ITEMS; ++i) {
@@ -71,30 +73,89 @@ static void render_run_list(void)
         return;
     }
 
-    if (s_run_cursor >= total) {
-        s_run_cursor = (uint8_t)(total - 1u);
+    if (cursor >= total) {
+        cursor = (uint8_t)(total - 1u);
     }
-    top = (uint8_t)((s_run_cursor / MENU_VISIBLE_ITEMS) * MENU_VISIBLE_ITEMS);
+    top = (uint8_t)((cursor / MENU_VISIBLE_ITEMS) * MENU_VISIBLE_ITEMS);
 
     for (i = 0u; i < MENU_VISIBLE_ITEMS; ++i) {
         uint8_t idx = (uint8_t)(top + i);
         uint8_t row = (uint8_t)(i + 1u);
-        const char *name;
 
         if (idx >= total) {
             (void)Hmi_PrintLine(row, "");
-            continue;
+        } else {
+            render_item(row, idx == cursor, name_of(idx));
         }
-        name = (idx < entry_count) ? Scheduler_GetEntryName(idx) : "Params";
-        render_item(row, idx == s_run_cursor, name);
     }
 }
 
-/* RUN_LIST 事件处理；返回是否产生了需要重绘的变化。 */
+static const char *group_name_of(uint8_t idx)
+{
+    return s_groups[idx].name;
+}
+
+static const char *run_entry_name_of(uint8_t idx)
+{
+    /* scheduler 名字是唯一可空来源：GetEntryName 对越界索引返回 NULL——entries[] 与
+     * scheduler 登记表是两张独立维护的表，可能失步（条目数/顺序变更）。在此唯一边界
+     * 收敛为占位串，使共享的 render_item 只面对非 NULL；scheduler 仍是名字所有者，
+     * menu 不复算（单一所有者）。 */
+    const char *name = Scheduler_GetEntryName(active_group()->entries[idx]);
+
+    return (name != NULL) ? name : "?";
+}
+
+static void render_group_list(void)
+{
+    render_list("-- MENU --", s_group_count, s_group_cursor, group_name_of);
+}
+
+static void render_run_list(void)
+{
+    /* 标题用分类名给出上下文（hmi 自截断到 16 列）。 */
+    render_list(active_group()->name, active_group()->entry_count, s_run_cursor,
+                run_entry_name_of);
+}
+
+/* GROUP_LIST（L1）事件处理；返回是否产生需要重绘的变化。 */
+static bool handle_group_list(Hmi_Input ev)
+{
+    switch (ev) {
+    case HMI_INPUT_UP:
+        if (s_group_count > 0u) {
+            s_group_cursor = (uint8_t)((s_group_cursor + s_group_count - 1u) % s_group_count);
+            return true;
+        }
+        return false;
+    case HMI_INPUT_DOWN:
+        if (s_group_count > 0u) {
+            s_group_cursor = (uint8_t)((s_group_cursor + 1u) % s_group_count);
+            return true;
+        }
+        return false;
+    case HMI_INPUT_ENTER:
+        if (s_group_count == 0u) {
+            return false;
+        }
+        if (active_group()->kind == MENU_GROUP_PARAM) {
+            MenuParam_Enter(active_group()->params, active_group()->param_count);
+            s_screen = MENU_SCREEN_PARAM_LIST;
+        } else {
+            s_run_cursor = 0u;
+            s_screen = MENU_SCREEN_RUN_LIST;
+        }
+        return true;
+    case HMI_INPUT_BACK:
+    default:
+        return false; /* 根界面：BACK 无操作 */
+    }
+}
+
+/* RUN_LIST（L2）事件处理；返回是否产生需要重绘的变化。 */
 static bool handle_run_list(Hmi_Input ev)
 {
-    uint8_t entry_count = Scheduler_GetEntryCount();
-    uint8_t total = run_list_total();
+    uint8_t total = active_group()->entry_count;
 
     switch (ev) {
     case HMI_INPUT_UP:
@@ -113,24 +174,20 @@ static bool handle_run_list(Hmi_Input ev)
         if (total == 0u) {
             return false;
         }
-        if (s_run_cursor < entry_count) {
-            if (Scheduler_EnterEntry(s_run_cursor)) {
-                s_screen = MENU_SCREEN_RUN_ACTIVE; /* 让出显示，无待渲染 */
-                return false;
-            }
-            return false;
+        /* 子列表位 → scheduler 全局条目索引。 */
+        if (Scheduler_EnterEntry(active_group()->entries[s_run_cursor])) {
+            s_screen = MENU_SCREEN_RUN_ACTIVE; /* 让出显示，无待渲染 */
         }
-        /* 焦点在 Params 尾项。 */
-        MenuParam_Enter();
-        s_screen = MENU_SCREEN_PARAM_LIST;
-        return true;
+        return false;
     case HMI_INPUT_BACK:
+        s_screen = MENU_SCREEN_GROUP_LIST;
+        return true;
     default:
-        return false; /* 根界面：BACK 无操作 */
+        return false;
     }
 }
 
-/* RUN_ACTIVE 事件处理：仅 BACK 停止并回到运行列表（重绘）；其余丢弃。 */
+/* RUN_ACTIVE 事件处理：仅 BACK 停止并回到本组条目子列表（重绘）；其余丢弃。 */
 static bool handle_run_active(Hmi_Input ev)
 {
     if (ev == HMI_INPUT_BACK) {
@@ -144,6 +201,11 @@ static bool handle_run_active(Hmi_Input ev)
 static void handle_event(Hmi_Input ev)
 {
     switch (s_screen) {
+    case MENU_SCREEN_GROUP_LIST:
+        if (handle_group_list(ev)) {
+            s_dirty = true;
+        }
+        break;
     case MENU_SCREEN_RUN_LIST:
         if (handle_run_list(ev)) {
             s_dirty = true;
@@ -169,6 +231,9 @@ static void handle_event(Hmi_Input ev)
 static void render(void)
 {
     switch (s_screen) {
+    case MENU_SCREEN_GROUP_LIST:
+        render_group_list();
+        break;
     case MENU_SCREEN_RUN_LIST:
         render_run_list();
         break;
@@ -182,13 +247,14 @@ static void render(void)
     }
 }
 
-void Menu_Setup(const Menu_Param_T *params, uint8_t param_count)
+void Menu_Setup(const Menu_Group_T *groups, uint8_t group_count)
 {
-    s_screen = MENU_SCREEN_RUN_LIST;
+    s_screen = MENU_SCREEN_GROUP_LIST;
+    s_groups = groups;
+    s_group_count = group_count;
+    s_group_cursor = 0u;
     s_run_cursor = 0u;
-    s_param_count = param_count;
     s_dirty = true;
-    MenuParam_Init(params, param_count);
 }
 
 void Menu_Tick(uint32_t now_ms)

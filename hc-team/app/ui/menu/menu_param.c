@@ -4,7 +4,7 @@
  *
  * 状态机（转移随下方注释交付）：
  *   PARAM_LIST --ENTER(有参数)--> PARAM_EDIT --ENTER/BACK--> PARAM_LIST
- *   PARAM_LIST --BACK--> RUN_LIST（退回运行选择，由 menu.c 接管）
+ *   PARAM_LIST --BACK--> GROUP_LIST（退回一级分类，由 menu.c 接管）
  * 编辑：UP=set(get()+step)，DOWN=set(get()-step)，调整后回读 get() 由渲染反映；
  *       子模块不存值副本、不限幅——回读即反映拥有 Service 的限幅。
  */
@@ -66,16 +66,10 @@ static void render_item(uint8_t row, bool focused, const char *text)
     (void)Hmi_PrintLine(row, buf);
 }
 
-void MenuParam_Init(const Menu_Param_T *params, uint8_t count)
+void MenuParam_Enter(const Menu_Param_T *params, uint8_t count)
 {
     s_params = params;
     s_count = count;
-    s_cursor = 0u;
-    s_editing = false;
-}
-
-void MenuParam_Enter(void)
-{
     s_cursor = 0u;
     s_editing = false;
 }
@@ -120,7 +114,7 @@ Menu_Screen MenuParam_Handle(Hmi_Input ev)
         }
         break;
     case HMI_INPUT_BACK:
-        return MENU_SCREEN_RUN_LIST;
+        return MENU_SCREEN_GROUP_LIST;
     default:
         break;
     }
