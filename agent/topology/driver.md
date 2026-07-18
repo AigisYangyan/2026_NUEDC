@@ -52,7 +52,23 @@ class VisionUart_API {
   <<driver:board_uart>>
   +VisionUart_Init()
   +VisionUart_Read()
+  +VisionUart_TryWrite()
+  +VisionUart_IsTxIdle()
+  +VisionUart_ConsumeTxDone()
   +VisionUart_GetRxOverflowCount()
+}
+
+class UartVision_API {
+  <<driver:uart_vision>>
+  +UartVision_Init()
+  +UartVision_Poll()
+  +UartVision_GetLatestCoord(out) bool
+  +UartVision_GetCoordSeq() uint32_t
+  +UartVision_SendTopic(main, sub) bool
+  +UartVision_GetTopicAck(main*, sub*) bool
+  +UartVision_GetTopicAckSeq() uint32_t
+  note: 唯一编解码所有者——坐标帧 0xAA55+len+payload+CRC16-MODBUS RX，选题帧 0xFF+main+sub+0xFE 双向
+  note: 坐标 float32 原样透传，不做单位/极性变换；时效判定归上层（只给单调 seq，不持墙钟）
 }
 
 class VofaUart_API {
@@ -177,7 +193,7 @@ BoardGpio_API --> Runtime_API : transitional raw counts and key edge bitmap
 BoardGpio_API --> DL_HAL : DL_GPIO_readPins for key raw levels
 Runtime_API --> Clock_API : bounded millisecond delay
 Runtime_API --> DL_HAL : GPIO UART DMA
-Runtime_API --> VisionUart_API : fixed UART RX dispatch
+Runtime_API --> VisionUart_API : fixed RX TX DMA dispatch, VISION_TX IRQ clear + VisionUart_IsrTxDone
 Runtime_API --> VofaUart_API : fixed RX DMA completion
 Runtime_API --> StepmotorUart_API : fixed RX TX DMA dispatch
 Runtime_API --> ImuUart_API : fixed UART_IMU IRQ RX dispatch, no DMA
@@ -186,7 +202,8 @@ Encoder_API --> BoardGpio_API : raw snapshot
 Key_API --> BoardGpio_API : pull raw key bitmap
 OLED_API --> Clock_API : time
 OLED_API --> DL_HAL : I2C_AUX exclusive
-VisionUart_API --> DL_HAL : UART_VISION RX
+VisionUart_API --> DL_HAL : UART_VISION RX TX DMA
+UartVision_API --> VisionUart_API : task-context drain and TryWrite, Driver-Driver same layer controlled
 VofaUart_API --> DL_HAL : UART_HOST_LINK = UART5 PA1/PA0 230400 RX DMA TX DMA
 StepmotorUart_API --> DL_HAL : UART_STEPPER_BUS RX DMA TX DMA
 ImuUart_API --> DL_HAL : UART_IMU = UART3 PA25/PA26 230400 IRQ RX polling TX

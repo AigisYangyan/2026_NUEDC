@@ -49,6 +49,7 @@ void StepmotorUart_IsrTxDone(void);
 void VofaUart_IsrPushByte(uint8_t data);
 void VofaUart_IsrTxDone(void);
 void VisionUart_IsrPushByte(uint8_t data);
+void VisionUart_IsrTxDone(void);
 void ImuUart_IsrPushByte(uint8_t data);
 
 static uint32_t runtime_dma_irq_mask(uint8_t dma_ch_num)
@@ -350,6 +351,7 @@ void DMA_IRQHandler(void)
     if ((pending_irq & runtime_dma_irq_mask(RT_DMA_VISION_TX)) != 0u) {
         DL_DMA_clearInterruptStatus(DMA, runtime_dma_irq_mask(RT_DMA_VISION_TX));
         DL_UART_clearInterruptStatus(UART_VISION_INST, DL_UART_INTERRUPT_DMA_DONE_TX);
+        VisionUart_IsrTxDone();
     }
 }
 

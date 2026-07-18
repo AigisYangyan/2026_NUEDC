@@ -11,8 +11,10 @@ void VisionUart_TestPushRxByte(uint8_t data);
 void VofaUart_TestPushRxByte(uint8_t data);
 void StepmotorUart_TestPushRxByte(uint8_t data);
 void ImuUart_TestPushRxByte(uint8_t data);
+void VisionUart_TestCompleteTx(void);
 void VofaUart_TestCompleteTx(void);
 void StepmotorUart_TestCompleteTx(void);
+uint32_t VisionUart_TestCopyLastTx(uint8_t *out, uint32_t capacity);
 uint32_t VofaUart_TestCopyLastTx(uint8_t *out, uint32_t capacity);
 uint32_t StepmotorUart_TestCopyLastTx(uint8_t *out, uint32_t capacity);
 uint32_t ImuUart_TestCopyTxLog(uint8_t *out, uint32_t capacity);
@@ -68,6 +70,20 @@ uint32_t FakeUartPort_CopyImuTxLog(uint8_t *out, uint32_t capacity)
     }
 
     return ImuUart_TestCopyTxLog(out, capacity);
+}
+
+void FakeUartPort_CompleteVisionTx(void)
+{
+    VisionUart_TestCompleteTx();
+}
+
+uint32_t FakeUartPort_CopyVisionTx(uint8_t *out, uint32_t capacity)
+{
+    if ((out != NULL) && (capacity > 0u)) {
+        memset(out, 0, capacity);
+    }
+
+    return VisionUart_TestCopyLastTx(out, capacity);
 }
 
 void FakeUartPort_CompleteVofaTx(void)
