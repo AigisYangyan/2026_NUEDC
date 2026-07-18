@@ -39,3 +39,7 @@ tests/host/test_scheduler
 tests/host/test_scheduler.exe
 tests/host/test_menu
 tests/host/test_menu.exe
+tests/host/test_heading
+tests/host/test_heading.exe
+tests/host/test_odometry
+tests/host/test_odometry.exe
