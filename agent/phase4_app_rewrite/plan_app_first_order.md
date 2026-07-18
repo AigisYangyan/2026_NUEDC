@@ -70,7 +70,7 @@
 | S06 | motion 语义运动服务（v1：直行 N mm/定角转/定点停；IMU 航向保持可插拔） | `app/service/motion/` | task1 直行/转弯编排（冻结不迁移，重建） | — | `DONE`（契约 §15 冻结 226f8fd；代码 e30c2a0；arch-auditor 6 项通过、1 建议级文档处置见 §15.5。E01 0 命中 / E02 无越界 / E03 253 PASS 0 FAIL＝235 基线+18 / E04 exit 0、0 诊断、motion.o 经 linkInfo.xml 确证进链（3 引用）。IMU 泵所有权 motion 激活期独占落定、里程计 total 差值一次性消费、V21 双泵第三泵送者、圆弧移出 v1→S06b） |
 | S06b | motion 圆弧原语（定半径+定角，双轮速度比 + 航向误差修正） | `app/service/motion/`（S06 契约修订流程扩面） | — | — | 排队（S06 后；用户 2026-07-18 裁定拆分，控制律/测试面更大单独立项） |
 | M02 | 循迹元素检测（几何类别检测器：断线/横线/左岔/右岔，特征+连续置信计数+上升沿事件） | `middleware/track_elements/` | — | — | `DONE`（契约 §16 冻结 b71b59b；代码 cf745f8；arch-auditor 无阻断/无重要级，1 建议级文档处置见 §16.5。E01 0 命中 / E02 无越界 / E03 269 PASS 0 FAIL＝253 基线+16 / E04 exit 0、0 诊断、track_elements.o 经 linkInfo.xml 确证进链（3 引用）。位图并列消费者不采样（非 V21 双泵）、bit0_is_left 无第二反转、V24 登记） |
-| M03 | speed_plan 速度规划（Middleware 纯算法：`\|error_mm\|` → 有状态斜坡基速，直道加速/入弯减速，自持输出限幅） | `middleware/speed_plan/` | — | — | `施工中`（契约 §17 冻结；本轮） |
+| M03 | speed_plan 速度规划（Middleware 纯算法：`\|error_mm\|` → 有状态斜坡基速，直道加速/入弯减速，自持输出限幅） | `middleware/speed_plan/` | — | — | `DONE`（契约 §17 冻结 61f4149；代码 8d84657；契约修订 1/审计处置 8975b2a；代码 fix 6ace23b；拓扑同步 3b92258。E01 0 命中 / E02 无越界 / E03 285 PASS 0 FAIL＝269 基线+16 / E04 exit 0、0 诊断、speed_plan.o 经 linkInfo.xml 确证进链。arch-auditor 无阻断/无重要级，2 建议级已处置（F1 删排序夹紧、F2 白名单更正）；基速调制单一所有者落定 speed_plan，V25 登记） |
 | S02b | line_follow 深化：M02 元素事件面接入 + M03 速度调制接入（base_speed 合成点仍唯一在 line_follow_apply） | `app/service/line_follow/` | — | — | 排队（M03 后；S02 契约修订流程） |
 | S07 | route 分段路线执行服务（段表驱动：FOLLOW_UNTIL(元素)/STRAIGHT/TURN/ARC——新题=换段表） | `app/service/route/` | task1 分段状态机 | — | 排队（S02b 后；范围 Q6 契约裁定） |
 | SYS01 | 装配入口更新 | `app/system/` | sys_init.c 增量改造 | — | 随各阶段 |
