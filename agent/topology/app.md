@@ -152,6 +152,12 @@ class Odometry_API {
   +Odometry_GetPose(const Odometry_T*, Odometry_Pose_T*)
 }
 
+class VisionAim_API {
+  <<middleware:vision_aim, NEW S05b, zero callers>>
+  +VisionAim_Init(const VisionAim_Config_T*)
+  +VisionAim_Map(coord_x, coord_y, cur_x_pulse, cur_y_pulse, VisionAim_Result_T*)
+}
+
 class Chassis_API {
   <<app:service>>
   +Chassis_Init()
@@ -472,6 +478,15 @@ Odometry_API --> Heading_API : embeds Heading_T, sole caller of Heading_Unwrap
 %% caller landed S02b 2026-07-18 (LineFollow_API edge above): its output replaces the former
 %% static base_speed_mps constant (line_follow.c:63-64, field removed) as the base in
 %% base±diff at the sole synthesis point line_follow_apply().
+
+%% VisionAim_API (S05b, landed 2026-07-18) — pure algorithm, E01 dependency scan 0 hits
+%% against Driver/App/other middleware/DL HAL (only <stdint.h>/<stdbool.h>/<stddef.h>).
+%% Maps float32 pixel coord (S05a UartVision_API transfers coord as float, decoupled here —
+%% no edge to UartVision_API: this module takes plain float x/y args, not driver coord type).
+%% Sole owner of deadband/proportional-step/floor-1/step-clamp/polarity sign[axis]/travel-limit
+%% geometry (see index §6 new V-entry). Axis cumulative position STATE stays with the future
+%% caller (S05c), passed in each tick as cur_pulse — not owned here. Zero callers today
+%% (S05c gimbal service not yet built), same pattern as M01/M02/M03 before their first caller.
 
 Tuning_API --> Clock_API : 10ms self-gate, unsigned-subtract elapsed
 Tuning_API --> VofaDriver_API : vofa_clear_profile + vofa_run, Enter-time RX drain (contract amendment 1)
