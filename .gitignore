@@ -55,3 +55,7 @@ tests/host/test_route
 tests/host/test_route.exe
 tests/host/test_vision_aim
 tests/host/test_vision_aim.exe
+tests/host/test_gimbal_stepbus
+tests/host/test_gimbal_stepbus.exe
+tests/host/test_gimbal
+tests/host/test_gimbal.exe

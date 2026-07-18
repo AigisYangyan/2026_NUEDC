@@ -69,8 +69,13 @@ ROUTE_SRC = ../../hc-team/app/service/route/route.c
 ROUTE_TEST_SRC = test_route.c
 VISION_AIM_SRC = ../../hc-team/middleware/vision_aim/vision_aim.c
 VISION_AIM_TEST_SRC = test_vision_aim.c
+EMM42_SRC = ../../hc-team/driver/step_motor/emm42.c
+GIMBAL_STEPBUS_SRC = ../../hc-team/app/service/gimbal/gimbal_stepbus.c
+GIMBAL_SRC = ../../hc-team/app/service/gimbal/gimbal.c
+GIMBAL_STEPBUS_TEST_SRC = test_gimbal_stepbus.c
+GIMBAL_TEST_SRC = test_gimbal.c
 
-all: test_encoder run test_pid run_pid test_motor run_motor test_key run_key test_uart_fifo run_uart_fifo test_vofa_rx run_vofa_rx test_stepmotor_uart run_stepmotor_uart test_uart_vision run_uart_vision test_oled run_oled test_imu run_imu test_gray run_gray test_track_error run_track_error test_chassis run_chassis test_lost_line run_lost_line test_line_follow run_line_follow test_tuning run_tuning test_hmi run_hmi test_scheduler run_scheduler test_menu run_menu test_heading run_heading test_odometry run_odometry test_motion run_motion test_track_elements run_track_elements test_speed_plan run_speed_plan test_route run_route test_vision_aim run_vision_aim
+all: test_encoder run test_pid run_pid test_motor run_motor test_key run_key test_uart_fifo run_uart_fifo test_vofa_rx run_vofa_rx test_stepmotor_uart run_stepmotor_uart test_uart_vision run_uart_vision test_oled run_oled test_imu run_imu test_gray run_gray test_track_error run_track_error test_chassis run_chassis test_lost_line run_lost_line test_line_follow run_line_follow test_tuning run_tuning test_hmi run_hmi test_scheduler run_scheduler test_menu run_menu test_heading run_heading test_odometry run_odometry test_motion run_motion test_track_elements run_track_elements test_speed_plan run_speed_plan test_route run_route test_vision_aim run_vision_aim test_gimbal_stepbus run_gimbal_stepbus test_gimbal run_gimbal
 
 test_encoder: $(DRIVER_SRC) $(ENCODER_OWNER_SRC) $(FAKE_SRC) $(MOTOR_DRIVER_SRC) $(MOTOR_FAKE_SRC) $(PID_SRC) $(TEST_SRC)
 	$(CC) $(CFLAGS) -o $@ $(DRIVER_SRC) $(ENCODER_OWNER_SRC) $(FAKE_SRC) $(MOTOR_DRIVER_SRC) $(MOTOR_FAKE_SRC) $(PID_SRC) $(TEST_SRC) $(GC_LDFLAGS) -lm
@@ -224,6 +229,22 @@ test_vision_aim: $(VISION_AIM_SRC) ../../hc-team/middleware/vision_aim/vision_ai
 run_vision_aim: test_vision_aim
 	./test_vision_aim
 
+# gimbal_stepbus = 服务内私有最小步进 TX 派发（契约 §21.3）：真实 gimbal_stepbus + emm42 + stepmotor_uart
+# + fake_uart_port（步进 TX 抓取/完成 + RX 注入）；无 Clock、无 vision_aim。fake_uart_port 需 4 路 board_uart。
+test_gimbal_stepbus: $(GIMBAL_STEPBUS_SRC) ../../hc-team/app/service/gimbal/gimbal_stepbus.h $(EMM42_SRC) $(BOARD_UART_VISION_SRC) $(BOARD_UART_VOFA_SRC) $(BOARD_UART_STEPMOTOR_SRC) $(BOARD_UART_IMU_SRC) $(FAKE_UART_PORT_SRC) $(GIMBAL_STEPBUS_TEST_SRC)
+	$(CC) $(CFLAGS) -o $@ $(GIMBAL_STEPBUS_SRC) $(EMM42_SRC) $(BOARD_UART_VISION_SRC) $(BOARD_UART_VOFA_SRC) $(BOARD_UART_STEPMOTOR_SRC) $(BOARD_UART_IMU_SRC) $(FAKE_UART_PORT_SRC) $(GIMBAL_STEPBUS_TEST_SRC) $(GC_LDFLAGS) -lm
+
+run_gimbal_stepbus: test_gimbal_stepbus
+	./test_gimbal_stepbus
+
+# gimbal = 云台视觉瞄准服务（契约 §21.3）：真实 gimbal + gimbal_stepbus + uart_vision + vision_aim + emm42
+# + stepmotor_uart + board_uart×4 + fake_uart_port（视觉 RX 注入 + 步进 TX 抓取）+ fake_clock。
+test_gimbal: $(GIMBAL_SRC) ../../hc-team/app/service/gimbal/gimbal.h $(GIMBAL_STEPBUS_SRC) $(UART_VISION_DRIVER_SRC) $(VISION_AIM_SRC) $(EMM42_SRC) $(BOARD_UART_VISION_SRC) $(BOARD_UART_VOFA_SRC) $(BOARD_UART_STEPMOTOR_SRC) $(BOARD_UART_IMU_SRC) $(FAKE_UART_PORT_SRC) $(FAKE_CLOCK_SRC) $(GIMBAL_TEST_SRC)
+	$(CC) $(CFLAGS) -o $@ $(GIMBAL_SRC) $(GIMBAL_STEPBUS_SRC) $(UART_VISION_DRIVER_SRC) $(VISION_AIM_SRC) $(EMM42_SRC) $(BOARD_UART_VISION_SRC) $(BOARD_UART_VOFA_SRC) $(BOARD_UART_STEPMOTOR_SRC) $(BOARD_UART_IMU_SRC) $(FAKE_UART_PORT_SRC) $(FAKE_CLOCK_SRC) $(GIMBAL_TEST_SRC) $(GC_LDFLAGS) -lm
+
+run_gimbal: test_gimbal
+	./test_gimbal
+
 test_oled: $(OLED_DRIVER_SRC) $(FAKE_I2C_PORT_SRC) $(OLED_TEST_SRC)
 	$(CC) $(CFLAGS) -o $@ $(OLED_DRIVER_SRC) $(FAKE_I2C_PORT_SRC) $(OLED_TEST_SRC) $(GC_LDFLAGS) -lm
 
@@ -284,9 +305,13 @@ clean:
 	cmd.exe /D /C "if exist test_route del /Q /F test_route"
 	cmd.exe /D /C "if exist test_vision_aim.exe del /Q /F test_vision_aim.exe"
 	cmd.exe /D /C "if exist test_vision_aim del /Q /F test_vision_aim"
+	cmd.exe /D /C "if exist test_gimbal_stepbus.exe del /Q /F test_gimbal_stepbus.exe"
+	cmd.exe /D /C "if exist test_gimbal_stepbus del /Q /F test_gimbal_stepbus"
+	cmd.exe /D /C "if exist test_gimbal.exe del /Q /F test_gimbal.exe"
+	cmd.exe /D /C "if exist test_gimbal del /Q /F test_gimbal"
 else
 clean:
-	rm -f test_encoder test_encoder.exe test_pid test_pid.exe test_motor test_motor.exe test_key test_key.exe test_uart_fifo test_uart_fifo.exe test_vofa_rx test_vofa_rx.exe test_stepmotor_uart test_stepmotor_uart.exe test_uart_vision test_uart_vision.exe test_oled test_oled.exe test_imu test_imu.exe test_gray test_gray.exe test_track_error test_track_error.exe test_chassis test_chassis.exe test_lost_line test_lost_line.exe test_line_follow test_line_follow.exe test_tuning test_tuning.exe test_hmi test_hmi.exe test_scheduler test_scheduler.exe test_menu test_menu.exe test_heading test_heading.exe test_odometry test_odometry.exe test_motion test_motion.exe test_track_elements test_track_elements.exe test_speed_plan test_speed_plan.exe test_route test_route.exe test_vision_aim test_vision_aim.exe
+	rm -f test_encoder test_encoder.exe test_pid test_pid.exe test_motor test_motor.exe test_key test_key.exe test_uart_fifo test_uart_fifo.exe test_vofa_rx test_vofa_rx.exe test_stepmotor_uart test_stepmotor_uart.exe test_uart_vision test_uart_vision.exe test_oled test_oled.exe test_imu test_imu.exe test_gray test_gray.exe test_track_error test_track_error.exe test_chassis test_chassis.exe test_lost_line test_lost_line.exe test_line_follow test_line_follow.exe test_tuning test_tuning.exe test_hmi test_hmi.exe test_scheduler test_scheduler.exe test_menu test_menu.exe test_heading test_heading.exe test_odometry test_odometry.exe test_motion test_motion.exe test_track_elements test_track_elements.exe test_speed_plan test_speed_plan.exe test_route test_route.exe test_vision_aim test_vision_aim.exe test_gimbal_stepbus test_gimbal_stepbus.exe test_gimbal test_gimbal.exe
 endif
 
-.PHONY: all run run_pid run_motor run_key run_uart_fifo run_vofa_rx run_stepmotor_uart run_uart_vision run_oled run_imu run_gray run_track_error run_chassis run_lost_line run_line_follow run_tuning run_hmi run_scheduler run_menu run_heading run_odometry run_motion run_track_elements run_speed_plan run_route run_vision_aim clean
+.PHONY: all run run_pid run_motor run_key run_uart_fifo run_vofa_rx run_stepmotor_uart run_uart_vision run_oled run_imu run_gray run_track_error run_chassis run_lost_line run_line_follow run_tuning run_hmi run_scheduler run_menu run_heading run_odometry run_motion run_track_elements run_speed_plan run_route run_vision_aim run_gimbal_stepbus run_gimbal clean

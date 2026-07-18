@@ -239,6 +239,26 @@ class Route_API {
   +Route_GetTelemetry(Route_Telemetry_T*)
 }
 
+class Gimbal_API {
+  <<app:service, NEW S05c>>
+  +Gimbal_Init(const Gimbal_Config_T*)
+  +Gimbal_SelectTopic(main_task, sub_task) bool
+  +Gimbal_Update()
+  +Gimbal_Stop()
+  +Gimbal_GetState() Gimbal_State
+  +Gimbal_GetTelemetry(Gimbal_Telemetry_T*)
+}
+
+class GimbalStepbus_API {
+  <<app:service, NEW S05c, private to gimbal>>
+  +GimbalStepbus_Init()
+  +GimbalStepbus_Service()
+  +GimbalStepbus_IsIdle() bool
+  +GimbalStepbus_TrySendRelative(axis, pulses, speed_rpm) bool
+  +GimbalStepbus_TrySendEnable(axis, on) bool
+  +GimbalStepbus_TrySendSetZero(axis) bool
+}
+
 class SpeedLoop_API {
   <<app:task>>
   +SpeedLoop_Init()
@@ -334,6 +354,7 @@ class Platform2D_API {
 
 class Runtime_API { <<driver>> }
 class VisionUart_API { <<driver>> }
+class UartVision_API { <<driver>> }
 class VofaUart_API { <<driver>> }
 class StepmotorUart_API { <<driver>> }
 class Motor_API { <<driver>> }
@@ -484,9 +505,9 @@ Odometry_API --> Heading_API : embeds Heading_T, sole caller of Heading_Unwrap
 %% Maps float32 pixel coord (S05a UartVision_API transfers coord as float, decoupled here —
 %% no edge to UartVision_API: this module takes plain float x/y args, not driver coord type).
 %% Sole owner of deadband/proportional-step/floor-1/step-clamp/polarity sign[axis]/travel-limit
-%% geometry (see index §6 new V-entry). Axis cumulative position STATE stays with the future
-%% caller (S05c), passed in each tick as cur_pulse — not owned here. Zero callers today
-%% (S05c gimbal service not yet built), same pattern as M01/M02/M03 before their first caller.
+%% geometry (see index §6 V26). Axis cumulative position STATE stays with the caller
+%% (S05c Gimbal_API, landed 2026-07-18), passed in each tick as cur_pulse — not owned here.
+%% First real caller landed S05c (Gimbal_API edge below), Gimbal_API never recomputes this geometry.
 
 Tuning_API --> Clock_API : 10ms self-gate, unsigned-subtract elapsed
 Tuning_API --> VofaDriver_API : vofa_clear_profile + vofa_run, Enter-time RX drain (contract amendment 1)
@@ -513,6 +534,22 @@ Motion_API --> Chassis_API : same-layer controlled, SetTargetMps + cascaded Upda
 %% expected-transition state as Motion_API/LineFollow_API/Chassis_API before their Task wiring).
 Route_API --> LineFollow_API : FOLLOW_UNTIL segments — Start/Update/Stop/GetState/PollElementEvents, at most one drive per tick
 Route_API --> Motion_API : STRAIGHT/TURN/ARC segments — Update (incl. IDLE catch-up)/StartStraight/StartTurn/StartArc/Stop/IsDone, at most one drive per tick
+
+%% Gimbal_API / GimbalStepbus_API (S05c, landed 2026-07-18) — completes the vision aiming chain:
+%% wires S05a UartVision_API (coord/handshake codec) and S05b VisionAim_API (pixel-error to
+%% pulse-delta geometry) into a running Service->Driver direct chain (Service->App Task not
+%% used; stepmotor bus goes Service->Driver directly, bypassing frozen stepmotor_bus.c mgmt
+%% queue). Sole owner of axis cumulative pulse position (accumulated only after a successful
+%% send) and of coordinate-staleness judgement (seq stall -> STOPPED); never recomputes
+%% VisionAim_API's deadband/kp/step-clamp/polarity/travel-limit geometry (V26 audited pass).
+%% odometry feedforward deliberately NOT wired this round (contract §21.3 design decision 2;
+%% see index §5.2/§6 V22 — Odometry_GetPose read point reserved, not called).
+Gimbal_API --> VisionAim_API : VisionAim_Map per tick, cur_pulse fed by caller, no recompute of aim geometry
+Gimbal_API --> UartVision_API : Poll/GetLatestCoord+GetCoordSeq/SendTopic/GetTopicAck+GetTopicAckSeq
+Gimbal_API --> Clock_API : 10ms self-gate, unsigned-subtract elapsed
+Gimbal_API --> GimbalStepbus_API : same-layer controlled, private pulse dispatch submodule
+GimbalStepbus_API --> Emm42_API : Build*Frame packing (dir/magnitude split sole owner here; RPM clamp stays emm42.c)
+GimbalStepbus_API --> StepmotorUart_API : TryWrite/IsTxIdle/ConsumeTxDone/Read (drain+discard, vision is the only feedback path)
 ```
 
 ## 4. 当前启动与调度逻辑图
