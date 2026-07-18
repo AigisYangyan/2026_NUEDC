@@ -10,11 +10,17 @@
  *   ImuUart FIFO → Imu_Update(本服务独占) → Imu_Snapshot[yaw_deg,valid] → 按值喂 Odometry_Update。
  *
  * 转移表：
- *   IDLE →(StartStraight,d>0)→ STRAIGHT；IDLE →(StartTurn,d≠0)→ TURN
+ *   IDLE →(StartStraight,d>0)→ STRAIGHT；IDLE →(StartTurn,d≠0)→ TURN；
+ *   IDLE →(StartArc,radius/角有效)→ ARC
  *   STRAIGHT →(dist≥target)→ DONE（Chassis_Stop）
  *   TURN →(|target−rel|≤tol)→ DONE（Chassis_Stop）
+ *   ARC →(|arc_deg|−|rel|≤tol)→ DONE（Chassis_Stop）
  *   任意态 →(Stop)→ IDLE（Chassis_Stop）
  *   IDLE/DONE：底盘静默（不泵 Chassis_Update，刹车真值表保持）。
+ *
+ * 圆弧原语（S06b，计划表 §19）：双轮速度比前馈（由半径 R 与轮距 track_width 定内外轮速）
+ *   + 航向误差修正（用 odometry 连续航向纠半径漂移）。轮距是本服务新增单一所有者
+ *   （§19.0），仅前馈几何用，非第二航向权威；完成/修正基准均读 odometry 航向（IMU 源）。
  */
 #include "app/service/motion/motion.h"
 
@@ -26,6 +32,8 @@
 
 #include <math.h>
 #include <stddef.h>
+
+#define MOTION_DEG_PER_RAD 57.2957795f   /* 180/π，圆弧期望航向由弧长/半径换算用 */
 
 /* ---- 服务私有状态（全部私有，仅经公共 API 读写） ------------------------- */
 
@@ -46,8 +54,14 @@ static float   s_ref_x_mm;             /* STRAIGHT 起点 */
 static float   s_ref_y_mm;
 static float   s_ref_heading_deg;      /* STRAIGHT/TURN 航向基准 */
 static bool    s_heading_hold;         /* STRAIGHT 是否启用航向保持 */
-static float   s_target;               /* STRAIGHT=距离 mm；TURN=相对角 deg */
+static float   s_target;               /* STRAIGHT=距离 mm；TURN/ARC=相对角/圆心角 deg */
 static float   s_progress;             /* 已完成量 */
+
+/* 圆弧原语（ARC）专属：半径 + 路径长累计 + 上拍位姿参考（弧长由 odometry 毫米位姿派生）。 */
+static float   s_arc_radius_mm;        /* >0，StartArc 记录 */
+static float   s_arc_len_mm;           /* 已行进弧长（∑相邻位姿弦长，非二次脉冲换算） */
+static float   s_arc_prev_x_mm;        /* 上拍位姿（弧长增量基准） */
+static float   s_arc_prev_y_mm;
 
 /* ---- 内部：把「一拍」里程计数据推进位姿 ---------------------------------- */
 
@@ -112,6 +126,10 @@ void Motion_Init(const Motion_Config_T *cfg)
     s_heading_hold = false;
     s_target = 0.0f;
     s_progress = 0.0f;
+    s_arc_radius_mm = 0.0f;
+    s_arc_len_mm = 0.0f;
+    s_arc_prev_x_mm = 0.0f;
+    s_arc_prev_y_mm = 0.0f;
 }
 
 bool Motion_StartStraight(float distance_mm, bool heading_hold)
@@ -139,6 +157,30 @@ bool Motion_StartTurn(float relative_deg)
     s_target = relative_deg;
     s_progress = 0.0f;
     s_state = MOTION_TURN;
+    return true;
+}
+
+bool Motion_StartArc(float radius_mm, float arc_deg)
+{
+    if (radius_mm <= 0.0f) {
+        return false;
+    }
+    if (arc_deg == 0.0f) {
+        return false;
+    }
+    /* 前进圆弧约束：内轮速 = vc·(R−track/2)/R 必须 ≥0，否则内轮反向（属 TURN 语义）。 */
+    if (radius_mm < s_cfg.track_width_mm * 0.5f) {
+        return false;
+    }
+    s_arc_radius_mm = radius_mm;
+    s_target = arc_deg;
+    s_progress = 0.0f;
+    s_arc_len_mm = 0.0f;
+    s_arc_prev_x_mm = s_pose.x_mm;
+    s_arc_prev_y_mm = s_pose.y_mm;
+    s_ref_heading_deg = s_pose.heading_deg;
+    Pid_Reset(&s_hold_pid);   /* 复用航向保持 PID 实例；单活动原语保证不与直行纠偏并发 */
+    s_state = MOTION_ARC;
     return true;
 }
 
@@ -204,6 +246,61 @@ static void motion_step_turn(void)
     Chassis_Update();
 }
 
+/* ARC：定半径圆弧。前馈内外轮速比 + odometry 连续航向误差修正。
+ *   完成判据（航向驱动，IMU 权威）：|arc_deg|−|rel|≤turn_tol_deg。
+ *   前馈：half=track/2；v_inner=vc·(R−half)/R、v_outer=vc·(R+half)/R；
+ *         CCW(dir>0) 左内右外、CW 左外右内。
+ *   修正：期望已转角 exp=dir·deg(arc_len/R)（幅值夹至 |arc_deg|）；
+ *         corr=Pid(exp, rel)；left−=corr、right+=corr（欠转→推向转更多，CCW/CW 经号自洽）。
+ * 单一所有者：脉冲→距离/yaw 符号/unwrap/限幅/刹车均归既有所有者，本函数只做圆弧几何与修正参考。 */
+static void motion_step_arc(void)
+{
+    float rel = s_pose.heading_deg - s_ref_heading_deg;
+    float dx = s_pose.x_mm - s_arc_prev_x_mm;
+    float dy = s_pose.y_mm - s_arc_prev_y_mm;
+    float dir = (s_target >= 0.0f) ? 1.0f : -1.0f;
+    float radius = s_arc_radius_mm;
+    float half = s_cfg.track_width_mm * 0.5f;
+    float vc = s_cfg.arc_speed_mps;
+    float v_inner = vc * (radius - half) / radius;
+    float v_outer = vc * (radius + half) / radius;
+    float left;
+    float right;
+    float exp_deg;
+    float corr;
+
+    /* 弧长累计：消费 odometry 毫米位姿的相邻弦长（非第二次脉冲→距离换算）。 */
+    s_arc_len_mm += sqrtf(dx * dx + dy * dy);
+    s_arc_prev_x_mm = s_pose.x_mm;
+    s_arc_prev_y_mm = s_pose.y_mm;
+    s_progress = rel;
+
+    if ((fabsf(s_target) - fabsf(rel)) <= s_cfg.turn_tol_deg) {
+        Chassis_Stop();
+        s_state = MOTION_DONE;
+        return;   /* DONE：本拍不泵内环，刹车保持 */
+    }
+
+    if (dir > 0.0f) {          /* CCW：左内右外 */
+        left = v_inner;
+        right = v_outer;
+    } else {                   /* CW：左外右内 */
+        left = v_outer;
+        right = v_inner;
+    }
+
+    exp_deg = dir * (s_arc_len_mm / radius) * MOTION_DEG_PER_RAD;
+    if (fabsf(exp_deg) > fabsf(s_target)) {
+        exp_deg = s_target;    /* 夹到目标（同号，幅值 = |arc_deg|） */
+    }
+    corr = Pid_UpdatePositional(&s_hold_pid, exp_deg, rel);
+    left -= corr;
+    right += corr;
+
+    Chassis_SetTargetMps(left, right);
+    Chassis_Update();
+}
+
 void Motion_Update(void)
 {
     Imu_Snapshot_t imu;
@@ -222,6 +319,9 @@ void Motion_Update(void)
         break;
     case MOTION_TURN:
         motion_step_turn();
+        break;
+    case MOTION_ARC:
+        motion_step_arc();
         break;
     case MOTION_IDLE:
     case MOTION_DONE:
@@ -255,7 +355,8 @@ void Motion_GetTelemetry(Motion_Telemetry_T *out)
     if (out == NULL) {
         return;
     }
-    active = (s_state == MOTION_STRAIGHT) || (s_state == MOTION_TURN);
+    active = (s_state == MOTION_STRAIGHT) || (s_state == MOTION_TURN) ||
+             (s_state == MOTION_ARC);
 
     out->state = s_state;
     out->x_mm = s_pose.x_mm;

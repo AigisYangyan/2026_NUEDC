@@ -72,6 +72,8 @@ static Motion_Config_T default_cfg(void)
     cfg.heading_sign = 1.0f;
     cfg.straight_speed_mps = 0.30f;
     cfg.turn_speed_mps = 0.30f;
+    cfg.arc_speed_mps = 0.30f;
+    cfg.track_width_mm = 100.0f;   /* R=200 → half=50：inner=0.225、outer=0.375（断言直观） */
     cfg.hold_kp = 0.01f;
     cfg.hold_ki = 0.0f;
     cfg.hold_kd = 0.0f;
@@ -453,6 +455,214 @@ static int test_telemetry_reflects_state(void)
     return 0;
 }
 
+/* ---- 圆弧原语（S06b，计划表 §19）---------------------------------------- */
+
+/* StartArc 参数校验：R≤0 / arc_deg=0 / R<track/2 拒绝并保持前态；合法→ARC。 */
+static int test_start_arc_rejects_invalid(void)
+{
+    setup();
+    TEST_ASSERT_TRUE(Motion_StartArc(0.0f, 90.0f) == false);
+    TEST_ASSERT_TRUE(Motion_StartArc(-10.0f, 90.0f) == false);
+    TEST_ASSERT_TRUE(Motion_StartArc(200.0f, 0.0f) == false);
+    TEST_ASSERT_TRUE(Motion_StartArc(40.0f, 90.0f) == false);   /* R=40 < track/2=50 → 内轮反向 */
+    TEST_ASSERT_TRUE(Motion_GetState() == MOTION_IDLE);
+    TEST_ASSERT_TRUE(Motion_StartArc(200.0f, 90.0f) == true);
+    TEST_ASSERT_TRUE(Motion_GetState() == MOTION_ARC);
+    printf("PASS: test_start_arc_rejects_invalid\n");
+    return 0;
+}
+
+/* 前馈速度比（CCW）：起步 arc_len≈0、rel=0 → corr=0 → 纯前馈；
+ * R=200/half=50/vc=0.30 → 左(内)=0.225、右(外)=0.375。 */
+static int test_arc_feedforward_ratio_ccw(void)
+{
+    Chassis_Telemetry_T ct;
+
+    setup();
+    TEST_ASSERT_TRUE(Motion_StartArc(200.0f, 90.0f));
+    tick();   /* 无编码器增量、无 IMU → arc_len=0、rel=0、corr=0 */
+    Chassis_GetTelemetry(&ct);
+    TEST_ASSERT_NEAR(ct.target_mps[CHASSIS_SIDE_LEFT], 0.225f, 1e-3f);
+    TEST_ASSERT_NEAR(ct.target_mps[CHASSIS_SIDE_RIGHT], 0.375f, 1e-3f);
+    TEST_ASSERT_TRUE(ct.target_mps[CHASSIS_SIDE_RIGHT] >
+                     ct.target_mps[CHASSIS_SIDE_LEFT]);
+    printf("PASS: test_arc_feedforward_ratio_ccw\n");
+    return 0;
+}
+
+/* 前馈速度比（CW）：左右互换 → 左(外)=0.375、右(内)=0.225。 */
+static int test_arc_feedforward_ratio_cw(void)
+{
+    Chassis_Telemetry_T ct;
+
+    setup();
+    TEST_ASSERT_TRUE(Motion_StartArc(200.0f, -90.0f));
+    tick();
+    Chassis_GetTelemetry(&ct);
+    TEST_ASSERT_NEAR(ct.target_mps[CHASSIS_SIDE_LEFT], 0.375f, 1e-3f);
+    TEST_ASSERT_NEAR(ct.target_mps[CHASSIS_SIDE_RIGHT], 0.225f, 1e-3f);
+    printf("PASS: test_arc_feedforward_ratio_cw\n");
+    return 0;
+}
+
+/* 航向修正（CCW 欠转）：注入编码器位移使 arc_len 增、但 IMU 航向held 0（rel=0）→
+ * 期望已转角 exp>0、误差>0 → corr>0 → 右轮超前馈外轮、左轮低于前馈内轮（转更多）。 */
+static int test_arc_correction_underturn_ccw(void)
+{
+    Chassis_Telemetry_T ct;
+    int i;
+
+    setup();
+    TEST_ASSERT_TRUE(Motion_StartArc(200.0f, 90.0f));
+    push_yaw(0.0f);   /* 播种航向=0=基准 */
+    for (i = 0; i < 5; i++) {
+        drive_forward(40);   /* 沿航向 0 前进 → x 增、arc_len 增 */
+        push_yaw(0.0f);      /* 航向保持 0 → rel=0（欠转） */
+        tick();
+    }
+    Chassis_GetTelemetry(&ct);
+    TEST_ASSERT_TRUE(ct.target_mps[CHASSIS_SIDE_RIGHT] > 0.375f + 1e-3f);
+    TEST_ASSERT_TRUE(ct.target_mps[CHASSIS_SIDE_LEFT] < 0.225f - 1e-3f);
+    printf("PASS: test_arc_correction_underturn_ccw\n");
+    return 0;
+}
+
+/* 航向修正（CW 欠转）：对称——左轮超前馈外轮、右轮低于前馈内轮。 */
+static int test_arc_correction_underturn_cw(void)
+{
+    Chassis_Telemetry_T ct;
+    int i;
+
+    setup();
+    TEST_ASSERT_TRUE(Motion_StartArc(200.0f, -90.0f));
+    push_yaw(0.0f);
+    for (i = 0; i < 5; i++) {
+        drive_forward(40);
+        push_yaw(0.0f);
+        tick();
+    }
+    Chassis_GetTelemetry(&ct);
+    TEST_ASSERT_TRUE(ct.target_mps[CHASSIS_SIDE_LEFT] > 0.375f + 1e-3f);
+    TEST_ASSERT_TRUE(ct.target_mps[CHASSIS_SIDE_RIGHT] < 0.225f - 1e-3f);
+    printf("PASS: test_arc_correction_underturn_cw\n");
+    return 0;
+}
+
+/* 完成（航向权威）：航向扫到 arc_deg → |arc_deg|−|rel|≤tol → Chassis_Stop（刹车）+ DONE。 */
+static int test_arc_completes_by_heading_and_brakes(void)
+{
+    int i;
+    float yaw;
+    Motion_Telemetry_T t;
+
+    setup();
+    TEST_ASSERT_TRUE(Motion_StartArc(200.0f, 90.0f));
+    yaw = 0.0f;
+    for (i = 0; i < 60; i++) {
+        drive_forward(40);
+        push_yaw(yaw);
+        tick();
+        if (Motion_IsDone()) {
+            break;
+        }
+        if (yaw < 90.0f) {
+            yaw += 10.0f;
+        }
+    }
+    TEST_ASSERT_TRUE(Motion_IsDone());
+    TEST_ASSERT_TRUE(Motion_GetState() == MOTION_DONE);
+    TEST_ASSERT_TRUE(FakeMotorHw_IsBrakeActive(MOTOR_LEFT));
+    TEST_ASSERT_TRUE(FakeMotorHw_IsBrakeActive(MOTOR_RIGHT));
+    Motion_GetTelemetry(&t);
+    TEST_ASSERT_NEAR(t.heading_deg, 90.0f, 5.0f);
+    printf("PASS: test_arc_completes_by_heading_and_brakes\n");
+    return 0;
+}
+
+/* ARC-DONE 静默：完成后多拍 Update 不再泵内环，刹车真值表保持、电机命令不刷新。 */
+static int test_arc_done_is_silent(void)
+{
+    int i;
+    float yaw;
+    int writes_at_done;
+
+    setup();
+    TEST_ASSERT_TRUE(Motion_StartArc(200.0f, 90.0f));
+    yaw = 0.0f;
+    for (i = 0; i < 60; i++) {
+        drive_forward(40);
+        push_yaw(yaw);
+        tick();
+        if (Motion_IsDone()) {
+            break;
+        }
+        if (yaw < 90.0f) {
+            yaw += 10.0f;
+        }
+    }
+    TEST_ASSERT_TRUE(Motion_IsDone());
+    writes_at_done = FakeMotorHw_GetWriteCount();
+    for (i = 0; i < 5; i++) {
+        drive_forward(40);
+        push_yaw(90.0f);
+        tick();
+    }
+    TEST_ASSERT_TRUE(FakeMotorHw_GetWriteCount() == writes_at_done);
+    TEST_ASSERT_TRUE(FakeMotorHw_IsBrakeActive(MOTOR_LEFT));
+    TEST_ASSERT_TRUE(FakeMotorHw_IsBrakeActive(MOTOR_RIGHT));
+    TEST_ASSERT_TRUE(Motion_GetState() == MOTION_DONE);
+    printf("PASS: test_arc_done_is_silent\n");
+    return 0;
+}
+
+/* ARC 中 Motion_Stop：任意态 → Chassis_Stop（刹车）+ IDLE。 */
+static int test_stop_during_arc_idles_and_brakes(void)
+{
+    setup();
+    TEST_ASSERT_TRUE(Motion_StartArc(200.0f, 90.0f));
+    drive_forward(40); push_yaw(10.0f); tick();
+    Motion_Stop();
+    TEST_ASSERT_TRUE(Motion_GetState() == MOTION_IDLE);
+    TEST_ASSERT_TRUE(FakeMotorHw_IsBrakeActive(MOTOR_LEFT));
+    TEST_ASSERT_TRUE(FakeMotorHw_IsBrakeActive(MOTOR_RIGHT));
+    printf("PASS: test_stop_during_arc_idles_and_brakes\n");
+    return 0;
+}
+
+/* ARC 里程计一次性消费：Update 快于底盘采样时 total 不变 → 位姿不二次前进（无双计数）。 */
+static int test_arc_odometry_consumed_once(void)
+{
+    Motion_Telemetry_T t1;
+    Motion_Telemetry_T t2;
+
+    setup();
+    TEST_ASSERT_TRUE(Motion_StartArc(200.0f, 90.0f));
+    drive_forward(100); push_yaw(10.0f); tick();   /* 底盘采样→total=100 */
+    push_yaw(10.0f); tick();                        /* 消费 d=100 → 位姿前进 */
+    Motion_GetTelemetry(&t1);
+
+    Motion_Update();   /* 不推进时钟/不改 raw → total 不变 → 不二次前进 */
+    Motion_GetTelemetry(&t2);
+    TEST_ASSERT_NEAR(t2.x_mm, t1.x_mm, 1e-6f);
+    printf("PASS: test_arc_odometry_consumed_once\n");
+    return 0;
+}
+
+/* ARC 遥测：state=ARC、target=arc_deg、progress 起始≈0。 */
+static int test_arc_telemetry_reflects_state(void)
+{
+    Motion_Telemetry_T t;
+
+    setup();
+    TEST_ASSERT_TRUE(Motion_StartArc(200.0f, 90.0f));
+    Motion_GetTelemetry(&t);
+    TEST_ASSERT_TRUE(t.state == MOTION_ARC);
+    TEST_ASSERT_NEAR(t.target, 90.0f, 1e-6f);
+    TEST_ASSERT_NEAR(t.progress, 0.0f, 1e-6f);
+    printf("PASS: test_arc_telemetry_reflects_state\n");
+    return 0;
+}
+
 /* GetTelemetry(NULL) 安全。 */
 static int test_telemetry_null_safe(void)
 {
@@ -484,6 +694,16 @@ int main(void)
     failures += test_stop_from_any_state_idles_and_brakes();
     failures += test_imu_frame_parsed_into_pose_heading();
     failures += test_telemetry_reflects_state();
+    failures += test_start_arc_rejects_invalid();
+    failures += test_arc_feedforward_ratio_ccw();
+    failures += test_arc_feedforward_ratio_cw();
+    failures += test_arc_correction_underturn_ccw();
+    failures += test_arc_correction_underturn_cw();
+    failures += test_arc_completes_by_heading_and_brakes();
+    failures += test_arc_done_is_silent();
+    failures += test_stop_during_arc_idles_and_brakes();
+    failures += test_arc_odometry_consumed_once();
+    failures += test_arc_telemetry_reflects_state();
     failures += test_telemetry_null_safe();
 
     if (failures != 0) {

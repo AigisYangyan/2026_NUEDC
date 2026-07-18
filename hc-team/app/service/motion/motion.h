@@ -5,6 +5,7 @@
  * 抽象（底盘能做什么）：
  * - 走一段指定前进距离后停（可选按 IMU 航向纠偏保持直线）。
  * - 原地转到一个相对角度后停。
+ * - 以定半径走一段定角圆弧后停（双轮速度比前馈 + 航向误差修正）。
  * - 随时确定性停止。
  * - 报告当前运动是否完成，以及位姿/状态遥测。
  *
@@ -39,6 +40,7 @@ typedef enum {
     MOTION_IDLE = 0,   /* 无原语 */
     MOTION_STRAIGHT,   /* 直行中 */
     MOTION_TURN,       /* 原地转中 */
+    MOTION_ARC,        /* 圆弧行进中 */
     MOTION_DONE,       /* 原语完成（已 Chassis_Stop） */
 } Motion_State;
 
@@ -50,6 +52,10 @@ typedef struct {
     /* 运动基速。 */
     float straight_speed_mps;  /* 直行基速（前进为正） */
     float turn_speed_mps;      /* 原地转单轮速度幅值上限（>0） */
+    float arc_speed_mps;       /* 圆弧圆心线速度基速（前进为正，>0；仅圆弧原语用） */
+    /* 圆弧几何：轮距是本服务新增的单一所有者（§19.0），仅用于圆弧前馈内外轮速比，
+       绝不构成第二个航向权威——圆弧完成与修正仍读 odometry 连续航向（IMU 源）。 */
+    float track_width_mm;      /* 轮距（mm，>0，实测标定） */
     /* 直行航向保持外环（位置式 PID：输入航向误差 deg → 输出差速修正 m/s）。 */
     float hold_kp;
     float hold_ki;
@@ -68,8 +74,8 @@ typedef struct {
     float x_mm;         /* 当前 odometry 位姿 */
     float y_mm;
     float heading_deg;  /* 连续多圈航向角 */
-    float target;       /* 当前原语目标：STRAIGHT=距离 mm；TURN=相对角 deg；否则 0 */
-    float progress;     /* 已完成量：STRAIGHT=已行进 mm；TURN=已转过 deg；否则 0 */
+    float target;       /* 当前原语目标：STRAIGHT=距离 mm；TURN=相对角 deg；ARC=圆心角 deg；IDLE/DONE=0 */
+    float progress;     /* 已完成量：STRAIGHT=已行进 mm；TURN/ARC=已转过 deg；IDLE/DONE=0 */
 } Motion_Telemetry_T;
 
 /**
@@ -97,6 +103,18 @@ bool Motion_StartStraight(float distance_mm, bool heading_hold);
  * @note   捕获当前航向为基准。用 odometry 去卷连续航向闭环，非裸角速度积分。
  */
 bool Motion_StartTurn(float relative_deg);
+
+/**
+ * @brief  开始一段定半径圆弧（前进圆弧）。
+ * @param  radius_mm  圆弧半径（车中心，mm，>0）。约束 radius_mm >= track_width_mm/2——
+ *                    否则内轮将反向，属原地掰弯（TURN 语义）而非前进圆弧；不满足返回 false。
+ * @param  arc_deg    圆心角（度，带号）；+ = CCW（左转，航向递增），− = CW（右转）；==0 → false。
+ * @return true 已进入 ARC。
+ * @note   前馈由 radius+track_width 定内外轮速比；行进中读 odometry 连续航向做误差修正。
+ *         完成判据 = 已扫过 |arc_deg|（航向驱动，IMU 权威）。捕获当前航向为基准、
+ *         当前位姿为路径长基准、清航向修正 PID 史（复用航向保持 PID 实例）。
+ */
+bool Motion_StartArc(float radius_mm, float arc_deg);
 
 /**
  * @brief  推进一步运动（事件驱动，无自门控——每次调用一次控制迭代）。
