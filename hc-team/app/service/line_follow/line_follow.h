@@ -102,6 +102,12 @@ void LineFollow_Init(const LineFollow_Config_T *config);
 void LineFollow_SetGains(float kp, float ki, float kd);
 
 /**
+ * @brief 读回当前外环 PID 增益（与 SetGains 对称，供持久化/按钮调参显示读回）。
+ * @note  kp/ki/kd 指针均非空。读自持外环 PID 上下文的配置字段（已应用值的唯一读出口）。
+ */
+void LineFollow_GetGains(float *kp, float *ki, float *kd);
+
+/**
  * @brief  启动循迹。速度规划复位至 min_speed（安全起步），元素检测置信/事件清零。
  * @return true = 进入 TRACKING；false = 配置无效（pitch_mm ≤ 0 或
  *         diff_limit_mps ≤ 0），保持 IDLE。

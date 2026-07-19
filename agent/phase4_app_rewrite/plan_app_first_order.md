@@ -2892,6 +2892,13 @@ void ParamTune_Save(void);       /* 读 LineFollow_GetGains → 序列化 {schem
 | E04 | 主机测试 | PowerShell：`rtk proxy make -C tests/host all` | ≥446 PASS / 0 FAIL（PT1 后 +≥6）：Init 空 flash→默认增益应用（GetGains 读回=默认）；Init 有效 flash→持久增益应用；SetKp_milli(1234)→LineFollow_GetGains 读回 kp≈1.234（scale）；set 后无需 Save 即生效；Save→重 Init 往返恢复（非默认）；GetKp_milli(set 后)==设定 milli（scale 往返无损） |
 | E05 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 诊断、param_tune.o 经 linkInfo.xml 进链（零调用者） |
 
+#### 25.3.5 完成记录（代码本提交）
+
+- 新建 `app/service/param_tune/`：Model A 无副本胶水——get→LineFollow_GetGains、set→LineFollow_SetGains（保另两增益）、save→读回增益序列化 ParamStore_Save、init→读盘(schema_ver=1)/默认→SetGains。blob 13B（schema_ver + kp/ki/kd milli LE）。milli↔float ×1000 四舍五入唯一在此。TUNE_STEP_*_MILLI 占位常量导出供 PT3 菜单表引用；默认增益 0（上车再调）。
+- `line_follow.{h,c}` 加对称 `LineFollow_GetGains`（读自持 `s_outer_pid.cfg`，additive，+15 行，零行为改动）。
+- 新建 `test_param_tune.c`（6 用例）。Makefile（线性 line_follow 依赖集 + param_store + fake_param_store_port）/.gitignore/Debug/makefile（ORDERED_OBJS + 两处 -include + clean）+ 本地 subdir_*.mk（不入库）。
+- E01 依赖纯净：param_tune 目录 include 仅 param_tune.h + line_follow.h（Service→Service）+ param_store.h（Service→Driver）+ stdint；上层/DL HAL 前缀 0 命中。E02 arch-scan 空。E03 范围仅 §25.3.1（line_follow diff 纯 GetGains 增量；`.ccsproject` 不计）。E04 主机 **448 PASS 0 FAIL**（442 基线 + 6：空 flash 默认、set 即时抵达 line_follow、Save→Init 往返恢复、未存不持久、milli↔float 正负往返、单增益保另两）。E05 固件 exit 0、0 诊断、`param_tune.o` 经 linkInfo.xml 确证进链（.out 重链 21:00:01）。零调用者（预期态，PT3 前）。
+
 ### 25.4 PT3 —— menu action 钩子 + `app_compose` TUNE 接线 契约
 
 #### 25.4.1 allowed_files（无 glob）

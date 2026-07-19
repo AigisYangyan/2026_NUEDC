@@ -142,6 +142,15 @@ void LineFollow_SetGains(float kp, float ki, float kd)
     Pid_SetGains(&s_outer_pid, kp, ki, kd);
 }
 
+void LineFollow_GetGains(float *kp, float *ki, float *kd)
+{
+    /* cfg 是 pid.h 为调用者暴露的字段（非 cfg 之后的私有运行时态）；本服务持有 s_outer_pid，
+     * 读自持实例的增益配置即已应用值的读出口。与 SetGains 对称，不复做换算/限幅。 */
+    *kp = s_outer_pid.cfg.kp;
+    *ki = s_outer_pid.cfg.ki;
+    *kd = s_outer_pid.cfg.kd;
+}
+
 bool LineFollow_Start(void)
 {
     TrackElements_Config_T el_cfg;
