@@ -2836,6 +2836,13 @@ bool ParamStore_Save(const uint8_t *buf, uint16_t len);
 | E04 | 主机测试 | PowerShell：`rtk proxy make -C tests/host all` | ≥440 PASS / 0 FAIL（434 基线 + ≥6）：空扇区→Read false；Save→Read 往返一致；program 失败注入→Save false 且随后 Read false；CRC 篡改（经 port 翻位）→Read false；超容量 len→Save false；二次 Save 覆盖（擦除生效）→Read 得新值 |
 | E05 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 诊断、param_store.o + param_store_hw.o 经 linkInfo.xml 进链（零调用者） |
 
+#### 25.2.5 完成记录（代码本提交）
+
+- 新建 `driver/param_store/`：`param_store.h`（公共面 Read/Save + MAX_PAYLOAD=48）、`param_store.c`（magic 0x50A5 + 格式版本 1 + len + CRC16-CCITT 框定、擦前写、读回校验；static 记录/校验缓冲避 256B 栈溢出）、`param_store_port.h`（seam：capacity/erase/program/read）、`param_store_hw.c`（唯一 DL_FlashCTL：末 1KB 扇区 0x0007FC00，executeClearStatus→unprotectSector→eraseMemoryFromRAM / programMemoryFromRAM64WithECCGenerated，照搬 SDK eeprom_emulation_type_a）。
+- 新建 `tests/host/fake_param_store_port.c`（RAM 顶替、NOR &= 语义、擦/写失败注入 + Poke）+ `test_param_store.c`（8 用例）。Makefile/.gitignore/Debug/makefile（ORDERED_OBJS + 两处 -include + clean）+ 本地 subdir_*.mk（不入库）。
+- E01 依赖纯净：`app/|middleware/` 在 param_store 目录 0 命中（DL HAL 仅 _hw.c，矩阵允许）。E02 arch-scan -Mode check 空输出。E03 范围仅 §25.2.1（`.ccsproject` 会话前既存不计；Debug 本地生成物未跟踪）。E04 主机 **442 PASS 0 FAIL**（434 基线 + 8：空扇区拒读、往返、擦前写覆盖、program/erase 失败注入拒存、CRC 篡改拒读、超容拒存、长度不符拒读）。E05 固件 exit 0、0 诊断、`param_store.o`+`param_store_hw.o` 经 linkInfo.xml 确证进链（时间戳=构建时刻 8:51:11，.out 重链），DL_FlashCTL FromRAM 符号正常链接。零调用者（预期态，PT2 前）。
+- arch-auditor/topo-updater：随 W5 三任务合并在 PT3 后一并评审同步（三任务同一契约/特性）。
+
 ### 25.3 PT2 —— `app/service/param_tune` + `LineFollow_GetGains` 契约
 
 #### 25.3.1 allowed_files（无 glob）
