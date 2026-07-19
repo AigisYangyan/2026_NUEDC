@@ -2642,3 +2642,90 @@ void MotorCheck_Stop(void);             /* Motor_BrakeAll（确定性停止，§
 
 - 三任务各自：TDD 红→施工→逐行复现证据→arch-auditor→topo-updater→提交（Conventional Commits）。
 - topo：encoder_test 第二 Encoder_Update 采样点登记 V21 扩条；menu RUN_ACTIVE 显示所有权契约修订；app_compose 条目表扩两条；索引 §10 追加日志。
+
+## 24. Phase 4B —— W4：DEBUG 组新增 GrayTest（12 路灰度数字量遥测）条目
+
+> 用户指令（2026-07-19）：编写灰度测试 debug 模块，VOFA 注册显示 12 路灰度值，通道 1~12
+> 从上到下顺序注册，人工肉眼确认每一路 0/1（现场再调）。此模块完成后进入循迹环调试。
+> 本节为 W4 契约，**本提交冻结全部证据行**；TDD/施工/审计/拓扑为后续独立闭环（契约先于代码）。
+
+### 24.0 裁定与范围
+
+- **落点 = App Service，仿 `encoder_test`（tx-only VOFA 遥测，无 cmd、无电机）**：新建
+  `app/service/gray_check/`，接进 `app_compose.c` DEBUG 组第 4 条目。
+- **命名裁定（避对象文件名冲突）**：目录/函数前缀取 **`gray_check` / `GrayCheck_`**（非
+  `gray_test`）。理由：冻结旧世界 `app/tasks/gray_test/gray_test.c` 仍入 Debug 构建
+  （`Debug/makefile:34` gray_test.o），扁平对象目录下重名 `gray_test.o` 会冲突。旧文件在
+  forbidden 的 `app/tasks/**`，不触碰、不复用、不参照。**菜单标签仍用 ASCII `"GrayTest"`**
+  （对用户语义），dir↔label 轻度不一致沿用既有先例（`motor_check` dir → `"MotorDir"` label）。
+- **无播种拍（比 encoder_test 更简）**：`Gray_ReadDarkBitmap()` 是无状态原子读，**无 elapsed
+  消费者**（不同于 encoder_test 播种是为算 elapsed 喂 `Encoder_Update`）。故 gray_check 无
+  seed 标志：门控基准 `base=0`，进页首拍即 `now-0≥10` 发一帧（即时反馈）。这是 simplicity-first
+  的最小正确形态，头注释写明理由。
+- **第二读点登记（比 V21 更弱）**：gray_check 是 `Gray_ReadDarkBitmap()` 继 `line_follow.c:183`
+  之后第二个调用点。但 gray 是**无状态原子读、无累计器**——两读点即便同拍也无数据冒险（不同于
+  encoder 累计 double-count 的 V21 严重度）；且 scheduler 单活动条目不变量保证与 line_follow
+  永不同拍。topo 更新时登记为「第二读点、无累计冒险、单活动条目互斥」，在 V21 追加 W4 补注或新条。
+- **顺带修正（导航器 2026-07-19 发现）**：`api_architecture_topology.md` §7 覆盖表仍写 Gray
+  Driver「零外部调用者」，与 §5.4 及源码 `line_follow.c:183`（S02 起消费）不一致；topo-updater
+  阶段一并修正（不影响本契约设计）。
+- **接口辩护（诊断能做什么）**：能进入/退出一次 12 路灰度数字量遥测（进即挂 VOFA tx×12、退清组）、
+  能被周期推进（自读 12 路 0/1 发上位机）。仅此成为公共面。**不做**左右重排/反相/去抖/滤波/阈值
+  （器件侧已做，gray.h:18-25；左右不自证，gray.h:28-34）——仅镜像原始通道序 bit0..bit11。
+
+### 24.1 allowed_files（无 glob）
+
+| 文件 | 动作 |
+|---|---|
+| `hc-team/app/service/gray_check/gray_check.h` / `.c` | 新建 |
+| `hc-team/app/system/app_compose.c` | 修改（+include gray_check；+3 钩子 wrapper；s_entries[] 增 GrayTest idx3；s_debug_entries[] 扩为 {0,1,2,3}） |
+| `tests/host/test_gray_check.c` | 新建 |
+| `tests/host/Makefile` | 追加 test_gray_check 目标/clean/.PHONY |
+| `.gitignore` | 追加 test_gray_check / test_gray_check.exe |
+| `Debug/makefile` | 登记 gray_check.o（ORDERED_OBJS、两处 -include、clean） |
+| `agent/phase4_app_rewrite/plan_app_first_order.md` | 状态回写 |
+
+- **Debug 本地生成物**（`hc-team/app/service/gray_check/subdir_vars.mk`+`subdir_rules.mk`）按 §4
+  规则本地生成、**不入库**（照抄 encoder_test 同名文件改路径），故不列 allowed_files。
+- **forbidden_files**：`hc-team/app/tasks/**`（尤其 `app/tasks/gray_test/**`）、
+  `hc-team/app/{scheduler,ui}/**`、`hc-team/app/service/{chassis,line_follow,tuning,encoder_test,motor_check}/**`
+  （app_compose 只 include 不改）、`hc-team/driver/**`、`hc-team/middleware/**`、
+  tests/host 既有 `test_*.c` 与 `fake_*.c`（fake_gray_port 已有 `FakeGrayPort_SetDarkChannels`
+  注入面、fake_uart_port 已有 VOFA TX 抓取面——不改）。
+
+### 24.2 公共接口（最小面）+ 单一所有者
+
+```c
+void GrayCheck_Start(void);            /* vofa_clear_profile → 注册 tx×12（G1..G12 = bit0..bit11，无 cmd）→ 门控基准置 0；不发电机命令 */
+void GrayCheck_Update(uint32_t now_ms);/* 自门控 10ms（now_ms 无符号减法）：Gray_ReadDarkBitmap() → 逐位镜像 12 路 0/1 → vofa_run 发本拍帧 */
+void GrayCheck_Stop(void);             /* vofa_clear_profile；本服务从不驱动电机，无电机需停 */
+```
+
+- **tx 组内容**：12 个 `int` 通道，注册序 = 通道序 = `ch_i ← (Gray_ReadDarkBitmap() >> i) & 1`
+  （i=0..11 → G1..G12）。深色=1、浅色=0，直接来自器件比较器电平（gray.h 器件事实）。
+- **单一所有者声明**：12 路原子读唯一属 gray driver（`Gray_ReadDarkBitmap` 一次 `DL_GPIO_readPins`，
+  不退回逐路分读）；本服务只 `(bitmap>>i)&1` 单向复制到 12 个 tx，**零反相/去抖/滤波/阈值/左右重排**
+  （加任何一样都构成第二所有者，违 §8.2；左右修正唯一点在上层循迹权重表 `bit0_is_left`，本诊断不碰）。
+  VOFA 协议/解析/缓冲/串口归 uart_vofa/vofa_uart Driver。本服务唯一拥有：诊断 tx 组存储 + 发帧节奏。
+- **前置条件**（System 装配层负责）：已完成 `vofa_init()`（含 VofaUart_Init）；灰度无 Init（gray.h：
+  IO 输入由 SysConfig 配好，无内部状态）。
+
+### 24.3 preserved_behavior
+
+- 既有 service/driver/middleware、旧 `app/**`、`sys_init`/`main` 零行为改动（装配入口不变，仅
+  app_compose 条目表扩一行 + 新 service）；主机既有 429 用例全过；固件行为：DEBUG 组多一条目
+  GrayTest，进条目才注册灰度 tx 遥测，空转仍只泵 Menu_Tick。
+
+### 24.4 证据行（≤6，恰 1 条固件构建行）
+
+| 行 | 名称 | 命令 | 预期 |
+|---|---|---|---|
+| E01 | 依赖纯净 | Grep `app/tasks/\|app/scheduler/\|app/ui/\|app/system/\|middleware/\|ti_msp_dl_config\|ti/driverlib`（path=`hc-team/app/service/gray_check`，`#include` 行） | 上层+DL HAL 前缀 0 命中；另核 driver/ 命中仅 `gray`+`uart_vofa`、`app/service/` 唯一命中=自身头 `gray_check.h`（自身头非跨服务违规，§23.3.6 修订1 同口径） |
+| E02 | 装配层闸门 | PowerShell：`& .claude/hooks/arch-scan.ps1 -Mode check` | 空输出（app_compose 新增 include 仅 gray_check Service 头，无 DL HAL 泄漏；app/system 仅禁 DL HAL） |
+| E03 | 范围审计 | `git status` + `git diff --stat` 对照 §24.1 | 无 allowed_files 之外的改动（`.ccsproject` 会话前既存，不计） |
+| E04 | 主机测试 | PowerShell：`rtk proxy make -C tests/host all` | ≥434 PASS / 0 FAIL（429 基线 + ≥5 新用例），必含：Start 后到期一帧=12 通道（52 字节）；帧忠实镜像注入位图（bit0..bit11→ch0..ch11、深色=1 浅色=0）；单通道注入只对应 ch 亮（通道序恒等，catch 左右重排/反相）；10ms 门控（未到期无帧、到期一帧）；Stop 后清 profile 无帧 |
+| E05 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 diagnostics、gray_check.o + app_compose.o 经 linkInfo.xml 进链；main→Scheduler→GrayTest 条目 on_enter/step/exit 可达 |
+
+### 24.5 完成记录
+
+- **状态：契约冻结，待施工**（本提交仅冻结 §24，无生产代码）。
