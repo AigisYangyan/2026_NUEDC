@@ -97,9 +97,22 @@ static void p2_set(int32_t v)
 }
 
 static const Menu_Param_T k_params[3] = {
-    { "P0", p0_get, p0_set, 5 },
-    { "P1", p1_get, p1_set, 1 },
-    { "P2_CLAMP", p2_get, p2_set, 4 },
+    { "P0", p0_get, p0_set, 5, NULL },
+    { "P1", p1_get, p1_set, 1, NULL },
+    { "P2_CLAMP", p2_get, p2_set, 4, NULL },
+};
+
+/* ---- 动作项（PT3）：K3 调回调并停留 PARAM_LIST，不进 EDIT ---------------------- */
+static int s_action_calls;
+static void act_do(void) { s_action_calls++; }
+
+/* 参数组含 1 普通项 + 1 动作项（SAVE 语义，get/set 为 NULL 证不被调）。 */
+static const Menu_Param_T k_action_params[2] = {
+    { "P0",   p0_get, p0_set, 5, NULL },   /* 普通项：K3 进 EDIT */
+    { "SAVE", NULL,   NULL,   0, act_do }, /* 动作项：K3 调 act_do */
+};
+static const Menu_Group_T k_action_group[1] = {
+    { "ACT", MENU_GROUP_PARAM, NULL, 0u, k_action_params, 2u },
 };
 
 /* ---- 一级分类表（装配层职责替身）------------------------------------------- */
@@ -423,6 +436,49 @@ static bool test_back_from_param_list_returns_to_group_list(void)
     return true;
 }
 
+/* 动作项：PARAM_LIST 上 K3 命中 action 项 → 调回调且停留 PARAM_LIST（不进 EDIT）。
+ * SAVE 的 get/set 为 NULL：能正常执行即证动作项路径不触碰 get/set（NULL-safe）。 */
+static bool test_action_item_invokes_and_stays_list(void)
+{
+    s_action_calls = 0;
+    setup_ready(k_action_group, 1u);
+    press(KEY_ID_K3); /* ENTER ACT → PARAM_LIST（光标 0=P0） */
+    ASSERT_EQ_INT(MENU_SCREEN_PARAM_LIST, (int)Menu_GetScreen());
+
+    press(KEY_ID_K2); /* DOWN：光标 0→1（SAVE 动作项） */
+    press(KEY_ID_K3); /* ENTER 动作项 → 调 act_do 并停留列表 */
+    ASSERT_EQ_INT(1, s_action_calls);
+    ASSERT_EQ_INT(MENU_SCREEN_PARAM_LIST, (int)Menu_GetScreen()); /* 不进 EDIT */
+    return true;
+}
+
+/* 动作项可重复触发：每次 K3 一次调用，界面恒停 PARAM_LIST。 */
+static bool test_action_item_repeatable(void)
+{
+    s_action_calls = 0;
+    setup_ready(k_action_group, 1u);
+    press(KEY_ID_K3); /* ENTER ACT → PARAM_LIST */
+    press(KEY_ID_K2); /* → SAVE */
+    press(KEY_ID_K3);
+    press(KEY_ID_K3);
+    press(KEY_ID_K3);
+    ASSERT_EQ_INT(3, s_action_calls);
+    ASSERT_EQ_INT(MENU_SCREEN_PARAM_LIST, (int)Menu_GetScreen());
+    return true;
+}
+
+/* 普通项（action==NULL）K3 行为不变：仍进 PARAM_EDIT（回归保护）。 */
+static bool test_normal_item_still_enters_edit(void)
+{
+    s_action_calls = 0;
+    setup_ready(k_action_group, 1u);
+    press(KEY_ID_K3); /* ENTER ACT → PARAM_LIST（光标 0=P0 普通项） */
+    press(KEY_ID_K3); /* ENTER P0 → PARAM_EDIT */
+    ASSERT_EQ_INT(MENU_SCREEN_PARAM_EDIT, (int)Menu_GetScreen());
+    ASSERT_EQ_INT(0, s_action_calls); /* 普通项不触发 action */
+    return true;
+}
+
 static bool test_format_value_boundaries(void)
 {
     char buf[12];
@@ -536,6 +592,11 @@ int main(void)
              test_edit_back_steps_out_to_param_list);
     run_test("test_back_from_param_list_returns_to_group_list",
              test_back_from_param_list_returns_to_group_list);
+    run_test("test_action_item_invokes_and_stays_list",
+             test_action_item_invokes_and_stays_list);
+    run_test("test_action_item_repeatable", test_action_item_repeatable);
+    run_test("test_normal_item_still_enters_edit",
+             test_normal_item_still_enters_edit);
     run_test("test_format_value_boundaries", test_format_value_boundaries);
     run_test("test_empty_groups_tick_no_crash",
              test_empty_groups_tick_no_crash);

@@ -52,13 +52,18 @@ typedef enum {
 
 /**
  * @brief 可调参数描述符（值存储/限幅归拥有 Service，菜单只经 get/set 读写）。
- * @note  name/get/set 不得为 NULL；单位、精度、限幅由参数拥有者定，菜单不复做。
+ * @note  name 不得为 NULL。两类项：
+ *        - 普通参数项（action==NULL）：name/get/set 不得为 NULL；PARAM_LIST 上 K3 进 EDIT，
+ *          UP/DOWN=set(get()±step)。单位、精度、限幅由参数拥有者定，菜单不复做。
+ *        - 动作项（action!=NULL）：PARAM_LIST 上 K3 直接调 action() 并停留列表（不进 EDIT）；
+ *          get/set/step 忽略（可为 NULL/0）。用于 SAVE/RESET/APPLY 一类一次性命令按钮。
  */
 typedef struct {
     const char *name;            /* ASCII 参数名（显示用），不得为 NULL */
-    int32_t   (*get)(void);      /* 读当前值（整数口径） */
-    void      (*set)(int32_t v); /* 写新值（经拥有它的 Service API 应用；限幅归拥有者） */
-    int32_t     step;            /* 每次 UP/DOWN 的调整增量 */
+    int32_t   (*get)(void);      /* 读当前值（整数口径）；动作项可为 NULL */
+    void      (*set)(int32_t v); /* 写新值（经拥有它的 Service API 应用；限幅归拥有者）；动作项可为 NULL */
+    int32_t     step;            /* 每次 UP/DOWN 的调整增量；动作项忽略 */
+    void      (*action)(void);   /* 非 NULL = 动作项：K3 调它并停留 PARAM_LIST，不进 EDIT */
 } Menu_Param_T;
 
 /** 一级分类的种类：运行条目组 或 参数组（互斥）。 */

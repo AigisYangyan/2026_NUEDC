@@ -16,6 +16,10 @@
  * - GrayTest   = 12 路灰度数字量遥测（gray_check：注册 VOFA tx×12、10ms 读发 0/1、退页清表——不驱动电机）。
  * RUN_ACTIVE 期 OLED 统一 RUNNING 横幅由 menu 框架负责（各条目不碰 OLED）。
  * 换/加 debug/test 项：在 s_entries[] 补条目 + 在对应分组的 entries 数组补其下标。
+ *
+ * TUNE 参数组（与 DEBUG 平级的 MENU_GROUP_PARAM）：循迹外环差速 PID 三增益按钮动态调参 +
+ * SAVE 动作项一次性写片内 flash（掉电保存）。值/换算/持久化归 param_tune，菜单零复做；
+ * 开机 ParamTune_Init 载入持久增益应用到 line_follow。加调参项：在 s_tune_params[] 补一行。
  */
 #include "app/system/app_compose.h"
 
@@ -26,6 +30,7 @@
 #include "app/service/encoder_test/encoder_test.h"
 #include "app/service/gray_check/gray_check.h"
 #include "app/service/motor_check/motor_check.h"
+#include "app/service/param_tune/param_tune.h"
 #include "app/service/tuning/tuning.h"
 #include "app/ui/menu/menu.h"
 
@@ -112,10 +117,23 @@ static const Scheduler_Entry_T s_entries[] = {
 
 static const uint8_t s_debug_entries[] = { 0u, 1u, 2u, 3u };  /* → SpeedTune / EncoderTest / MotorDir / GrayTest */
 
+/* TUNE 参数组：循迹外环差速 PID 三增益（milli 口径）+ SAVE 动作项。
+ * get/set 委派 param_tune（值/换算/持久化归它）；SAVE 的 action=ParamTune_Save（K3 即存 flash）。
+ * step 为 param_tune 导出的占位常量（现场再定）。菜单零换算/零限幅/零值副本。 */
+static const Menu_Param_T s_tune_params[] = {
+    { "LF Kp", ParamTune_GetKp_milli, ParamTune_SetKp_milli, TUNE_STEP_KP_MILLI, NULL },
+    { "LF Ki", ParamTune_GetKi_milli, ParamTune_SetKi_milli, TUNE_STEP_KI_MILLI, NULL },
+    { "LF Kd", ParamTune_GetKd_milli, ParamTune_SetKd_milli, TUNE_STEP_KD_MILLI, NULL },
+    { "SAVE",  NULL,                  NULL,                  0,                  ParamTune_Save },
+};
+
 static const Menu_Group_T s_groups[] = {
     { "DEBUG", MENU_GROUP_RUN, s_debug_entries,
       (uint8_t)(sizeof(s_debug_entries) / sizeof(s_debug_entries[0])),
       NULL, 0u },
+    { "TUNE", MENU_GROUP_PARAM, NULL, 0u,
+      s_tune_params,
+      (uint8_t)(sizeof(s_tune_params) / sizeof(s_tune_params[0])) },
 };
 
 /* ---- 装配入口 ----------------------------------------------------------- */
@@ -127,4 +145,7 @@ void AppCompose_Install(void)
                    Menu_Tick);
     Menu_Setup(s_groups,
                (uint8_t)(sizeof(s_groups) / sizeof(s_groups[0])));
+    /* 开机把持久化循迹增益（或默认）载入并应用到 line_follow 外环 PID。
+     * 未来循迹运行条目 on_enter 若先 LineFollow_Init（归零增益），须在其后重调此函数重推。 */
+    ParamTune_Init();
 }

@@ -109,6 +109,11 @@ Menu_Screen MenuParam_Handle(Hmi_Input ev)
         break;
     case HMI_INPUT_ENTER:
         if (s_count > 0u) {
+            const Menu_Param_T *p = &s_params[s_cursor];
+            if (p->action != NULL) {
+                p->action();                 /* 动作项（如 SAVE）：执行即停留列表，不进编辑 */
+                return MENU_SCREEN_PARAM_LIST;
+            }
             s_editing = true;
             return MENU_SCREEN_PARAM_EDIT;
         }

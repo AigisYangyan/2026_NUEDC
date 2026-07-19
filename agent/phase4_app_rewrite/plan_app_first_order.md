@@ -86,7 +86,7 @@
 | M03 | speed_plan 速度规划（Middleware 纯算法：`\|error_mm\|` → 有状态斜坡基速，直道加速/入弯减速，自持输出限幅） | `middleware/speed_plan/` | — | — | `DONE`（契约 §17 冻结 61f4149；代码 8d84657；契约修订 1/审计处置 8975b2a；代码 fix 6ace23b；拓扑同步 3b92258。E01 0 命中 / E02 无越界 / E03 285 PASS 0 FAIL＝269 基线+16 / E04 exit 0、0 诊断、speed_plan.o 经 linkInfo.xml 确证进链。arch-auditor 无阻断/无重要级，2 建议级已处置（F1 删排序夹紧、F2 白名单更正）；基速调制单一所有者落定 speed_plan，V25 登记） |
 | S02b | line_follow 深化：M02 元素事件面接入 + M03 速度调制接入（base_speed 合成点仍唯一在 line_follow_apply） | `app/service/line_follow/` | — | — | `DONE`（契约 §18 冻结 b3b2d38；代码 f278894；拓扑同步见 §10。E01 0 命中 / E02 4 文件在范围 / E03 300 PASS 0 FAIL＝285 基线+15（速度调制 5 + 元素事件面 10）/ E04 exit 0、0 诊断、line_follow.o 重编并经 linkInfo.xml 确证进链（speed_plan.o/track_elements.o 已在链）。arch-auditor 三维无发现；base_speed 合成点未搬家、位图并列消费不新开采样点、V21 不新增第四推进点） |
 | S07 | route 分段路线执行服务（段表驱动：FOLLOW_UNTIL(元素)/STRAIGHT/TURN/ARC——新题=换段表） | `app/service/route/` | task1 分段状态机 | — | `DONE`（契约 §20 冻结 5eaa41f；代码 6cb338c；审计无发现；拓扑同步见 §10。E01 0 命中 / E02 无越界 / E03 334 PASS 0 FAIL＝310 基线+24 / E04 exit 0、0 诊断、route.o 经 linkInfo.xml 确证进链 3 引用。arch-auditor 六轴全过、亲验 motion.c IDLE/DONE drive-free；route 每拍≤1 子服务、不构成第四 Chassis_Update 推进点/第二 Imu_Update 排空点，V21 扩条/V23 登记；catch-up 防幻纠偏落定 §20.3） |
-| SYS01 | 装配入口更新 | `app/system/` | sys_init.c 增量改造 | — | 随各阶段（**W2 §22.2 World-2 点亮 DONE**：main→Scheduler_Run，SpeedTune 条目接 tuning，旧 SysRun 停用，418 PASS。**W3 §23.3 app_compose 接入 EncoderTest/MotorDir 两 DEBUG 诊断条目 DONE（2026-07-19）：DEBUG 组三条目，429 PASS，本提交**。**W4 §24 app_compose 接入 GrayTest 12 路灰度数字量遥测条目 DONE（2026-07-19）：DEBUG 组四条目，434 PASS，本提交**。**W5 §25 动态调参框架契约冻结（2026-07-19，本提交，无代码）：TUNE 参数组 + 片内 flash 持久化 + 循迹外环增益首参数集；PT1(param_store Driver)/PT2(param_tune Service+LineFollow_GetGains)/PT3(menu action 钩子+app_compose TUNE 接线) 待建**） |
+| SYS01 | 装配入口更新 | `app/system/` | sys_init.c 增量改造 | — | 随各阶段（**W2 §22.2 World-2 点亮 DONE**：main→Scheduler_Run，SpeedTune 条目接 tuning，旧 SysRun 停用，418 PASS。**W3 §23.3 app_compose 接入 EncoderTest/MotorDir 两 DEBUG 诊断条目 DONE（2026-07-19）：DEBUG 组三条目，429 PASS，本提交**。**W4 §24 app_compose 接入 GrayTest 12 路灰度数字量遥测条目 DONE（2026-07-19）：DEBUG 组四条目，434 PASS，本提交**。**W5 §25 动态调参框架 DONE（2026-07-19）：TUNE 参数组 + 片内 flash 持久化 + 循迹外环增益首参数集。PT1 param_store Driver（18fc9b4，442 PASS）+ PT2 param_tune Service+LineFollow_GetGains（bd9a67b，448 PASS）+ PT3 menu action 钩子+app_compose TUNE 接线（451 PASS，本提交）。板载 TUNE 组按钮调循迹外环增益、K3 SAVE 掉电 flash 保存；真实 flash 擦/写硬件边界待用户上板验证**） |
 | T01 | 赛题 Task（薄编排）+ 旧 tasks 整体删除 | `app/tasks/` | 全部旧 `tasks/**` | V03/V07/V13 残余/V15 全关，baseline 清空 | **最后**（赛题公布后） |
 
 ## 4. 通用施工规则（每模块适用）
@@ -2944,6 +2944,15 @@ typedef struct {
 | E03 | 范围审计 | `git status` + `git diff --stat` 对照 §25.4.1 | 无越界（menu.c 无 diff、内核未动） |
 | E04 | 主机测试 | PowerShell：`rtk proxy make -C tests/host all` | ≥PT2+3 PASS / 0 FAIL：PARAM_LIST 上 K3 命中 action 项→调用 action 回调（计数+1）且界面停 PARAM_LIST（不进 EDIT）；action==NULL 普通项 K3→进 PARAM_EDIT（既有行为回归）；action 项全程不调 get()（NULL-safe 观测） |
 | E05 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 诊断、app_compose.o+menu.o+menu_param.o+param_tune.o+param_store.o 经 linkInfo.xml 进链；GROUP_LIST 含 DEBUG+TUNE，PARAM 路径可达 ParamTune_* 与 SAVE action |
+
+#### 25.4.5 完成记录（代码本提交）
+
+- `menu.h`：`Menu_Param_T` 加可选 `void (*action)(void)`（第 5 字段），文档区分普通项/动作项。
+- `menu_param.c`：PARAM_LIST 上 K3 命中 `action!=NULL` → 调 `action()` 停留列表（不进 EDIT）；`action==NULL` 原路进 EDIT。**menu.c 导航内核零改动**（K3-on-list 分派本就独立在 menu_param.c）。
+- `app_compose.c`：+include param_tune；`s_tune_params[]`（LF Kp/Ki/Kd 引用 TUNE_STEP_*_MILLI + SAVE 项 action=ParamTune_Save）；`s_groups[]` 增平级 `{"TUNE", MENU_GROUP_PARAM, …}`；`AppCompose_Install` 末加 `ParamTune_Init()` 开机载入持久增益。
+- `test_menu.c`：k_params 补第 5 字段 NULL；加动作项 3 用例（调用且停列表、可重复、普通项仍进 EDIT）。
+- E01 依赖纯净：`driver/|middleware/|DL HAL` 在 app/ui/menu 0 命中（action 是函数指针，不新增 include）。E02 arch-scan 空（app_compose 新增仅 param_tune Service 头）。E03 范围仅 §25.4.1，**menu.c diff 为空**（内核未动；`.ccsproject` 不计）。E04 主机 **451 PASS 0 FAIL**（448 基线 + 3；menu 全 21 用例过，普通参数路径回归无损）。E05 固件 exit 0、0 诊断/0 警告、app_compose.o+menu.o+menu_param.o+param_tune.o+param_store.o 经 linkInfo.xml 进链（.out 重链 21:06:32），GROUP_LIST 含 DEBUG+TUNE。
+- **W5 三任务全绿**：调参框架落地——板载 TUNE 组按钮调循迹外环增益、掉电 flash 保存。真实 flash 擦/写为硬件边界待用户上板验证。arch-auditor/topo-updater 见下。
 
 ### 25.5 待决/风险登记（拓扑同步时落地）
 
