@@ -195,6 +195,16 @@ class PID_API {
   +Pid_UpdatePositional(Pid_T*, target, feedback) float
 }
 
+class ParamStore_API {
+  <<driver:param_store, NEW W5>>
+  +PARAM_STORE_MAX_PAYLOAD = 48
+  +ParamStore_Read(buf, len) bool
+  +ParamStore_Save(const buf, len) bool
+  note: payload-agnostic — magic+format-version+len+CRC16 framing only; caller (param_tune) self-holds payload semantic version as first byte
+  note: erase-before-write, read-back verify; no retry / no wear-leveling (single sector, SAVE is rare, simplicity-first)
+  note: internal param_store_port.h seam (仿 gray_port.h) + param_store_hw.c (sole DL_FlashCTL touch point, last 1KB sector 0x0007FC00) not shown as separate node — port pattern identical to Gray_API/GrayPort_API
+}
+
 Clock_API --> DL_HAL : SysTick
 Board_API --> DL_HAL : SysConfig NVIC global IRQ
 BoardGpio_API --> Runtime_API : transitional raw counts and key edge bitmap

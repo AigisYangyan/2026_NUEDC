@@ -176,6 +176,7 @@ class LineFollow_API {
   <<app:service>>
   +LineFollow_Init(const LineFollow_Config_T*)
   +LineFollow_SetGains(kp, ki, kd)
+  +LineFollow_GetGains(kp*, ki*, kd*)
   +LineFollow_Start() bool
   +LineFollow_Update()
   +LineFollow_Stop()
@@ -282,6 +283,19 @@ class GrayCheck_API {
   +GrayCheck_Start()
   +GrayCheck_Update(now_ms)
   +GrayCheck_Stop()
+}
+
+class ParamTune_API {
+  <<app:service, NEW W5, TUNE menu group, Model A no gain copy>>
+  +ParamTune_Init()
+  +ParamTune_GetKp_milli() int32_t
+  +ParamTune_GetKi_milli() int32_t
+  +ParamTune_GetKd_milli() int32_t
+  +ParamTune_SetKp_milli(v)
+  +ParamTune_SetKi_milli(v)
+  +ParamTune_SetKd_milli(v)
+  +ParamTune_Save()
+  note: sole owner of persistence orchestration + int32 milli<->float x1000 scale (no gain copy, get/set delegate LineFollow_Get/SetGains)
 }
 
 class SpeedLoop_API {
@@ -392,6 +406,7 @@ class Emm42_API { <<driver>> }
 class VofaDriver_API { <<driver>> }
 class ImuUart_API { <<driver>> }
 class IMU_API { <<driver:imu, NEW consumer S06>> }
+class ParamStore_API { <<driver:param_store, NEW W5>> }
 class DL_HAL { <<external>> }
 
 System_API ..> Scheduler_API : g_eSysFlagManage = SYS_STA_INIT write only (V13 residual); SysRun/TaskStartSchedule loop no longer called since W2 2026-07-19
@@ -618,6 +633,25 @@ MotorCheck_API --> Motor_API : Motor_SetOutput both wheels +/-200 + Motor_Update
 %% single-active-entry invariant (index V21 note). Read-only tx mirror, no cmd, no motor.
 GrayCheck_API --> Gray_API : Gray_ReadDarkBitmap() atomic 12-bit read, second call point after line_follow.c (no accumulator, no double-count hazard, see index V21 W4 note)
 GrayCheck_API --> VofaDriver_API : vofa_clear_profile/vofa_register_int x12/vofa_run, tx-only (no bind_cmd)
+
+%% ParamTune_API / ParamStore_API (W5, landed 2026-07-19) — dynamic tuning framework: new
+%% TUNE menu group (app_compose.c s_groups[], sibling of DEBUG) button-adjusts the line_follow
+%% outer PID gains and persists them to on-chip flash. Model A: param_tune holds NO gain copy —
+%% get delegates LineFollow_GetGains (real applied value), set delegates LineFollow_SetGains
+%% (instant apply), save serializes the current gains (schema_ver + kp/ki/kd milli, 13B) via
+%% ParamStore_Save. param_tune sole-owns int32 milli<->float x1000 scale and persistence
+%% orchestration; NV framing (magic/format-version/CRC16, erase-before-write, read-back verify)
+%% sole-owned by param_store.c (Driver), which is payload-agnostic (schema_ver lives inside the
+%% blob, owned by param_tune). LineFollow_SetGains has exactly one writer in this world
+%% (param_tune) — Model A single-owner claim (index V17/new note). Menu wiring is opaque fn
+%% ptrs (Menu_Param_T get/set/action), same pattern as AppCompose_API<->Tuning_API above —
+%% menu.c core untouched, action dispatch lives in menu_param.c's PARAM_LIST branch.
+ParamTune_API --> LineFollow_API : LineFollow_GetGains (display real applied value) + LineFollow_SetGains (instant apply), same-layer controlled, sole writer of line_follow gains
+ParamTune_API --> ParamStore_API : ParamStore_Read (boot load) / ParamStore_Save (SAVE action), 13B blob = schema_ver + kp/ki/kd milli LE
+ParamStore_API --> DL_HAL : DL_FlashCTL erase/program/read via param_store_hw.c, last 1KB sector 0x0007FC00
+AppCompose_API --> ParamTune_API : ParamTune_Init(), sole caller, loads persisted gains or defaults and applies to line_follow, W5
+AppCompose_API ..> ParamTune_API : TUNE group Menu_Param_T get/set/action fn ptrs (opaque, invoked later by MenuParam_API)
+MenuParam_API ..> AppCompose_API : PARAM_LIST/PARAM_EDIT invokes registered TUNE get/set/action fn ptrs each op (fn ptr, registered by AppCompose)
 ```
 
 ## 4. 当前启动与调度逻辑图
@@ -633,13 +667,16 @@ flowchart TD
   SysInit --> AppCompose[AppCompose_Install, W2 SYS02]
   SysInit --> BoardIRQ[Board_EnableInterrupts]
   AppCompose --> SchedulerInit[Scheduler_Init s_entries=SpeedTune,EncoderTest,MotorDir,GrayTest x4, background_step=Menu_Tick]
-  AppCompose --> MenuSetupCall[Menu_Setup s_groups=DEBUG x1, entries idx0..3]
+  AppCompose --> MenuSetupCall[Menu_Setup s_groups=DEBUG+TUNE x2, DEBUG entries idx0..3, TUNE params=LFKp,LFKi,LFKd,SAVE x4]
+  AppCompose --> ParamTuneInitCall[ParamTune_Init, W5: read param_store or default -> LineFollow_SetGains]
   Main --> MainLoop[while 1: Scheduler_Run Clock_NowMs]
   MainLoop -->|idle, no entry active| MenuTickPump[background_step -> Menu_Tick, HMI only]
   MainLoop -->|SpeedTune entered| SpeedTuneStep[on_step -> Tuning_Update -> cascaded Chassis_Update]
   MainLoop -->|EncoderTest entered, W3| EncTestStep[on_step -> EncoderTest_Update -> Encoder_Update 2nd sampling call + vofa_run]
   MainLoop -->|MotorDir entered, W3| MotorDirStep[on_step -> MotorCheck_Update -> Motor_SetOutput +/-200 both wheels + Motor_Update]
   MainLoop -->|GrayTest entered, W4| GrayTestStep[on_step -> GrayCheck_Update -> Gray_ReadDarkBitmap 2nd read point + vofa_run, tx-only]
+  MainLoop -->|TUNE group, K3 on Kp/Ki/Kd row, W5| TuneEditStep[MenuParam_Handle -> ParamTune_Get/Set*_milli -> LineFollow_Get/SetGains, no menu-side scale/copy]
+  MainLoop -->|TUNE group, K3 on SAVE row, W5| TuneSaveStep[MenuParam_Handle action -> ParamTune_Save -> ParamStore_Save, flash write]
 
   SysTick[SysTick Handler] -->|1 ms| TickMs[s_tick_ms++]
   MainLoop -->|query elapsed| TickMs

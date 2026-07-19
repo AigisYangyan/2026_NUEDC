@@ -2960,3 +2960,26 @@ typedef struct {
 - **V14**（UI 直调 Driver，S04/UI01 已供替代面，open 待 T01）：本次 menu 改动仍全程经 Hmi_API，不新增绕过。
 - **未来接线注意（非违规，登记）**：循迹「运行条目」闭环时，其 `on_enter` 须在 `LineFollow_Init`（归零外环增益）**之后**调 `ParamTune_Init`/`Apply` 重推持久增益，否则 Init 归零盖掉持久值。
 - **第二写者核查**：`LineFollow_SetGains` 在本世界唯一调用者 = param_tune（Grep 证实）；无第二增益写者，Model A 单一所有者成立。
+
+### 25.6 arch-auditor 评审处置（2026-07-19，PT3 后覆盖 W5 三提交）
+
+依赖矩阵（A）、单一所有者（B）、无依据防御/simplicity（C）、ISR/资源所有权（D）、接线正确性（E）
+**五项全 PASS，无阻断级、无重要级发现**。三条建议级处置：
+
+1. **[建议·已登记为风险，不本轮改]** 参数扇区 `0x0007FC00` 未在链接脚本 carve（`Debug/device_linker.cmd`
+   `FLASH origin=0x0 length=0x80000`，`.text` 等无差别 `> FLASH`）。当前镜像 ≪508KB 不触发；但代码若跨
+   `0x7FC00`，链接器会静默把代码放进该扇区，`ParamTune_Save` 的 erase 会擦活代码→上电 HardFault、**无编译期
+   报错**。**处置**：`device_linker.cmd` **非 git 跟踪**（Debug/ 仅 makefile 入库，该文件是 CCS/SysConfig 生成物），
+   本 agent 编辑它既不持久也可能被重生成覆盖——故**不擅改**。正解须落在可跟踪的硬件配置：在 `MEMORY` 单列
+   `PARAM_FLASH: origin=0x0007FC00 length=0x400` 且 `FLASH length=0x7FC00`，使重叠在链接期即报错。**移交用户**
+   作为硬件配置侧一次性跟进（属 board 配置权，非 W5 Driver 代码问题）。hw.c:6-11 注释已自陈此假设。
+2. **[建议·登记为已知局限，留后续]** `ParamTune_Save` 丢弃 `ParamStore_Save` 返回值（param_tune.c:119）+ 菜单
+   动作项签名 `void(*)(void)` 无返回通道 → flash 编程失败（erase 成功、program 失败）时扇区已空，Save 静默
+   「成功」，下次上电 `ParamTune_Init` 读空扇区→默认增益（0/0/0）→已标定增益丢失。**非数据损坏**（`test_program_
+   fail_rejects` 已证失败后不读半写脏记录），是**可观测性缺口**。加反馈须给菜单动作项一条最小回显通道（如
+   SAVE 后 OLED "SAVE OK/FAIL"），属独立 App 健壮性特性，超 W5 范围——**登记，建议后续立项**（不本轮过建）。
+3. **[建议·保留]** `param_store.c:99-102` 容量检查在当前常量（MAX_PAYLOAD=48，total≤56 < 端口 1024）恒不触发。
+   保留为跨契约低成本断言（成本极低，抬高 MAX_PAYLOAD 或接更小扇区端口时即有意义）；不删、不本轮改。审计
+   已明示「低优先、供主 agent 裁量、非阻断」。
+
+**结论**：W5 三提交分层与单一所有者链路与声明一致，评审放行。建议 1、2 移交用户/后续立项，不阻断收官。
