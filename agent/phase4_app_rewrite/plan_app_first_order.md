@@ -2376,3 +2376,86 @@ void VisionAim_Map(float coord_x, float coord_y,
 - **基线已复核（本修订提交）**：Phase 2 首步 `rtk proxy make -C tests/host clean+all` = **404 PASS / 0 FAIL**（较 §21.2 冻结时 401 +3，属 S05c 之后既有增量、非本任务引入）。E03 目标锚定 **404 基线**；`rtk make` 会压缩 PASS 行、计数取证必须走 `rtk proxy make`（本次踩坑登记）。
 - **完成（Phase 2 + 3，代码本提交）**：E01 vision_aim 仅含自身头+`<stddef/stdbool/stdint>`、无 pid.h/Driver/App（0 命中）；E02 仅动 §21.4.1 六文件（`.ccsproject` 会话前既存未纳入）；E03 **416 PASS / 0 FAIL**＝404+12（vision_aim 10 + gimbal 2，PD 阻尼/助推/反号/无 I/无滤波/首帧播种全覆盖，kd=0 逐位等价旧 P）；E04 exit 0、0 诊断、vision_aim.o+gimbal.o 经 linkInfo.xml 确证进链。
 - **arch-auditor 处置**：五项重点（依赖矩阵 / V26 单一所有者 / prev_error 归属 / motor-safety §8.1 / 无 I 依据）全过，无阻断/无重要。**1 建议级——文档处置不改代码**：D 项时间基 = 每视觉帧差分（`de=error-prev`），无固定 dt 归一，帧率波动时等效阻尼随之漂移；契约 §21.4 明选裸差分、无 dt，长停顿后大 de 由 `max_step` 兜底不失稳。按嵌入式基线不加无依据防御——若实车调参发现阻尼随帧率漂移，再在 gimbal 侧（调用方，不进 vision_aim）按 dispatch 间隔归一 de，届时以契约修订登记。
+
+## 22. Phase 4B —— World-2 装配点亮（现役平台切换 + 首个 debug 运行条目）
+
+> 用户 2026-07-19 本会话裁定。契约先于代码、单独提交冻结（闭环铁律）；W1/W2 各自 TDD→施工→证据→审计→拓扑为其后独立闭环。
+
+### 22.0 裁定更新（2026-07-19，用户本会话）
+
+1. **World 2 定为现役平台并即刻「通电」**：`main` 切到新 `scheduler.c`；World 1（`task_scheduler.c`/`task_groups.c`/`run_registry.c`/`app/tasks/**`/`menu_core`）旁路静默——**冻结不删，T01 删**（不再调用即无双 Driver 所有者，已证 `SysRun` 是旧任务体唯一执行入口，无 ISR 泵）。用户原话：「你的 World 2 写得比我好，只是功能不是我要的」。
+2. **debug/test 运行条目提前于 T01 编写**：用户澄清——「原计划 T01 写 TASK 本就含 debug/test 任务组，测试任务肯定要提前写好，不可能不提前」。故 §1「T01 最后 / 新 Service 零调用者」对 **debug/test entries 不再适用**：SYS01 装配 + debug 条目现在开始；赛题 Task（薄编排）仍待赛题公布。
+3. **交互模型（用户裁定，World 1 逻辑用 World 2 实现）**：初始化后＝极简空转态，`Scheduler_Run` 每拍只泵 `background_step=Menu_Tick`（HMI：OLED 刷新 + 按键中断事件，无事件不重渲染），别的后台全不开；**按键进指定条目才 `on_enter` 注册 + `on_step` 泵作用域服务**，退出 `on_exit` 停。周期归各 Service 自门控（单一所有者：速度环 10ms=`Chassis`；寻迹环 10ms 由 `LineFollow_Update` 末尾同拍级联「紧跟不落后」；位置环 20ms 归位置服务）——**不是上电直进**（上一版误解已纠正）。
+4. **VOFA 通道语义（用户裁定）**：kp/ki/kd + 目标左右轮速＝**既显示(tx)又控制(cmd)**；当前(反馈)左右轮速＝**只显示**。PWM 移除（用户未要，让位给增益显示）。据此 W1 修订 tuning 速度环组。
+5. **不上电≠可以不完美**：硬件约 5 天后到；在此之前软件必须**完整正确、烧进去即完美运行**——验收＝构建 + 主机测试 + 依赖/装配扫描 + 聚焦阅读；带载物理验证硬件到货后用户自理（§8.1 分阶段）。
+
+### 22.1 W1 契约（tuning 速度环组 tx 外显修订 —— S03 契约修订 2）——冻结
+
+- **task_id**: W1-tuning_tx_gains
+- **goal**: 把 `tuning_chassis` 的 VOFA tx 组从 6 通道 {目标 L/R、反馈 L/R、PWM L/R} 改为 **10 通道** {左右 kp/ki/kd 回显(6) + 目标 L/R(2) + 反馈 L/R(2)}，实现「kp/ki/kd 与目标既显示又控制、当前只显示」。**cmd×8 不变**（LP/LI/LD/RP/RI/RD/LM/RM）。增益回显＝每拍 `RefreshTx` 从 cmd 组单向复制（应用值恒等于 cmd，因 `Apply` 每拍无条件写 Chassis）。
+- **通道顺序（上位机据此配 VOFA 工程，写码时定死并注释）**：tx[0..9] = `kp_L, ki_L, kd_L, kp_R, ki_R, kd_R, target_L, target_R, feedback_L, feedback_R`。
+- **S03 §9 三原则修订点（仅第 2 条 tx 来源扩面，隔离本意不变）**：tx 组＝「Chassis 遥测快照（目标/反馈）**＋本 profile 应用中的增益/目标设定值回显（cmd 单向复制）**」；cmd 组仍**永不从运行值回读**、运行值永不写 cmd（隔离本意保持）。不新增 Chassis 增益 getter（应用值＝cmd，回显 cmd 即回显应用值，避免第二读出口）。
+- **单一所有者**：增益/目标写入仍只经 Chassis 公共 API；限幅/换向/超时/刹车/PWM 尺度各归既有所有者，本修订零复做，仅改「哪些量进 tx 显示」。
+
+#### 22.1.1 allowed_files（无 glob）
+
+| 文件 | 动作 |
+|---|---|
+| `hc-team/app/service/tuning/tuning_chassis.c` | 修改（tx 组字段：删 pwm_L/R，增 kp/ki/kd_L/R；`RefreshTx` 增益回显自 cmd；`register_group` tx 注册顺序=通道序；`reset_safe` 同步） |
+| `hc-team/app/service/tuning/tuning_chassis.h` | 修改（仅变量组注释：tx×10 新构成） |
+| `tests/host/test_tuning.c` | 修改（原 pwm tx 用例改写为增益回显；增 target 双向、feedback 只显示、增益回显=cmd 用例） |
+| `agent/phase4_app_rewrite/plan_app_first_order.md` | 状态回写（§3 S03 行 + 本节） |
+
+forbidden_files：`hc-team/app/service/tuning/tuning.c` / `tuning.h`（生命周期不变）、`hc-team/app/service/chassis/**`、其余 `app/service/**`、`hc-team/app/{tasks,scheduler,system,ui}/**`、`hc-team/driver/**`、`hc-team/middleware/**`、`tests/host` 既有其余 `test_*.c` 与全部 `fake_*.c`、`Debug/makefile`（无新 .o）。
+
+#### 22.1.2 preserved_behavior
+
+- `tuning.c/.h`、`chassis/**`、`driver/**`、`middleware/**`、其余 `app/**` 零改动；cmd 路径与应用链路不变；固件行为除 VOFA 帧内容（tx 通道集）外不变。
+
+#### 22.1.3 证据行（≤6，恰 1 条固件构建行）
+
+| 行 | 名称 | 命令 | 预期 |
+|---|---|---|---|
+| E01 | 依赖纯净 | Grep `app/tasks/\|app/scheduler/\|app/ui/\|app/system/\|ti_msp_dl_config\|ti/driverlib`（path=`hc-team/app/service/tuning`，`#include` 行） | 0 命中 |
+| E02 | 范围审计 | `git status` + `git diff --stat` 对照 §22.1.1 | 无越界改动 |
+| E03 | 主机测试 | PowerShell：`rtk proxy make -C tests/host all` | ≥418 PASS / 0 FAIL（416 基线 + 净新 ≥2），必含：tx×10 布局与顺序、增益回显=cmd 值（改 cmd→下一拍 tx 相应变）、目标既进 cmd 又进 tx、反馈只进 tx 无 cmd 绑定、pwm 不再注册、cmd×8 不变、隔离性（外部改运行值不回写 cmd） |
+| E04 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 diagnostics、tuning_chassis.o 重编并经 linkInfo.xml 确证进链 |
+
+### 22.2 W2 契约（World-2 装配点亮 —— SYS01 增量 + SpeedTune 运行条目）——冻结
+
+- **task_id**: W2-world2_compose
+- **goal**: 定义 **entry 表**（首条 `SpeedTune` → tuning 三钩子）+ **菜单分组表**（RUN 组 `"DEBUG"` 含 SpeedTune）+ 装配（`Hmi_Init`/`Chassis_Init`/`Tuning_Init` → `Scheduler_Init(g_entries, N, Menu_Tick)` → `Menu_Setup(g_groups, M)`）+ `main` 主循环 `Scheduler_Run(Clock_NowMs())`；**停用旧 `SysRun`**。World 2 成为现役启动路径；旧 World 1 静默（冻结、T01 删）。
+- **entry 钩子（app_compose 内小 wrapper 适配签名）**：`speedtune_enter(void){ Tuning_EnterProfile(TUNING_PROFILE_CHASSIS_SPEED); }`；`speedtune_step(uint32_t now){ (void)now; Tuning_Update(); }`（Tuning 是 Service，自门控走自身 Clock，10ms 单一所有者）；`speedtune_exit(void){ Tuning_ExitProfile(); }`。
+- **交互不变量（承 §22.0.3）**：空转 `Scheduler_Run` 只泵 `Menu_Tick`（HMI），无活动条目；进 SpeedTune→注册 VOFA(on_enter)→10ms 泵速度环(on_step)→BACK 刹停清表(on_exit)。单活动条目不变量结构性排除双泵。
+- **开机安全态（§8.1）**：`SysInit` 保留既有 `Motor_Init`+`Motor_BrakeAll`；进入 SpeedTune 前电机零输出（无活动条目＝不泵 chassis）；进入即 `Chassis_Stop`+安全 cmd（tuning EnterProfile）。
+- **旧代码处置**：`sys_init.c` 保留既有 Driver + 旧 app-task Init（无害、其任务永不被泵），仅**追加** World-2 装配；不删旧 Init（T01 删）。`main.c` 删 `SysRun` 调用与 `task_scheduler.h` include。
+
+#### 22.2.1 allowed_files（无 glob）
+
+| 文件 | 动作 |
+|---|---|
+| `hc-team/app/system/app_compose.h` | 新建（导出 entry 表/分组表 getter 或 extern + 装配入口声明） |
+| `hc-team/app/system/app_compose.c` | 新建（`g_entries[]` + `g_groups[]` + 三 wrapper；持有 SpeedTune 条目定义） |
+| `hc-team/app/system/sys_init.c` | 修改（+include scheduler/menu/hmi/chassis/tuning/app_compose；+Hmi/Chassis/Tuning Init + Scheduler_Init + Menu_Setup） |
+| `hc-team/app/system/main.c` | 修改（删 task_scheduler.h + SysRun；+scheduler.h/clock.h；主循环 `Scheduler_Run(Clock_NowMs())`） |
+| `Debug/makefile` | 登记 app_compose.o（ORDERED_OBJS、两处 -include、clean） |
+| `agent/phase4_app_rewrite/plan_app_first_order.md` | 状态回写（§3 SYS01 行 + 本节） |
+
+forbidden_files：`hc-team/app/service/**`、`hc-team/app/scheduler/**`、`hc-team/app/ui/**`、`hc-team/middleware/**`、`hc-team/driver/**`（全部只调用不改）、`hc-team/app/tasks/**`（World 1，只是不再被调用，不改）、`tests/host/**`（装配根无可测缝，无新用例）、`board.syscfg`。
+
+#### 22.2.2 preserved_behavior
+
+- 所有 service/driver/middleware/World-1 文件零源码改动（仅 main 不再调 SysRun）；主机既有用例全过（W1 后基线）；World-2 各 .o 由 main→Scheduler 调用链真实进链（此前零调用者）。
+
+#### 22.2.3 证据行（≤6，恰 1 条固件构建行）
+
+| 行 | 名称 | 命令 | 预期 |
+|---|---|---|---|
+| E01 | 范围审计 | `git status` + `git diff --stat` 对照 §22.2.1 | 无越界改动 |
+| E02 | 装配层依赖闸门 | PowerShell：`& .claude/hooks/arch-scan.ps1 -Mode check` | 空输出（0 新增违规；`app/system` 仅禁 DL HAL，app_compose/main/sys_init 新增 include 全是 scheduler/menu/hmi/chassis/tuning/clock 头，无 DL HAL 泄漏） |
+| E03 | 主机测试 | PowerShell：`rtk proxy make -C tests/host all` | ≥418 PASS / 0 FAIL（W1 后基线，无新用例——装配根无可测缝；被接线的 scheduler/menu/hmi/tuning/chassis 各自用例已覆盖） |
+| E04 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 diagnostics；app_compose.o + scheduler.o + menu.o + menu_param.o + hmi.o + chassis.o + tuning.o + tuning_chassis.o 经 linkInfo.xml 确证进链；main.o 解析 `Scheduler_Run`/`Menu_Setup`/`Clock_NowMs`、不再引用 `SysRun` |
+
+#### 22.2.4 契约修订记录
+
+- **冻结初版**（本提交）。W1 先做（改基线为 418），W2 后做（基线取 W1 后值）。Phase 2/3 各自闭环。
