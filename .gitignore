@@ -65,3 +65,5 @@ tests/host/test_encoder_test
 tests/host/test_encoder_test.exe
 tests/host/test_motor_check
 tests/host/test_motor_check.exe
+tests/host/test_gray_check
+tests/host/test_gray_check.exe

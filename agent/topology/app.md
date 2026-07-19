@@ -277,6 +277,13 @@ class MotorCheck_API {
   +MotorCheck_Stop()
 }
 
+class GrayCheck_API {
+  <<app:service, NEW W4, DEBUG entry idx3>>
+  +GrayCheck_Start()
+  +GrayCheck_Update(now_ms)
+  +GrayCheck_Stop()
+}
+
 class SpeedLoop_API {
   <<app:task>>
   +SpeedLoop_Init()
@@ -605,6 +612,12 @@ GimbalStepbus_API --> StepmotorUart_API : TryWrite/IsTxIdle/ConsumeTxDone/Read (
 EncoderTest_API --> Encoder_API : Encoder_Update(elapsed) sampling + Encoder_GetSnapshot, second sampling call point (mutual-exclusion mitigated, not concurrent with chassis.c)
 EncoderTest_API --> VofaDriver_API : vofa_clear_profile/vofa_register_int x2/vofa_register_float x2/vofa_run, tx-only (no bind_cmd)
 MotorCheck_API --> Motor_API : Motor_SetOutput both wheels +/-200 + Motor_Update(elapsed) + Motor_BrakeAll on Stop, zero re-clamp/re-slew (sole owner stays motor.c)
+
+%% GrayCheck_API (W4, landed 2026-07-19) — third new DEBUG-group scheduler entry (idx3),
+%% diagnostic-only, mutually exclusive with SpeedTune/EncoderTest/MotorDir under the
+%% single-active-entry invariant (index V21 note). Read-only tx mirror, no cmd, no motor.
+GrayCheck_API --> Gray_API : Gray_ReadDarkBitmap() atomic 12-bit read, second call point after line_follow.c (no accumulator, no double-count hazard, see index V21 W4 note)
+GrayCheck_API --> VofaDriver_API : vofa_clear_profile/vofa_register_int x12/vofa_run, tx-only (no bind_cmd)
 ```
 
 ## 4. 当前启动与调度逻辑图
@@ -619,13 +632,14 @@ flowchart TD
   SysInit --> ServiceInit[Hmi_Init + Chassis_Init + Tuning_Init]
   SysInit --> AppCompose[AppCompose_Install, W2 SYS02]
   SysInit --> BoardIRQ[Board_EnableInterrupts]
-  AppCompose --> SchedulerInit[Scheduler_Init s_entries=SpeedTune,EncoderTest,MotorDir x3, background_step=Menu_Tick]
-  AppCompose --> MenuSetupCall[Menu_Setup s_groups=DEBUG x1, entries idx0..2]
+  AppCompose --> SchedulerInit[Scheduler_Init s_entries=SpeedTune,EncoderTest,MotorDir,GrayTest x4, background_step=Menu_Tick]
+  AppCompose --> MenuSetupCall[Menu_Setup s_groups=DEBUG x1, entries idx0..3]
   Main --> MainLoop[while 1: Scheduler_Run Clock_NowMs]
   MainLoop -->|idle, no entry active| MenuTickPump[background_step -> Menu_Tick, HMI only]
   MainLoop -->|SpeedTune entered| SpeedTuneStep[on_step -> Tuning_Update -> cascaded Chassis_Update]
   MainLoop -->|EncoderTest entered, W3| EncTestStep[on_step -> EncoderTest_Update -> Encoder_Update 2nd sampling call + vofa_run]
   MainLoop -->|MotorDir entered, W3| MotorDirStep[on_step -> MotorCheck_Update -> Motor_SetOutput +/-200 both wheels + Motor_Update]
+  MainLoop -->|GrayTest entered, W4| GrayTestStep[on_step -> GrayCheck_Update -> Gray_ReadDarkBitmap 2nd read point + vofa_run, tx-only]
 
   SysTick[SysTick Handler] -->|1 ms| TickMs[s_tick_ms++]
   MainLoop -->|query elapsed| TickMs
