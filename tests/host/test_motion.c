@@ -76,6 +76,7 @@ static Motion_Config_T default_cfg(void)
     cfg.profile_start_mps = 0.15f;
     cfg.profile_accel_mps2 = 0.5f;
     cfg.profile_decel_mps2 = 0.5f;
+    cfg.profile_timeout_ticks = 0u;   /* 默认禁用看门狗：既有 profiled 用例不受影响 */
     cfg.turn_speed_mps = 0.30f;
     cfg.arc_speed_mps = 0.30f;
     cfg.track_width_mm = 100.0f;   /* R=200 → half=50：inner=0.225、outer=0.375（断言直观） */
@@ -599,6 +600,65 @@ static int test_profile_params_apply_to_run(void)
     return 0;
 }
 
+/* §8.1 防跑飞看门狗：编码器脱线(dist 恒≈0，永不达标) → base=start 一直驱动 →
+ * profile_timeout_ticks 拍后确定性 Chassis_Stop + DONE（防跑飞）。 */
+static int test_profiled_watchdog_stops_runaway(void)
+{
+    Motion_Config_T cfg = default_cfg();
+    Chassis_Telemetry_T ct;
+    bool drove_before_timeout = false;
+    int i;
+    int done_at = 99;
+
+    setup();
+    cfg.profile_timeout_ticks = 20u;   /* 20 拍运行上限 */
+    Motion_Init(&cfg);
+    TEST_ASSERT_TRUE(Motion_StartProfiledStraight(5000.0f, false));   /* 远目标 */
+
+    /* 不注入编码器增量 → dist 恒≈0 → dist>=target 永不满足（模拟编码器脱线跑飞）。 */
+    for (i = 0; i < 30; i++) {
+        tick();
+        if (i < 10) {
+            Chassis_GetTelemetry(&ct);
+            if (ct.target_mps[CHASSIS_SIDE_LEFT] > 0.0f) {
+                drove_before_timeout = true;   /* 看门狗前确有驱动（跑飞真实存在） */
+            }
+        }
+        if (Motion_IsDone()) {
+            done_at = i;
+            break;
+        }
+    }
+    TEST_ASSERT_TRUE(drove_before_timeout);
+    TEST_ASSERT_TRUE(Motion_IsDone());
+    TEST_ASSERT_TRUE(Motion_GetState() == MOTION_DONE);
+    TEST_ASSERT_TRUE(FakeMotorHw_IsBrakeActive(MOTOR_LEFT));    /* Chassis_Stop 刹车 */
+    TEST_ASSERT_TRUE(FakeMotorHw_IsBrakeActive(MOTOR_RIGHT));
+    TEST_ASSERT_TRUE(done_at < 25);   /* ≈20 拍触发，远早于 30 */
+    printf("PASS: test_profiled_watchdog_stops_runaway\n");
+    return 0;
+}
+
+/* 看门狗禁用（profile_timeout_ticks=0，default_cfg 口径）：正常到位仍靠 dist>=target。 */
+static int test_profiled_watchdog_disabled_by_default(void)
+{
+    int i;
+
+    setup();   /* default_cfg: profile_timeout_ticks=0 */
+    TEST_ASSERT_TRUE(Motion_StartProfiledStraight(2000.0f, false));
+    /* 编码器正常推进 → 正常到位 DONE（看门狗禁用不干扰）。 */
+    for (i = 0; i < 60; i++) {
+        drive_forward(100);
+        tick();
+        if (Motion_IsDone()) {
+            break;
+        }
+    }
+    TEST_ASSERT_TRUE(Motion_IsDone());
+    printf("PASS: test_profiled_watchdog_disabled_by_default\n");
+    return 0;
+}
+
 /* GetProfileParams NULL 安全。 */
 static int test_get_profile_params_null_safe(void)
 {
@@ -859,6 +919,8 @@ int main(void)
     failures += test_profiled_heading_hold_corrects_ccw();
     failures += test_profile_params_set_get_roundtrip();
     failures += test_profile_params_apply_to_run();
+    failures += test_profiled_watchdog_stops_runaway();
+    failures += test_profiled_watchdog_disabled_by_default();
     failures += test_get_profile_params_null_safe();
     failures += test_start_arc_rejects_invalid();
     failures += test_arc_feedforward_ratio_ccw();

@@ -185,6 +185,7 @@ static const Motion_Config_T s_ms_cfg = {
     .turn_kp             = 0.0f,    /* 未用 */
     .straight_tol_mm     = 5.0f,    /* 到位容差（mm） */
     .turn_tol_deg        = 2.0f,    /* 未用 */
+    .profile_timeout_ticks = 1500u, /* §8.1 防跑飞：~15s(10ms/拍)运行上限，编码器脱线也确定性停 */
 };
 
 static void profiledstraight_enter(void)
