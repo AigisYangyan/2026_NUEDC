@@ -44,6 +44,11 @@
 #include "app/tasks/platform_2d/stepmotor_bus.h"
 #include "app/tasks/platform_2d/vision_bus.h"
 #include "driver/uart_vofa/uart_vofa.h"
+#include "app/system/sys_init.h"
+#include "app/service/hmi/hmi.h"
+#include "app/service/chassis/chassis.h"
+#include "app/service/tuning/tuning.h"
+#include "app/system/app_compose.h"
 
 /* ---- 公开 API ----------------------------------------------------------- */
 
@@ -90,6 +95,15 @@ void SysInit(void)
     SpeedLoop_Init();
     VisionHdl_Init();
     Task1_Init();
+
+    /* ---- World-2 运行栈装配（现役平台，计划表 §22.2）--------------------- */
+    /* 旧 World-1 task_scheduler 不再被 main 调用；上方旧 app-task Init 保留但其任务永不被泵
+     * （无双 Driver 所有者），随 T01 删除。 */
+
+    Hmi_Init();
+    Chassis_Init();
+    Tuning_Init();
+    AppCompose_Install(); /* Scheduler_Init(条目表, Menu_Tick 背景钩子) + Menu_Setup(分组表) */
 
     /* ---- 中断使能（所有 Driver 初始化完成后） --------------------------- */
 

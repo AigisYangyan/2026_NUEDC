@@ -86,7 +86,7 @@
 | M03 | speed_plan 速度规划（Middleware 纯算法：`\|error_mm\|` → 有状态斜坡基速，直道加速/入弯减速，自持输出限幅） | `middleware/speed_plan/` | — | — | `DONE`（契约 §17 冻结 61f4149；代码 8d84657；契约修订 1/审计处置 8975b2a；代码 fix 6ace23b；拓扑同步 3b92258。E01 0 命中 / E02 无越界 / E03 285 PASS 0 FAIL＝269 基线+16 / E04 exit 0、0 诊断、speed_plan.o 经 linkInfo.xml 确证进链。arch-auditor 无阻断/无重要级，2 建议级已处置（F1 删排序夹紧、F2 白名单更正）；基速调制单一所有者落定 speed_plan，V25 登记） |
 | S02b | line_follow 深化：M02 元素事件面接入 + M03 速度调制接入（base_speed 合成点仍唯一在 line_follow_apply） | `app/service/line_follow/` | — | — | `DONE`（契约 §18 冻结 b3b2d38；代码 f278894；拓扑同步见 §10。E01 0 命中 / E02 4 文件在范围 / E03 300 PASS 0 FAIL＝285 基线+15（速度调制 5 + 元素事件面 10）/ E04 exit 0、0 诊断、line_follow.o 重编并经 linkInfo.xml 确证进链（speed_plan.o/track_elements.o 已在链）。arch-auditor 三维无发现；base_speed 合成点未搬家、位图并列消费不新开采样点、V21 不新增第四推进点） |
 | S07 | route 分段路线执行服务（段表驱动：FOLLOW_UNTIL(元素)/STRAIGHT/TURN/ARC——新题=换段表） | `app/service/route/` | task1 分段状态机 | — | `DONE`（契约 §20 冻结 5eaa41f；代码 6cb338c；审计无发现；拓扑同步见 §10。E01 0 命中 / E02 无越界 / E03 334 PASS 0 FAIL＝310 基线+24 / E04 exit 0、0 诊断、route.o 经 linkInfo.xml 确证进链 3 引用。arch-auditor 六轴全过、亲验 motion.c IDLE/DONE drive-free；route 每拍≤1 子服务、不构成第四 Chassis_Update 推进点/第二 Imu_Update 排空点，V21 扩条/V23 登记；catch-up 防幻纠偏落定 §20.3） |
-| SYS01 | 装配入口更新 | `app/system/` | sys_init.c 增量改造 | — | 随各阶段 |
+| SYS01 | 装配入口更新 | `app/system/` | sys_init.c 增量改造 | — | 随各阶段（**W2 §22.2 World-2 点亮 DONE**：main→Scheduler_Run，SpeedTune 条目接 tuning，旧 SysRun 停用，418 PASS，本提交） |
 | T01 | 赛题 Task（薄编排）+ 旧 tasks 整体删除 | `app/tasks/` | 全部旧 `tasks/**` | V03/V07/V13 残余/V15 全关，baseline 清空 | **最后**（赛题公布后） |
 
 ## 4. 通用施工规则（每模块适用）
@@ -2467,4 +2467,13 @@ forbidden_files：`hc-team/app/service/**`、`hc-team/app/scheduler/**`、`hc-te
 #### 22.2.4 契约修订记录
 
 - **冻结初版**（提交 e76151b）。W1 先做（改基线为 418），W2 后做（基线取 W1 后值）。Phase 2/3 各自闭环。
-- **修订 1（本提交，施工前）**：allowed_files 增 `hc-team/app/system/sys_init.h`（新建）。原因：`SysInit` 声明现仅在 World-1 冻结头 `task_scheduler.h:127`；main.c 按契约删该 include 后无层合规声明 site。新建 app/system 自己的 `sys_init.h` 承载 `void SysInit(void)` 声明；`task_scheduler.h` 冻结不可改，其重复声明属无害冗余，T01 删旧文件时消除。E03 基线相应取 W1 后值 418；无新用例（装配根）。
+- **修订 1（提交 1e04b10，施工前）**：allowed_files 增 `hc-team/app/system/sys_init.h`（新建）。原因：`SysInit` 声明现仅在 World-1 冻结头 `task_scheduler.h:127`；main.c 按契约删该 include 后无层合规声明 site。新建 app/system 自己的 `sys_init.h` 承载 `void SysInit(void)` 声明；`task_scheduler.h` 冻结不可改，其重复声明属无害冗余，T01 删旧文件时消除。E03 基线相应取 W1 后值 418；无新用例（装配根）。
+
+#### 22.2.5 完成记录（Phase 2+3，代码本提交）
+
+- World-2 装配点亮：`main → Scheduler_Run(Clock_NowMs())` 现役启动路径，旧 `SysRun` 停用；空转只泵 `Menu_Tick`(HMI)，进 SpeedTune 条目才注册 VOFA + 10ms 泵速度环。
+- E01 仅动 §22.2.1 六文件（`app_compose.{c,h}`/`sys_init.h` 新建，`sys_init.c`/`main.c` 改，`Debug/makefile` 登记 `app_compose.o`；本地 `subdir_vars.mk` 不入库）；`.ccsproject` 会话前既存未纳入。
+- E02 `arch-scan -Mode check` 空输出（0 新增违规）；E03 主机 **418 PASS / 0 FAIL**（W1 后基线，无新用例——装配根无可测缝）；E04 exit 0、0 诊断、`app_compose.o` 经 linkInfo.xml 确证进链（3 处），`main→Scheduler_Run/Menu_Setup/Clock_NowMs` 解析成功（旧 `SysRun` 已非启动路径）。
+- 施工踩坑：`app_compose.c` 初版漏 `<stddef.h>` 致 `NULL` 未声明（连带 `sizeof` 不完整类型报错），补 include 后绿。
+- arch-auditor 六轴全过、无发现：分层无 DL HAL 泄漏 / 空转只泵 HMI / boot-to-safe（SysInit `Motor_BrakeAll` + 无活动条目不泵 chassis + EnterProfile 安全 cmd）/ 旧任务静默（`clock.c:32` SysTick 仅 `s_tick_ms++`，全仓无 ISR 泵 `TaskTimeSliceManage`）/ 单活动条目排除双泵 / 无越界。命名备注：条目/分组表实名 `s_entries[]/s_groups[]`（static）。
+- topo-updater 同步见索引 §10。

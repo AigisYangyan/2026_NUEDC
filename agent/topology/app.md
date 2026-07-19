@@ -12,14 +12,18 @@ classDiagram
 direction LR
 
 class System_API {
-  <<app:system>>
+  <<app:system, W2 live entry 2026-07-19>>
   +main()
   +SysInit()
-  +SysRun()
+}
+
+class AppCompose_API {
+  <<app:system, NEW W2 2026-07-19, assembly layer>>
+  +AppCompose_Install()
 }
 
 class Scheduler_API {
-  <<app:scheduler, OLD, frozen SCH01>>
+  <<app:scheduler, OLD, frozen SCH01, unreachable at runtime since W2 2026-07-19 (main no longer calls SysRun)>>
   +Sys_EnterRunEntry()
   +Sys_LeaveRunEntry()
   +Sys_GetActiveRunEntry()
@@ -369,7 +373,7 @@ class ImuUart_API { <<driver>> }
 class IMU_API { <<driver:imu, NEW consumer S06>> }
 class DL_HAL { <<external>> }
 
-System_API --> Scheduler_API : starts scheduler
+System_API ..> Scheduler_API : g_eSysFlagManage = SYS_STA_INIT write only (V13 residual); SysRun/TaskStartSchedule loop no longer called since W2 2026-07-19
 System_API --> Board_API : board init and interrupt enable
 System_API --> Clock_API : clock init
 System_API --> Runtime_API : UART DMA init (transitional)
@@ -380,16 +384,25 @@ System_API --> OLED_API : init
 System_API --> VofaRegister_API : init
 System_API --> StepMotorBus_API : init
 System_API --> VisionBus_API : init
+System_API --> Hmi_API : Hmi_Init, W2
+System_API --> Chassis_API : Chassis_Init, W2
+System_API --> Tuning_API : Tuning_Init, W2
+System_API --> AppCompose_API : AppCompose_Install, W2, sole caller
+
+AppCompose_API --> SchedulerEntry_API : Scheduler_Init(s_entries, count, background_step=Menu_Tick), first real caller W2
+AppCompose_API --> MenuUI_API : Menu_Setup(s_groups, count), first real caller W2
+AppCompose_API ..> Tuning_API : entry hooks call Tuning_EnterProfile/Update/ExitProfile (Scheduler_Entry_T fn ptrs owned by AppCompose, invoked later by SchedulerEntry_API)
+SchedulerEntry_API ..> AppCompose_API : Scheduler_Run invokes active entry's on_enter/on_step/on_exit fn ptrs each tick (opaque, registered by AppCompose)
+SchedulerEntry_API ..> MenuUI_API : Scheduler_Run invokes background_step = Menu_Tick each idle tick (fn ptr, registered by AppCompose)
 
 Scheduler_API --> Clock_API : active elapsed query
 Scheduler_API --> RunRegistry_API : resolve active entry
 Scheduler_API --> TaskGroups_API : dispatch active group
 
-%% SchedulerEntry_API (SCH01, new) has zero real edges today: E01 scan 0 hits
-%% (no include of clock.h/Driver/Middleware/Service), zero callers (S15.1/2 expected state).
-%% Q1-decided future wiring (not yet code): System reads Clock_NowMs() and passes
-%% now_ms into Scheduler_Run(now_ms) as a plain parameter — Scheduler_Run itself
-%% never calls Clock_API. No edge drawn until System_API actually calls it.
+%% SchedulerEntry_API (SCH01) — 2026-07-19 W2: no longer zero callers. AppCompose_API is the
+%% real caller of Scheduler_Init; main.c drives Scheduler_Run(Clock_NowMs()) every tick
+%% (Q1-decided wiring realized: System reads Clock_NowMs() and passes now_ms as a plain
+%% parameter — Scheduler_Run itself still never calls Clock_API directly).
 RunRegistry_API --> SpeedLoop_API : lifecycle
 RunRegistry_API --> GrayTest_API : lifecycle
 RunRegistry_API --> UartTest_API : lifecycle
@@ -402,8 +415,9 @@ Menu_API --> Scheduler_API : enter and leave
 Menu_API ..> Key_API : VIOLATION UI calls Driver
 Menu_API ..> OLED_API : VIOLATION UI calls Driver
 
-%% MenuUI_API / MenuParam_API (UI01, new) — zero callers today, E01 dependency scan 0 hits
-%% against Driver/DL HAL (S15.1 expected state); SYS01/T01 assembly layer is the future caller.
+%% MenuUI_API / MenuParam_API (UI01) — 2026-07-19 W2: no longer zero callers.
+%% AppCompose_API (assembly layer) registers Menu_Setup(s_groups) and wires Menu_Tick as
+%% Scheduler background_step; MenuParam_API remains private to menu, invoked only via MenuUI_API.
 MenuUI_API --> SchedulerEntry_API : GetEntryCount/GetEntryName/EnterEntry/LeaveEntry, same-layer controlled
 MenuUI_API --> Hmi_API : Update/PollInput/IsDisplayReady/PrintLine
 MenuUI_API --> MenuParam_API : delegates PARAM_LIST/PARAM_EDIT screens, private submodule
@@ -569,23 +583,26 @@ GimbalStepbus_API --> StepmotorUart_API : TryWrite/IsTxIdle/ConsumeTxDone/Read (
 
 ```mermaid
 flowchart TD
-  Main[main.c main] --> SysInit[sys_init.c SysInit]
+  Main[main.c main, World-2 live entry] --> SysInit[sys_init.c SysInit]
   SysInit --> BoardInit[Board_Init]
   SysInit --> ClockInit[Clock_Init]
   SysInit --> RuntimeInit[Runtime UART DMA fixed dispatch]
-  SysInit --> DriverInit[OLED Key Motor Encoder VOFA BoardUart]
-  SysInit --> AppInit[Menu Run profiles Tasks Vision StepMotor]
+  SysInit --> DriverInit[OLED Key Motor Encoder VOFA BoardUart, legacy app-task Init retained but never pumped from here]
+  SysInit --> ServiceInit[Hmi_Init + Chassis_Init + Tuning_Init]
+  SysInit --> AppCompose[AppCompose_Install, W2 SYS02]
   SysInit --> BoardIRQ[Board_EnableInterrupts]
-  Main --> SysRun[SysRun]
-  SysRun --> SchedulerLoop[TaskStartSchedule loop]
+  AppCompose --> SchedulerInit[Scheduler_Init s_entries=SpeedTune x1, background_step=Menu_Tick]
+  AppCompose --> MenuSetupCall[Menu_Setup s_groups=DEBUG x1]
+  Main --> MainLoop[while 1: Scheduler_Run Clock_NowMs]
+  MainLoop -->|idle, no entry active| MenuTickPump[background_step -> Menu_Tick, HMI only]
+  MainLoop -->|SpeedTune entered| SpeedTuneStep[on_step -> Tuning_Update -> cascaded Chassis_Update]
 
   SysTick[SysTick Handler] -->|1 ms| TickMs[s_tick_ms++]
-  SchedulerLoop -->|query elapsed| TickMs
-  SchedulerLoop -->|advance| TimeSlice[TaskTimeSliceManage]
-  TimeSlice --> ActiveGroup[Resolve active TaskGroup]
-  ActiveGroup --> TaskFlags[Run enabled task functions]
-  TaskFlags --> UIGroup[UI group]
-  TaskFlags --> FeatureGroups[Speed Gray UART Vision Task1 groups]
+  MainLoop -->|query elapsed| TickMs
+
+  SysRunOld[SysRun / task_scheduler.c TaskStartSchedule loop, World-1 legacy]
+  TimeSliceOld[TaskTimeSliceManage -> TaskGroups -> UI/Speed/Gray/UART/Vision/Task1 groups]
+  SysRunOld -.->|frozen 2026-07-19 W2: no longer called by main| TimeSliceOld
 
   RuntimeInit --> FixedDispatch[Runtime fixed IRQ DMA fanout]
   DMAIRQ[DMA and UART IRQ] --> FixedDispatch
@@ -593,7 +610,9 @@ flowchart TD
 
   classDef violation fill:#ffd6d6,stroke:#b00020,color:#700018
   class FixedDispatch violation
+  classDef frozen fill:#eeeeee,stroke:#888888,color:#555555
+  class SysRunOld,TimeSliceOld frozen
 ```
 
-当前交叉点：App 仍有局部任务直接调用 Driver 或 DL HAL；Runtime ISR 已不再通过回调进入 App/VOFA 解析，但仍是过渡期固定分发层。
+当前交叉点：App 仍有局部任务直接调用 Driver 或 DL HAL；Runtime ISR 已不再通过回调进入 App/VOFA 解析，但仍是过渡期固定分发层。**2026-07-19 W2 起**：`main.c` 的现役主循环是 `SysInit()` + `while(1){ Scheduler_Run(Clock_NowMs()); }`；旧 `SysRun`/`task_scheduler.c` 主循环不再被 `main` 调用（灰色冻结节点，随 T01 整体删除），`sys_init.c` 里遗留的旧 app-task `*_Init()` 调用仍在执行但其任务此后永不被泵（无双 Driver 所有者，§6 参见 V21 类推理）。SysTick 仍只做 `s_tick_ms++`（`clock.c:32`），不泵任何一条调度链。
 
