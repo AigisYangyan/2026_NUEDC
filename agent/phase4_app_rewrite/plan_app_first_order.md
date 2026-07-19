@@ -2477,3 +2477,143 @@ forbidden_files：`hc-team/app/service/**`、`hc-team/app/scheduler/**`、`hc-te
 - 施工踩坑：`app_compose.c` 初版漏 `<stddef.h>` 致 `NULL` 未声明（连带 `sizeof` 不完整类型报错），补 include 后绿。
 - arch-auditor 六轴全过、无发现：分层无 DL HAL 泄漏 / 空转只泵 HMI / boot-to-safe（SysInit `Motor_BrakeAll` + 无活动条目不泵 chassis + EnterProfile 安全 cmd）/ 旧任务静默（`clock.c:32` SysTick 仅 `s_tick_ms++`，全仓无 ISR 泵 `TaskTimeSliceManage`）/ 单活动条目排除双泵 / 无越界。命名备注：条目/分组表实名 `s_entries[]/s_groups[]`（static）。
 - topo-updater 同步见索引 §10。
+
+## 23. Phase 4B —— W3：DEBUG 组新增两个调试运行条目 + 统一 RUNNING 横幅
+
+> 用户 2026-07-19 本会话裁定。契约先于代码、单独提交冻结（闭环铁律）；T1/T2/T3 各自 TDD→施工→证据→审计→拓扑为其后独立闭环。
+> topo-navigator 切片（本会话）确认：Encoder_Update 现役唯一调用者 = `chassis.c:82`（`motion.c` 只读 GetSnapshot）；
+> VOFA/Motor 现役唯一路径 = tuning/chassis（经 SpeedTune 条目）；menu RUN_ACTIVE 现文档为「不写任何显示行」。
+
+### 23.0 裁定更新（2026-07-19，用户本会话）
+
+1. **两个新条目都放 DEBUG 组**（与 SpeedTune 平级），menu 结构不变（仍两级）。条目名 ASCII：`EncoderTest` / `MotorDir`。
+2. **统一 RUNNING 横幅归 menu 框架**：RUN_ACTIVE 期 menu 在 row0 画 `RUNNING`、清 row1..3；对**每个**运行条目（debug/test/未来）自动生效。Service 一律不碰 OLED。**修订 menu 显示所有权契约**（承 UI01 §13）：RUN_ACTIVE 不再「整屏让给 on_step」，而是「menu 占固定 RUNNING 横幅；条目自绘整屏＝未来按条目 opt-in flag，当前无条目 opt-in，故无双写」。
+3. **EncoderTest 接受第二个 Encoder_Update 采样点（用户裁定，登记 V21 扩条）**：看实时脉冲必须自泵 Encoder_Update（只读 GetSnapshot 在本条目活动期无人刷新＝静止零，测不出接线正负）。单活动条目不变量保证 encoder_test 与 chassis 永不同拍——第二采样点是「多推进点、互斥缓解」的 V21 同款模式，非运行期双采样。方向修正仍唯一在 `encoder.c s_direction_sign`（EncoderTest 读已修正快照，不加第二反向）。
+4. **VOFA 第二注册者（EncoderTest）与 tuning 互斥**：encoder_test 直调 uart_vofa（clear/register/run）做 tx-only 遥测（**不 bind_cmd**）。cmd 分发唯一收口仍是 tuning（EncoderTest 零 cmd，不触碰「cmd 应用归 tuning」的 S03 §9 定案）；单活动条目保证不与 tuning 同拍泵 vofa_run。
+5. **MotorDir 驱动参数（用户裁定）**：两轮同向 `±200`（20% 满量程）、每相 2000ms、前→后**循环**直到 BACK。换向过零/死区/slew/100ms 超时归零全部单一所有者在 `motor.c`——MotorDir 只发 ±200 目标 + 每拍 Motor_SetOutput 刷新看门狗 + Motor_Update(elapsed)；on_exit=Motor_BrakeAll。
+6. **时间注入**：两个新 Service 的 Update 取 `now_ms`（由 scheduler `on_step(now_ms)` 注入，非直读 Clock）——主机测试免链 fake_clock，确定性走相位。
+
+### 23.1 T1 契约（menu 统一 RUNNING 横幅）——冻结
+
+- **task_id**: W3-T1-menu_running_banner
+- **goal**: menu RUN_ACTIVE 界面渲染统一 `RUNNING` 横幅（row0=`RUNNING`，row1..3 清空），复用既有 s_dirty/就绪门控（进条目置脏、渲染一次、无输入不重绘）。修订 menu 显示所有权契约注释（§23.0 第 2 条）。
+- **接口辩护**（菜单能做什么）：运行条目激活时给出统一「运行中」界面反馈——这是菜单导航面的一部分（RUN_ACTIVE 是 menu 自己的界面态），非某个 Service 的能力。
+
+#### 23.1.1 allowed_files（无 glob）
+
+| 文件 | 动作 |
+|---|---|
+| `hc-team/app/ui/menu/menu.c` | 修改（`handle_run_list` 进 RUN_ACTIVE 置脏；`Menu_Tick` 渲染门控放开 RUN_ACTIVE；`render()` 增 RUN_ACTIVE 分支画 RUNNING+清行；改 file/§9 显示所有权注释） |
+| `hc-team/app/ui/menu/menu.h` | 修改（仅 `Menu_Screen` RUN_ACTIVE 注释：让屏→固定 RUNNING 横幅） |
+| `tests/host/test_menu.c` | 修改（`test_run_active_menu_draws_nothing` 改写为 `test_run_active_draws_running_once`：进条目绘制一次、后续泵送不重绘；BACK 回子列表重绘不变） |
+| `agent/phase4_app_rewrite/plan_app_first_order.md` | 状态回写（§3 UI01 行备注 + 本节完成记录） |
+
+forbidden_files：`hc-team/app/ui/menu/menu_param.{c,h}`、`hc-team/app/service/**`、`hc-team/app/{scheduler,system,tasks}/**`、`hc-team/driver/**`、`hc-team/middleware/**`、`tests/host` 其余全部 `test_*.c`/`fake_*.c`、`Debug/makefile`（menu.o 已登记，无新 .o）。
+
+#### 23.1.2 preserved_behavior
+
+- 除 RUN_ACTIVE 渲染外 menu 一切界面/转移不变；无新 `#include`（复用已在场的 `Hmi_PrintLine`）；menu_param、hmi、scheduler、所有 service/driver 零改动；固件行为仅 RUN_ACTIVE 屏由空白→RUNNING。
+
+#### 23.1.3 证据行（≤6，恰 1 条固件构建行）
+
+| 行 | 名称 | 命令 | 预期 |
+|---|---|---|---|
+| E01 | 范围审计 | `git status` + `git diff --stat` 对照 §23.1.1 | 无越界改动 |
+| E02 | 主机测试 | PowerShell：`rtk proxy make -C tests/host all` | ≥418 PASS / 0 FAIL（W2 后基线；menu 用例净新 ≥0——RUN_ACTIVE 用例由「不绘制」改写为「绘制一次、无冗余重绘、BACK 回子列表重绘」） |
+| E03 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 diagnostics、menu.o 重编并进链 |
+
+### 23.2 T2 契约（encoder_test 编码器脉冲遥测服务）——冻结
+
+- **task_id**: W3-T2-encoder_test
+- **goal**: 新建 `app/service/encoder_test/`：读 Encoder Driver + 注册 VOFA tx×4（无 cmd）的**只读诊断服务**。查左右轮编码器接线正负（正转→脉冲正增）+ 实测 100 米累计脉冲。零调用者（T3 接线），即预期状态。
+- **接口辩护**（诊断能做什么）：能进入/退出一次编码器脉冲遥测（进入即挂 VOFA 组、退出清组）、能被周期推进（自泵采样 + 发帧）。仅此成为公共面。
+
+#### 23.2.1 allowed_files（无 glob）
+
+| 文件 | 动作 |
+|---|---|
+| `hc-team/app/service/encoder_test/encoder_test.h` / `.c` | 新建 |
+| `tests/host/test_encoder_test.c` | 新建 |
+| `tests/host/Makefile` | 追加 test_encoder_test 目标/clean/.PHONY |
+| `.gitignore` | 追加 test_encoder_test / .exe |
+| `Debug/makefile` | 登记 encoder_test.o（ORDERED_OBJS、两处 -include、clean） |
+| `agent/phase4_app_rewrite/plan_app_first_order.md` | 状态回写（本节完成记录） |
+
+forbidden_files：`hc-team/app/service/**` 其余、`hc-team/app/{ui,scheduler,system,tasks}/**`、`hc-team/driver/**` 其余（仅调用 encoder/uart_vofa，不改）、`hc-team/middleware/**`、`tests/host` 既有 `test_*.c`/`fake_*.c`（复用 fake_board_gpio 编码器注入 + fake_uart_port VOFA 抓取）。
+
+#### 23.2.2 公共接口（最小面）
+
+```c
+void EncoderTest_Start(void);           /* vofa_clear_profile → 注册 tx×4（无 cmd）→ 采样基准复位；不发电机命令 */
+void EncoderTest_Update(uint32_t now_ms);/* 自门控 10ms：Encoder_Update(elapsed) → 快照刷 tx → vofa_run（发上一拍帧） */
+void EncoderTest_Stop(void);            /* vofa_clear_profile；无电机可停（本服务从不驱动电机） */
+```
+
+- **VOFA 通道（注册序=上位机通道序，写死并注释）**：tx[0..3] = `enc_L`(总累计脉冲,int)、`enc_R`(int)、`spd_L`(m/s,float)、`spd_R`(float)。累计脉冲用于看正负 + 100 米计数；速度给瞬时方向。**零 bind_cmd**。
+- **单一所有者声明**：编码器方向修正唯一在 `encoder.c s_direction_sign`（读已修正快照，不加第二反向）；VOFA 协议/解析/缓冲归 uart_vofa Driver。本服务唯一拥有：诊断遥测变量组 + 采样/发帧节奏（第二 Encoder_Update 采样点，V21 扩条，单活动条目互斥）。
+- **前置条件**：System 装配层已完成 `vofa_init()` 与 `Encoder_Init()`。
+
+#### 23.2.3 preserved_behavior
+
+- 所有既有 service/driver/middleware/app 零源码改动；主机既有用例全过；encoder_test.o 进链但零调用者（T3 前）。
+
+#### 23.2.4 证据行（≤6，恰 1 条固件构建行）
+
+| 行 | 名称 | 命令 | 预期 |
+|---|---|---|---|
+| E01 | 依赖纯净 | Grep `app/tasks/\|app/scheduler/\|app/ui/\|app/system/\|app/service/\|ti_msp_dl_config\|ti/driverlib`（path=`hc-team/app/service/encoder_test`，`#include` 行） | 仅 `driver/encoder`+`driver/uart_vofa` 命中；上列前缀 0 命中（不含任何上层/同层 Service/DL HAL） |
+| E02 | 范围审计 | `git status` + `git diff --stat` 对照 §23.2.1 | 无越界改动 |
+| E03 | 主机测试 | PowerShell：`rtk proxy make -C tests/host all` | ≥418+新用例 PASS / 0 FAIL，必含：Start 后零电机命令、tx×4 注册且零 cmd 绑定、正转 raw→累计脉冲正增 & 速度正、方向反转 raw→负（接线反检出）、10ms 门控单帧、Stop 清 profile 后无新帧、重进重置采样基准 |
+| E04 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 diagnostics、encoder_test.o 经 linkInfo.xml 确证进链（零调用者，ORDERED_OBJS 强留） |
+
+### 23.3 T3 契约（motor_check 电机方向测试服务 + app_compose 接线两条目）——冻结
+
+- **task_id**: W3-T3-motor_check
+- **goal**: 新建 `app/service/motor_check/`：两轮同向 ±200 前/后 2s 循环的电机方向测试服务（查 TB6612 AI1/AI2 是否接反）；并在 `app_compose.c` 把 `EncoderTest`+`MotorDir` 两条目接进 s_entries[] + s_debug_entries[]（连同 SpeedTune 三条目同组）。
+- **接口辩护**（底盘器件能做什么）：能启动/推进/停止一次「两轮同向前后循环」方向自检。仅此成为公共面。
+
+#### 23.3.1 allowed_files（无 glob）
+
+| 文件 | 动作 |
+|---|---|
+| `hc-team/app/service/motor_check/motor_check.h` / `.c` | 新建 |
+| `hc-team/app/system/app_compose.c` | 修改（+include encoder_test/motor_check；+2 组三钩子 wrapper；s_entries[] 增 EncoderTest/MotorDir；s_debug_entries[] 增两下标） |
+| `tests/host/test_motor_check.c` | 新建 |
+| `tests/host/Makefile` | 追加 test_motor_check 目标/clean/.PHONY |
+| `.gitignore` | 追加 test_motor_check / .exe |
+| `Debug/makefile` | 登记 motor_check.o（app_compose.o 已登记） |
+| `agent/phase4_app_rewrite/plan_app_first_order.md` | 状态回写（§3 SYS01 行备注 + 本节完成记录） |
+
+forbidden_files：`hc-team/app/service/**` 其余（含 encoder_test.c，T2 已冻不再改）、`hc-team/app/system/**` 其余（sys_init/main 不改——两条目经 app_compose 装配，装配入口不变）、`hc-team/app/{ui,scheduler,tasks}/**`、`hc-team/driver/**`（仅调用 motor，不改）、`hc-team/middleware/**`、`board.syscfg`、`tests/host` 既有 `test_*.c`/`fake_*.c`（复用 fake_motor_hw）。
+
+#### 23.3.2 公共接口（最小面）
+
+```c
+void MotorCheck_Start(void);            /* 相位复位=FORWARD、采样基准待播种；不立即发命令（首 Update 播种） */
+void MotorCheck_Update(uint32_t now_ms);/* 首拍播种基准+相位输出；每拍 Motor_SetOutput(当前相位±200)刷看门狗 + Motor_Update(elapsed)；相位到 2000ms 翻转 FORWARD↔BACKWARD 循环 */
+void MotorCheck_Stop(void);             /* Motor_BrakeAll（确定性停止，§8.1） */
+```
+
+- **驱动语义**：FORWARD → 左右轮 `Motor_SetOutput(±MOTOR_CHECK_OUTPUT)`，`MOTOR_CHECK_OUTPUT=200`；相位时长 `MOTOR_CHECK_PHASE_MS=2000`；循环直到 Stop。两轮**同向同幅**（一轮反转即 AI1/AI2 接反，肉眼可辨）。
+- **单一所有者声明**：换向过零/死区/slew/100ms 命令超时归零/刹车真值表全部唯一在 `motor.c`（V12）；motor_check 只发 ±200 目标 + 每拍刷新（防 100ms 超时）+ Motor_Update(elapsed) 推进状态机 + Stop 时 Motor_BrakeAll。**不复做任何限幅/换向/超时逻辑**。
+- **安全（§8.1）**：Start 不立即发命令（首 Update 播种）；Stop=确定性 BrakeAll；开机安全态由 SysInit `Motor_Init`+`Motor_BrakeAll` 保证（不改装配）；无活动条目＝不泵 motor_check。
+- **前置条件**：System 装配层已完成 `Motor_Init()`。
+
+#### 23.3.3 preserved_behavior
+
+- 既有 service/driver/middleware 零改动；sys_init/main 不改（装配入口不变，仅 app_compose 条目表扩两行）；主机既有用例全过；固件行为：DEBUG 组多两条目，进 EncoderTest/MotorDir 才注册遥测/驱动电机，空转仍只泵 Menu_Tick。
+
+#### 23.3.4 证据行（≤6，恰 1 条固件构建行）
+
+| 行 | 名称 | 命令 | 预期 |
+|---|---|---|---|
+| E01 | 依赖纯净 | Grep `app/tasks/\|app/scheduler/\|app/ui/\|app/system/\|app/service/\|ti_msp_dl_config\|ti/driverlib`（path=`hc-team/app/service/motor_check`，`#include` 行） | 仅 `driver/motor` 命中；上列前缀 0 命中 |
+| E02 | 装配层闸门 | PowerShell：`& .claude/hooks/arch-scan.ps1 -Mode check` | 空输出（app_compose 新增 include 仅 encoder_test/motor_check Service 头，无 DL HAL 泄漏；app/system 仅禁 DL HAL） |
+| E03 | 范围审计 | `git status` + `git diff --stat` 对照 §23.3.1 | 无越界改动 |
+| E04 | 主机测试 | PowerShell：`rtk proxy make -C tests/host all` | ≥T2 总数+新用例 PASS / 0 FAIL，必含安全项：Start 后首 Update 前零命令、FORWARD 两轮 +200、2000ms 后翻 BACKWARD 两轮 −200、再 2000ms 回 FORWARD（循环）、每拍刷新命令（Motor_SetOutput 被调）、elapsed 正确传 Motor_Update、Stop→BrakeAll、两轮同向同幅 |
+| E05 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 diagnostics、motor_check.o + app_compose.o 重编并经 linkInfo.xml 进链；main→Scheduler→EncoderTest/MotorDir 两条目 on_enter/step/exit 可达 |
+
+### 23.4 维护/收官
+
+- 三任务各自：TDD 红→施工→逐行复现证据→arch-auditor→topo-updater→提交（Conventional Commits）。
+- topo：encoder_test 第二 Encoder_Update 采样点登记 V21 扩条；menu RUN_ACTIVE 显示所有权契约修订；app_compose 条目表扩两条；索引 §10 追加日志。
