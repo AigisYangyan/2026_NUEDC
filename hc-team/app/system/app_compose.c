@@ -16,12 +16,16 @@
  * - GrayTest   = 12 路灰度数字量遥测（gray_check：注册 VOFA tx×12、10ms 读发 0/1、退页清表——不驱动电机）。
  * - LineFollow = 循迹外环运行（line_follow：进页 Init 归零→ParamTune_Init 重推持久增益→Start，
  *                10ms 泵 Update 级联 Chassis 沿线跑，退页 LineFollow_Stop 安全停车；只跑不接遥测）。
+ * - ProfiledStraight = 定长梯形剖面直行（motion：进页 Init→ParamTune_Init 重推持久剖面参数+距离→
+ *                StartProfiledStraight(dist,false)，10ms 泵 Update 级联 Chassis 跑一段停，退页 Motion_Stop）。
  * RUN_ACTIVE 期 OLED 统一 RUNNING 横幅由 menu 框架负责（各条目不碰 OLED）。
  * 换/加 debug/test 项：在 s_entries[] 补条目 + 在对应分组的 entries 数组补其下标。
  *
- * TUNE 参数组（与 DEBUG 平级的 MENU_GROUP_PARAM）：循迹外环差速 PID 三增益按钮动态调参 +
- * SAVE 动作项一次性写片内 flash（掉电保存）。值/换算/持久化归 param_tune，菜单零复做；
- * 开机 ParamTune_Init 载入持久增益应用到 line_follow。加调参项：在 s_tune_params[] 补一行。
+ * 参数组（与 DEBUG 平级的 MENU_GROUP_PARAM，进入二级界面均显示 PARAMS）：
+ * - TUNE  = 循迹外环差速 PID 三增益；
+ * - DRIVE = motion 剖面 4 参数（cruise/start/accel/decel）+ 测试距离 Dist。
+ * 每组 SAVE 动作项一次性写片内 flash（掉电保存，共享同一 blob）。值/换算/持久化归 param_tune，
+ * 菜单零复做；开机 ParamTune_Init 载入持久值应用到 line_follow + motion。加调参项：在对应 s_*_params[] 补一行。
  */
 #include "app/system/app_compose.h"
 
@@ -32,6 +36,7 @@
 #include "app/service/encoder_test/encoder_test.h"
 #include "app/service/gray_check/gray_check.h"
 #include "app/service/line_follow/line_follow.h"
+#include "app/service/motion/motion.h"
 #include "app/service/motor_check/motor_check.h"
 #include "app/service/param_tune/param_tune.h"
 #include "app/service/tuning/tuning.h"
@@ -152,6 +157,54 @@ static void linefollow_exit(void)
     LineFollow_Stop();      /* 退页：→IDLE + Chassis_Stop() 确定性停车 */
 }
 
+/* ---- ProfiledStraight 运行条目钩子（→ motion 定长梯形剖面直行）--------------
+ * 进页跑一段定长直行（距离取 DRIVE 组按钮值，默认 1000mm）、退页确定性停车。
+ * on_enter 接线序（关闭 V28）：Motion_Init 重置(归零剖面参数为 s_ms_cfg 值) → ParamTune_Init
+ * 重推持久(或默认)剖面参数到 motion + 载入测试距离 → StartProfiledStraight（dist<=0 则安全保持
+ * IDLE 不动底盘）。纵向剖面/限幅归 move_profile，换向/超时/刹车归 motor.c，本装配层零复做（§8.1）。
+ * heading_hold=false：开环直行测纵向剖面（不依赖 IMU/航向 PID 标定）。 */
+
+/* 定长直行运行条目配置：保守 UNCALIBRATED 占位——上车按实测替换（尤其 mm_per_pulse）。
+ * 剖面 4 参数(profile_*)进页会被 ParamTune_Init 重推覆盖，此处填与 param_tune 默认一致的占位值；
+ * 未用字段(turn/arc/hold*)取安全占位（heading_hold=false 时航向 PID 不生效）。 */
+static const Motion_Config_T s_ms_cfg = {
+    .mm_per_pulse        = 0.1f,    /* UNCALIBRATED：脉冲→mm 实测标定（错则距离全错） */
+    .heading_sign        = 1.0f,    /* 占位（heading_hold=false 不生效） */
+    .straight_speed_mps  = 0.20f,   /* 恒速直行基速（本条目走剖面，不用此字段） */
+    .profile_cruise_mps  = 0.20f,   /* 进页被 ParamTune_Init 覆盖；占位=param_tune 默认 */
+    .profile_start_mps   = 0.08f,
+    .profile_accel_mps2  = 0.30f,
+    .profile_decel_mps2  = 0.30f,
+    .turn_speed_mps      = 0.20f,   /* 未用（不调 Turn），安全占位 */
+    .arc_speed_mps       = 0.20f,   /* 未用（不调 Arc），安全占位 */
+    .track_width_mm      = 100.0f,  /* 未用（不调 Arc），>0 占位 */
+    .hold_kp             = 0.0f,    /* heading_hold=false → 航向 PID 不生效 */
+    .hold_ki             = 0.0f,
+    .hold_kd             = 0.0f,
+    .hold_diff_limit_mps = 0.15f,   /* PID out_limit 占位（不生效） */
+    .turn_kp             = 0.0f,    /* 未用 */
+    .straight_tol_mm     = 5.0f,    /* 到位容差（mm） */
+    .turn_tol_deg        = 2.0f,    /* 未用 */
+};
+
+static void profiledstraight_enter(void)
+{
+    Motion_Init(&s_ms_cfg);   /* 重置服务 + odometry/航向 PID Init → IDLE，不发电机命令 */
+    ParamTune_Init();         /* 重推持久(或默认)剖面参数 → Motion_SetProfileParams + 载入距离（关闭 V28） */
+    (void)Motion_StartProfiledStraight(ParamTune_GetDist_mm(), false);  /* dist<=0 → 安全保持 IDLE */
+}
+
+static void profiledstraight_step(uint32_t now_ms)
+{
+    (void)now_ms;   /* motion 自持节奏：Imu 排空 + 里程计消费 + 剖面律 + 末尾 Chassis_Update 自门控 */
+    Motion_Update();
+}
+
+static void profiledstraight_exit(void)
+{
+    Motion_Stop();  /* 退页：Chassis_Stop 确定性停车 → IDLE */
+}
+
 /* ---- 运行条目表（scheduler 全局条目索引 = 本数组下标）----------------------- */
 
 static const Scheduler_Entry_T s_entries[] = {
@@ -160,11 +213,12 @@ static const Scheduler_Entry_T s_entries[] = {
     { "MotorDir",    motordir_enter,  motordir_step,  motordir_exit },   /* idx 2 */
     { "GrayTest",    graytest_enter,  graytest_step,  graytest_exit },   /* idx 3 */
     { "LineFollow",  linefollow_enter, linefollow_step, linefollow_exit }, /* idx 4 */
+    { "ProfiledStraight", profiledstraight_enter, profiledstraight_step, profiledstraight_exit }, /* idx 5 */
 };
 
 /* ---- 菜单分组表（DEBUG 运行分类的条目 = 上表下标）--------------------------- */
 
-static const uint8_t s_debug_entries[] = { 0u, 1u, 2u, 3u, 4u };  /* → SpeedTune / EncoderTest / MotorDir / GrayTest / LineFollow */
+static const uint8_t s_debug_entries[] = { 0u, 1u, 2u, 3u, 4u, 5u };  /* → SpeedTune / EncoderTest / MotorDir / GrayTest / LineFollow / ProfiledStraight */
 
 /* TUNE 参数组：循迹外环差速 PID 三增益（milli 口径）+ SAVE 动作项。
  * get/set 委派 param_tune（值/换算/持久化归它）；SAVE 的 action=ParamTune_Save（K3 即存 flash）。
@@ -176,6 +230,18 @@ static const Menu_Param_T s_tune_params[] = {
     { "SAVE",  NULL,                  NULL,                  0,                  ParamTune_Save },
 };
 
+/* DRIVE 参数组：motion 剖面 4 参数（milli 口径）+ 测试距离（mm）+ SAVE 动作项。
+ * get/set 委派 param_tune（剖面→motion、距离→param_tune 自持；换算/持久化归 param_tune）；
+ * 任一 SAVE 都序列化同一 flash blob（LF 增益 + 剖面 + 距离全量）。菜单零换算/零限幅/零值副本。 */
+static const Menu_Param_T s_drive_params[] = {
+    { "Dist mm", ParamTune_GetDist_mm,     ParamTune_SetDist_mm,     TUNE_STEP_DIST_MM,      NULL },
+    { "Cruise",  ParamTune_GetCruise_milli, ParamTune_SetCruise_milli, TUNE_STEP_CRUISE_MILLI, NULL },
+    { "Start",   ParamTune_GetStart_milli,  ParamTune_SetStart_milli,  TUNE_STEP_START_MILLI,  NULL },
+    { "Accel",   ParamTune_GetAccel_milli,  ParamTune_SetAccel_milli,  TUNE_STEP_ACCEL_MILLI,  NULL },
+    { "Decel",   ParamTune_GetDecel_milli,  ParamTune_SetDecel_milli,  TUNE_STEP_DECEL_MILLI,  NULL },
+    { "SAVE",    NULL,                      NULL,                      0,                      ParamTune_Save },
+};
+
 static const Menu_Group_T s_groups[] = {
     { "DEBUG", MENU_GROUP_RUN, s_debug_entries,
       (uint8_t)(sizeof(s_debug_entries) / sizeof(s_debug_entries[0])),
@@ -183,6 +249,9 @@ static const Menu_Group_T s_groups[] = {
     { "TUNE", MENU_GROUP_PARAM, NULL, 0u,
       s_tune_params,
       (uint8_t)(sizeof(s_tune_params) / sizeof(s_tune_params[0])) },
+    { "DRIVE", MENU_GROUP_PARAM, NULL, 0u,
+      s_drive_params,
+      (uint8_t)(sizeof(s_drive_params) / sizeof(s_drive_params[0])) },
 };
 
 /* ---- 装配入口 ----------------------------------------------------------- */

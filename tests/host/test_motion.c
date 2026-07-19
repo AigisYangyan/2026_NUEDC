@@ -566,6 +566,52 @@ static int test_profiled_heading_hold_corrects_ccw(void)
     return 0;
 }
 
+/* 剖面参数运行时读写（§28）：Set→Get 往返一致。 */
+static int test_profile_params_set_get_roundtrip(void)
+{
+    float cruise, start, accel, decel;
+
+    setup();
+    Motion_SetProfileParams(0.55f, 0.11f, 0.44f, 0.66f);
+    Motion_GetProfileParams(&cruise, &start, &accel, &decel);
+    TEST_ASSERT_NEAR(cruise, 0.55f, 1e-6f);
+    TEST_ASSERT_NEAR(start, 0.11f, 1e-6f);
+    TEST_ASSERT_NEAR(accel, 0.44f, 1e-6f);
+    TEST_ASSERT_NEAR(decel, 0.66f, 1e-6f);
+    printf("PASS: test_profile_params_set_get_roundtrip\n");
+    return 0;
+}
+
+/* 运行时改剖面 → 定长直行即时采用新匀速上限（默认 cruise=0.60，改成 0.40 后平台区 base=0.40）。 */
+static int test_profile_params_apply_to_run(void)
+{
+    Chassis_Telemetry_T ct;
+
+    setup();
+    Motion_SetProfileParams(0.40f, 0.15f, 0.5f, 0.5f);   /* 匀速上限改 0.40 */
+    TEST_ASSERT_TRUE(Motion_StartProfiledStraight(2000.0f, false));
+    drive_forward(700);
+    tick();
+    tick();   /* dist≈700 平台区 → base 夹到新 cruise=0.40 */
+    Chassis_GetTelemetry(&ct);
+    TEST_ASSERT_NEAR(ct.target_mps[CHASSIS_SIDE_LEFT], 0.40f, 1e-3f);
+    printf("PASS: test_profile_params_apply_to_run\n");
+    return 0;
+}
+
+/* GetProfileParams NULL 安全。 */
+static int test_get_profile_params_null_safe(void)
+{
+    float cruise = -1.0f;
+
+    setup();
+    Motion_GetProfileParams(NULL, NULL, NULL, NULL);   /* 不崩、无副作用 */
+    Motion_GetProfileParams(&cruise, NULL, NULL, NULL); /* 任一 NULL → 无副作用（cruise 不被写） */
+    TEST_ASSERT_NEAR(cruise, -1.0f, 1e-6f);
+    printf("PASS: test_get_profile_params_null_safe\n");
+    return 0;
+}
+
 /* ---- 圆弧原语（S06b，计划表 §19）---------------------------------------- */
 
 /* StartArc 参数校验：R≤0 / arc_deg=0 / R<track/2 拒绝并保持前态；合法→ARC。 */
@@ -811,6 +857,9 @@ int main(void)
     failures += test_profiled_decelerates_near_target();
     failures += test_profiled_completes_and_brakes();
     failures += test_profiled_heading_hold_corrects_ccw();
+    failures += test_profile_params_set_get_roundtrip();
+    failures += test_profile_params_apply_to_run();
+    failures += test_get_profile_params_null_safe();
     failures += test_start_arc_rejects_invalid();
     failures += test_arc_feedforward_ratio_ccw();
     failures += test_arc_feedforward_ratio_cw();

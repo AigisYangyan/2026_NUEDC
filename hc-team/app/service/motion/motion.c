@@ -422,3 +422,27 @@ void Motion_GetTelemetry(Motion_Telemetry_T *out)
     out->target = active ? s_target : 0.0f;
     out->progress = active ? s_progress : 0.0f;
 }
+
+void Motion_SetProfileParams(float cruise_mps, float start_mps,
+                             float accel_mps2, float decel_mps2)
+{
+    /* 额外写路径：更新已应用剖面参数（同一所有者 s_cfg，非新所有者）。
+     * 不发电机命令、不改状态机——下一/当前 PROFILED_STRAIGHT 步进读用即时生效。 */
+    s_cfg.profile_cruise_mps = cruise_mps;
+    s_cfg.profile_start_mps = start_mps;
+    s_cfg.profile_accel_mps2 = accel_mps2;
+    s_cfg.profile_decel_mps2 = decel_mps2;
+}
+
+void Motion_GetProfileParams(float *cruise_mps, float *start_mps,
+                             float *accel_mps2, float *decel_mps2)
+{
+    if ((cruise_mps == NULL) || (start_mps == NULL) ||
+        (accel_mps2 == NULL) || (decel_mps2 == NULL)) {
+        return;   /* 任一 NULL 视为误用，无副作用（同 GetTelemetry 口径） */
+    }
+    *cruise_mps = s_cfg.profile_cruise_mps;
+    *start_mps = s_cfg.profile_start_mps;
+    *accel_mps2 = s_cfg.profile_accel_mps2;
+    *decel_mps2 = s_cfg.profile_decel_mps2;
+}

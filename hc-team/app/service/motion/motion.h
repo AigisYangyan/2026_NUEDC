@@ -157,6 +157,21 @@ bool Motion_IsDone(void);
 /** @brief 复制运动遥测快照。out==NULL 无副作用。 */
 void Motion_GetTelemetry(Motion_Telemetry_T *out);
 
+/**
+ * @brief  运行时设置梯形剖面参数（供板载按钮调参，即时生效，下一/当前定长直行采用新值）。
+ * @note   写入 `s_cfg.profile_*`——「已应用剖面参数」仍唯一属 motion，本口是 Motion_Init 之外的
+ *         额外写路径（同一所有者，非新所有者）。不发电机命令、不改状态机。
+ */
+void Motion_SetProfileParams(float cruise_mps, float start_mps,
+                             float accel_mps2, float decel_mps2);
+
+/**
+ * @brief  读回当前已应用的梯形剖面参数（与 SetProfileParams 对称，供持久化/按钮显示读回）。
+ * @note   四指针均须非空；读自 `s_cfg.profile_*`（已应用值唯一读出口）。任一为 NULL → 无副作用返回。
+ */
+void Motion_GetProfileParams(float *cruise_mps, float *start_mps,
+                             float *accel_mps2, float *decel_mps2);
+
 #ifdef __cplusplus
 }
 #endif

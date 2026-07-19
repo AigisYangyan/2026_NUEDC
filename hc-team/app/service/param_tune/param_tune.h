@@ -1,22 +1,25 @@
 /**
  * @file    param_tune.h
- * @brief   按钮动态调参持久化服务（App Service 层）——循迹外环增益的 flash 持久化编排。
+ * @brief   按钮动态调参持久化服务（App Service 层）——板载按钮调参值的 flash 持久化编排。
  *
  * 抽象（调参链路能做什么）：
- * - 开机把持久化增益（或默认值）载入并应用到循迹外环；
- * - 就地读/改一组循迹外环 PID 增益（int32 milli 口径，即时生效，供板载按钮菜单调用）；
- * - 一次性把当前增益存入片内 flash（掉电保存）。
+ * - 开机把持久化值（或默认值）载入并应用：循迹外环 PID 增益 + motion 剖面参数 + 测试距离；
+ * - 就地读/改这些值（int32 口径，即时生效，供板载按钮菜单调用）；
+ * - 一次性把当前全部值存入片内 flash（掉电保存）。
  *
- * 隐藏：用了哪些 Driver/Service、blob 序列化布局、默认/步长常量、int32↔float 定点换算细节。
+ * 隐藏：用了哪些 Driver/Service、blob 序列化布局（schema_ver 2）、默认/步长常量、int32↔float 定点换算细节。
  *
  * 分层与所有权（AGENTS.md §4/§8.2）：
- * - **已应用增益唯一属 line_follow**（Set/GetGains）；本服务不持增益副本（Model A 无副本胶水）：
- *   get→LineFollow_GetGains、set→LineFollow_SetGains（即时生效）、save→读回增益序列化存盘、
- *   init→读盘/默认→SetGains 应用。
- * - **本服务唯一拥有**：持久化编排 + int32 milli↔float ×1000 换算（唯一 scale 所有者）+
- *   默认增益/步长占位常量。菜单（menu/menu_param）零换算、零限幅、零值副本。
- * - NV 完整性唯一属 driver/param_store（框定/CRC/擦前写）；差速限幅唯一属外环 Pid cfg。
+ * - **已应用增益唯一属 line_follow**（Set/GetGains）、**已应用剖面参数唯一属 motion**
+ *   （Set/GetProfileParams）；本服务对二者不持副本（Model A 无副本胶水）：get/set 直通拥有者、
+ *   save→读回序列化存盘、init→读盘/默认→应用。
+ * - **测试距离由本服务自持** `s_dist_mm`（唯一持值项——测试设定量无 Service 家）。
+ * - **本服务唯一拥有**：持久化编排（单扇区单 blob，param_store 只存一段）+ int32 milli↔float ×1000
+ *   换算（唯一 scale 所有者）+ 默认值/步长占位常量。菜单（menu/menu_param）零换算、零限幅、零值副本。
+ * - NV 完整性唯一属 driver/param_store（框定/CRC/擦前写）；差速限幅唯一属外环 Pid cfg、
+ *   剖面限幅唯一属 move_profile；本服务只填 payload 字段，不碰 Driver 框定。
  * - 与 VOFA 静态调参（tuning/S03）是两条平行链，互不联通。
+ * - blob schema_ver 1→2：旧 13B 记录因 ParamStore_Read(len=33) 长度不符被忽略→全默认（一次性丢旧 LF 增益）。
  *
  * 调用前置条件：System 装配层已完成 param_store 所需的 flash 控制器上电；
  * ParamTune_Init 应在开机装配时调用一次。**接线注意**：未来若有先 LineFollow_Init（会归零增益）
@@ -38,8 +41,14 @@ extern "C" {
 #define TUNE_STEP_KP_MILLI 10
 #define TUNE_STEP_KI_MILLI 10
 #define TUNE_STEP_KD_MILLI 10
+/* DRIVE 组：motion 剖面参数（milli 口径 = 实值 ×1000）+ 测试距离（mm 直读）。 */
+#define TUNE_STEP_CRUISE_MILLI 10
+#define TUNE_STEP_START_MILLI  10
+#define TUNE_STEP_ACCEL_MILLI  10
+#define TUNE_STEP_DECEL_MILLI  10
+#define TUNE_STEP_DIST_MM      50
 
-/** 开机载入：flash 有效记录→应用；否则默认增益→应用。装配时调用一次。 */
+/** 开机载入：flash 有效记录(schema_ver 2)→应用 LF 增益+剖面参数+距离；否则全默认→应用。装配时调用一次。 */
 void ParamTune_Init(void);
 
 /** 读回当前循迹外环增益（milli 口径 = LineFollow 实值 ×1000）。 */
@@ -52,7 +61,23 @@ void ParamTune_SetKp_milli(int32_t v);
 void ParamTune_SetKi_milli(int32_t v);
 void ParamTune_SetKd_milli(int32_t v);
 
-/** 把当前增益序列化存入片内 flash（掉电保存）。菜单 SAVE 项 K3 触发。 */
+/** 读回当前 motion 剖面参数（milli 口径 = Motion 实值 ×1000；委派 Motion_GetProfileParams）。 */
+int32_t ParamTune_GetCruise_milli(void);
+int32_t ParamTune_GetStart_milli(void);
+int32_t ParamTune_GetAccel_milli(void);
+int32_t ParamTune_GetDecel_milli(void);
+
+/** 设置 motion 剖面参数（milli /1000 → Motion_SetProfileParams，即时生效；保另三参数现值）。 */
+void ParamTune_SetCruise_milli(int32_t v);
+void ParamTune_SetStart_milli(int32_t v);
+void ParamTune_SetAccel_milli(int32_t v);
+void ParamTune_SetDecel_milli(int32_t v);
+
+/** 测试运行距离（mm 直读）。本值由 param_tune 自持（唯一持值项——测试设定量无 Service 所有者）。 */
+int32_t ParamTune_GetDist_mm(void);
+void    ParamTune_SetDist_mm(int32_t v);
+
+/** 把当前 LF 增益 + 剖面参数 + 距离序列化(schema_ver 2)存入片内 flash（掉电保存）。菜单 SAVE 项 K3 触发。 */
 void ParamTune_Save(void);
 
 #ifdef __cplusplus

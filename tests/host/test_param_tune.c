@@ -9,12 +9,21 @@
 #include "app/service/param_tune/param_tune.h"
 
 #include "app/service/line_follow/line_follow.h"
+#include "app/service/motion/motion.h"
+#include "driver/param_store/param_store.h"
 
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 
 extern void FakeParamStorePort_Reset(void);
+
+/* imu.c 写寄存器路径引用 Mspm0Runtime_DelayMs（本测试从不调用 motion 采样路径，但链接 imu.o
+ * 需该符号）；提供空桩满足链接（同 test_motion.c 做法）。 */
+void Mspm0Runtime_DelayMs(uint32_t delay_ms)
+{
+    (void)delay_ms;
+}
 
 #define TEST_ASSERT_TRUE(cond) do { \
     if (!(cond)) { \
@@ -126,6 +135,96 @@ static int test_set_one_preserves_others(void)
     return 0;
 }
 
+/* ---- DRIVE 组：motion 剖面参数 + 测试距离（§28）------------------------- */
+
+/* 空 flash → Init 应用剖面/距离默认（cruise 200/start 80/accel 300/decel 300/dist 1000）。 */
+static int test_init_blank_applies_profile_dist_defaults(void)
+{
+    FakeParamStorePort_Reset();
+    ParamTune_Init();
+    TEST_ASSERT_TRUE(ParamTune_GetCruise_milli() == 200);
+    TEST_ASSERT_TRUE(ParamTune_GetStart_milli() == 80);
+    TEST_ASSERT_TRUE(ParamTune_GetAccel_milli() == 300);
+    TEST_ASSERT_TRUE(ParamTune_GetDecel_milli() == 300);
+    TEST_ASSERT_TRUE(ParamTune_GetDist_mm() == 1000);
+    printf("PASS: test_init_blank_applies_profile_dist_defaults\n");
+    return 0;
+}
+
+/* SetCruise 即时抵达 motion（Motion_GetProfileParams 读回 ≈ milli/1000）；保另三参数。 */
+static int test_profile_set_reaches_motion(void)
+{
+    float cruise, start, accel, decel;
+
+    FakeParamStorePort_Reset();
+    ParamTune_Init();                     /* 默认态 */
+    ParamTune_SetCruise_milli(500);       /* 0.500 */
+    TEST_ASSERT_TRUE(ParamTune_GetCruise_milli() == 500);
+    Motion_GetProfileParams(&cruise, &start, &accel, &decel);
+    TEST_ASSERT_TRUE(fabsf(cruise - 0.500f) < 1e-4f);
+    TEST_ASSERT_TRUE(ParamTune_GetStart_milli() == 80);   /* 保值：另三不动 */
+    TEST_ASSERT_TRUE(ParamTune_GetAccel_milli() == 300);
+    TEST_ASSERT_TRUE(ParamTune_GetDecel_milli() == 300);
+    printf("PASS: test_profile_set_reaches_motion\n");
+    return 0;
+}
+
+/* 测试距离由 param_tune 自持：Set→Get 一致。 */
+static int test_dist_selfheld_set_get(void)
+{
+    FakeParamStorePort_Reset();
+    ParamTune_SetDist_mm(1500);
+    TEST_ASSERT_TRUE(ParamTune_GetDist_mm() == 1500);
+    printf("PASS: test_dist_selfheld_set_get\n");
+    return 0;
+}
+
+/* Save → 掉电改值 → Init 从 flash 恢复剖面 4 参数 + 距离（schema_ver 2 全量往返）。 */
+static int test_save_restores_profile_and_dist(void)
+{
+    FakeParamStorePort_Reset();
+    ParamTune_Init();
+    ParamTune_SetCruise_milli(650);
+    ParamTune_SetStart_milli(120);
+    ParamTune_SetAccel_milli(450);
+    ParamTune_SetDecel_milli(550);
+    ParamTune_SetDist_mm(1800);
+    ParamTune_Save();                     /* 存全量 */
+
+    ParamTune_SetCruise_milli(0);        /* 模拟掉电改值 */
+    ParamTune_SetDist_mm(0);
+
+    ParamTune_Init();                     /* 从 flash 恢复 */
+    TEST_ASSERT_TRUE(ParamTune_GetCruise_milli() == 650);
+    TEST_ASSERT_TRUE(ParamTune_GetStart_milli() == 120);
+    TEST_ASSERT_TRUE(ParamTune_GetAccel_milli() == 450);
+    TEST_ASSERT_TRUE(ParamTune_GetDecel_milli() == 550);
+    TEST_ASSERT_TRUE(ParamTune_GetDist_mm() == 1800);
+    printf("PASS: test_save_restores_profile_and_dist\n");
+    return 0;
+}
+
+/* 向后：旧 13B(schema_ver 1) 记录经 Read(len=33) 长度不符被忽略 → 全默认（一次性丢旧增益）。 */
+static int test_old_v1_blob_ignored_uses_defaults(void)
+{
+    uint8_t v1[13];
+    int i;
+
+    FakeParamStorePort_Reset();
+    v1[0] = 1u;                            /* 旧 schema_ver=1 */
+    for (i = 1; i < 13; i++) {
+        v1[i] = 0xAAu;                     /* 任意旧增益字节 */
+    }
+    TEST_ASSERT_TRUE(ParamStore_Save(v1, 13u));   /* 写一条 13B 旧记录 */
+
+    ParamTune_Init();                      /* 读 len=33 → 长度不符 → 全默认 */
+    TEST_ASSERT_TRUE(ParamTune_GetKp_milli() == 0);         /* LF 增益回默认 */
+    TEST_ASSERT_TRUE(ParamTune_GetCruise_milli() == 200);   /* 剖面默认 */
+    TEST_ASSERT_TRUE(ParamTune_GetDist_mm() == 1000);       /* 距离默认 */
+    printf("PASS: test_old_v1_blob_ignored_uses_defaults\n");
+    return 0;
+}
+
 int main(void)
 {
     int failures = 0;
@@ -136,6 +235,11 @@ int main(void)
     failures += test_unsaved_set_not_persisted();
     failures += test_scale_roundtrip_signed();
     failures += test_set_one_preserves_others();
+    failures += test_init_blank_applies_profile_dist_defaults();
+    failures += test_profile_set_reaches_motion();
+    failures += test_dist_selfheld_set_get();
+    failures += test_save_restores_profile_and_dist();
+    failures += test_old_v1_blob_ignored_uses_defaults();
 
     if (failures != 0) {
         printf("param_tune service tests failed: %d\n", failures);
