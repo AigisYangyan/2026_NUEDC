@@ -521,7 +521,7 @@ Tuning_API --> Clock_API : 10ms self-gate, unsigned-subtract elapsed
 Tuning_API --> VofaDriver_API : vofa_clear_profile + vofa_run, Enter-time RX drain (contract amendment 1)
 Tuning_API --> TuningChassis_API : profile lifecycle orchestration, sole caller
 TuningChassis_API --> Chassis_API : same-layer controlled, SetSpeedGains + SetTargetMps + GetTelemetry + Stop + Update, sole apply point
-TuningChassis_API --> VofaDriver_API : vofa_register_float ×6 tx + vofa_bind_cmd ×8 cmd
+TuningChassis_API --> VofaDriver_API : vofa_register_float ×10 tx (gains×6 echo + target×2 + feedback×2, no pid_out, W1) + vofa_bind_cmd ×8 cmd
 
 Hmi_API --> Key_API : Key_Scan pump + Key_PollPressEvent read-clear
 Hmi_API --> OLED_API : OLED_IsReady/OLED_Process/OLED_ShowString/OLED_Clear

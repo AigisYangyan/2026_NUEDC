@@ -5,9 +5,11 @@
  * 仅供 tuning.c 编排调用，不是服务公共面。持有本 profile 的 VOFA 变量组
  * （cmd 输入 + tx 遥测副本），实现「安全重置 → 注册 → 应用 → 刷新」四步。
  *
- * 变量组内容：
- * - tx×6：目标 L/R、反馈 L/R、PID 输出 L/R（Chassis_Telemetry_T 快照单向副本）；
+ * 变量组内容（W1：增益外显，tx 6→10）：
+ * - tx×10（通道序）：kp/ki/kd L、kp/ki/kd R（cmd 单向回显）、目标 L/R、反馈 L/R
+ *   （目标/反馈来自 Chassis_Telemetry_T 快照；pwm 不再外显）；
  * - cmd×8：LM/RM（目标 m/s）、LP/LI/LD、RP/RI/RD（增益）——命令名沿用旧 profile。
+ *   语义：kp/ki/kd 与目标既控制(cmd)又显示(tx 回显)；当前(反馈)只显示。
  */
 #ifndef TUNING_CHASSIS_H
 #define TUNING_CHASSIS_H

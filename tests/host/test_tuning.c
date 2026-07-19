@@ -49,8 +49,9 @@ extern uint32_t FakeUartPort_CopyVofaTx(uint8_t *out, uint32_t capacity);
     } \
 } while (0)
 
-/* JustFloat 帧：6 通道 ×4 字节 + 4 字节帧尾 */
-#define TUNING_FRAME_CHANNELS 6u
+/* JustFloat 帧：10 通道 ×4 字节 + 4 字节帧尾（W1：增益外显，tx 6→10）
+ * 顺序 = kp_L, ki_L, kd_L, kp_R, ki_R, kd_R, target_L, target_R, feedback_L, feedback_R */
+#define TUNING_FRAME_CHANNELS 10u
 #define TUNING_FRAME_BYTES (TUNING_FRAME_CHANNELS * 4u + 4u)
 
 /* 标准装配序：与 SysInit 职责一致（Clock/Motor/Encoder/vofa 先于 Service） */
@@ -118,7 +119,7 @@ static int test_enter_invalid_rejected_silent(void)
     return 0;
 }
 
-/* 安全初值可观测：Enter 后首帧 = 6 通道全 0 */
+/* 安全初值可观测：Enter 后首帧 = 10 通道全 0 */
 static int test_enter_first_frame_all_safe_zero(void)
 {
     float ch[TUNING_FRAME_CHANNELS];
@@ -232,15 +233,15 @@ static int test_separation_running_value_never_writes_back(void)
     return 0;
 }
 
-/* tx = 快照单向副本：帧内容等于上一拍 Chassis 遥测（晚一帧语义） */
-static int test_tx_frame_is_snapshot_copy(void)
+/* tx×10 布局：增益回显(cmd 单向复制) + 目标/反馈快照（晚一帧语义）；pwm 不再外显 */
+static int test_tx_frame_layout_and_echo(void)
 {
     Chassis_Telemetry_T t_at_refresh;
     float ch[TUNING_FRAME_CHANNELS];
 
     setup();
     TEST_ASSERT_TRUE(Tuning_EnterProfile(TUNING_PROFILE_CHASSIS_SPEED));
-    push_cmd("LM=0.5\nRM=0.25\n");
+    push_cmd("LP=5\nLI=1\nLD=0.5\nRP=6\nRI=2\nRD=0.3\nLM=0.5\nRM=0.25\n");
     FakeClock_Advance(10u);
     Tuning_Update();                    /* 拍 1：应用 cmd，拍末刷新 tx */
     FakeUartPort_CompleteVofaTx();
@@ -249,13 +250,71 @@ static int test_tx_frame_is_snapshot_copy(void)
     FakeClock_Advance(10u);
     Tuning_Update();                    /* 拍 2：发出拍 1 刷新的 tx */
     TEST_ASSERT_TRUE(copy_frame_floats(ch, TUNING_FRAME_CHANNELS) == TUNING_FRAME_BYTES);
-    TEST_ASSERT_FLOAT_NEAR(ch[0], t_at_refresh.target_mps[CHASSIS_SIDE_LEFT], 1e-6f);
-    TEST_ASSERT_FLOAT_NEAR(ch[1], t_at_refresh.target_mps[CHASSIS_SIDE_RIGHT], 1e-6f);
-    TEST_ASSERT_FLOAT_NEAR(ch[2], t_at_refresh.feedback_mps[CHASSIS_SIDE_LEFT], 1e-6f);
-    TEST_ASSERT_FLOAT_NEAR(ch[3], t_at_refresh.feedback_mps[CHASSIS_SIDE_RIGHT], 1e-6f);
-    TEST_ASSERT_FLOAT_NEAR(ch[4], t_at_refresh.pid_out[CHASSIS_SIDE_LEFT], 1e-6f);
-    TEST_ASSERT_FLOAT_NEAR(ch[5], t_at_refresh.pid_out[CHASSIS_SIDE_RIGHT], 1e-6f);
-    printf("PASS: test_tx_frame_is_snapshot_copy\n");
+    /* [0..5] 增益回显 = cmd（应用值恒等 cmd，因 Apply 每拍无条件写） */
+    TEST_ASSERT_FLOAT_NEAR(ch[0], 5.0f, 1e-6f);   /* kp_L */
+    TEST_ASSERT_FLOAT_NEAR(ch[1], 1.0f, 1e-6f);   /* ki_L */
+    TEST_ASSERT_FLOAT_NEAR(ch[2], 0.5f, 1e-6f);   /* kd_L */
+    TEST_ASSERT_FLOAT_NEAR(ch[3], 6.0f, 1e-6f);   /* kp_R */
+    TEST_ASSERT_FLOAT_NEAR(ch[4], 2.0f, 1e-6f);   /* ki_R */
+    TEST_ASSERT_FLOAT_NEAR(ch[5], 0.3f, 1e-6f);   /* kd_R */
+    /* [6..9] 目标/反馈 = Chassis 遥测快照（晚一帧） */
+    TEST_ASSERT_FLOAT_NEAR(ch[6], t_at_refresh.target_mps[CHASSIS_SIDE_LEFT], 1e-6f);
+    TEST_ASSERT_FLOAT_NEAR(ch[7], t_at_refresh.target_mps[CHASSIS_SIDE_RIGHT], 1e-6f);
+    TEST_ASSERT_FLOAT_NEAR(ch[8], t_at_refresh.feedback_mps[CHASSIS_SIDE_LEFT], 1e-6f);
+    TEST_ASSERT_FLOAT_NEAR(ch[9], t_at_refresh.feedback_mps[CHASSIS_SIDE_RIGHT], 1e-6f);
+    printf("PASS: test_tx_frame_layout_and_echo\n");
+    return 0;
+}
+
+/* 增益既显示又控制：改 cmd 增益 → 下一拍 tx ch[0] 回显新值 */
+static int test_tx_gain_echo_tracks_cmd(void)
+{
+    float ch[TUNING_FRAME_CHANNELS];
+
+    setup();
+    TEST_ASSERT_TRUE(Tuning_EnterProfile(TUNING_PROFILE_CHASSIS_SPEED));
+    push_cmd("LP=3\n");
+    FakeClock_Advance(10u);
+    Tuning_Update();                    /* 应用 LP=3，刷新 tx */
+    FakeUartPort_CompleteVofaTx();
+    FakeClock_Advance(10u);
+    Tuning_Update();                    /* 发出 kp_L=3 的帧 */
+    TEST_ASSERT_TRUE(copy_frame_floats(ch, TUNING_FRAME_CHANNELS) == TUNING_FRAME_BYTES);
+    TEST_ASSERT_FLOAT_NEAR(ch[0], 3.0f, 1e-6f);
+    FakeUartPort_CompleteVofaTx();
+
+    push_cmd("LP=8\n");
+    FakeClock_Advance(10u);
+    Tuning_Update();                    /* 应用 LP=8，刷新 tx */
+    FakeUartPort_CompleteVofaTx();
+    FakeClock_Advance(10u);
+    Tuning_Update();
+    TEST_ASSERT_TRUE(copy_frame_floats(ch, TUNING_FRAME_CHANNELS) == TUNING_FRAME_BYTES);
+    TEST_ASSERT_FLOAT_NEAR(ch[0], 8.0f, 1e-6f);  /* 回显跟随 cmd 变更 */
+    printf("PASS: test_tx_gain_echo_tracks_cmd\n");
+    return 0;
+}
+
+/* 目标既显示又控制：LM 改底盘目标（控制）且回显进 tx ch[6]（显示） */
+static int test_target_both_display_and_control(void)
+{
+    Chassis_Telemetry_T t;
+    float ch[TUNING_FRAME_CHANNELS];
+
+    setup();
+    TEST_ASSERT_TRUE(Tuning_EnterProfile(TUNING_PROFILE_CHASSIS_SPEED));
+    push_cmd("LM=0.4\n");
+    FakeClock_Advance(10u);
+    Tuning_Update();                    /* 控制：应用到底盘 */
+    FakeUartPort_CompleteVofaTx();
+    Chassis_GetTelemetry(&t);
+    TEST_ASSERT_FLOAT_NEAR(t.target_mps[CHASSIS_SIDE_LEFT], 0.4f, 1e-6f);
+
+    FakeClock_Advance(10u);
+    Tuning_Update();                    /* 显示：回显进帧 */
+    TEST_ASSERT_TRUE(copy_frame_floats(ch, TUNING_FRAME_CHANNELS) == TUNING_FRAME_BYTES);
+    TEST_ASSERT_FLOAT_NEAR(ch[6], 0.4f, 1e-6f);  /* target_L 在 tx 显示位 */
+    printf("PASS: test_target_both_display_and_control\n");
     return 0;
 }
 
@@ -437,7 +496,9 @@ int main(void)
     failures += test_rx_target_applies_via_service();
     failures += test_rx_gains_drive_suspended_motor();
     failures += test_separation_running_value_never_writes_back();
-    failures += test_tx_frame_is_snapshot_copy();
+    failures += test_tx_frame_layout_and_echo();
+    failures += test_tx_gain_echo_tracks_cmd();
+    failures += test_target_both_display_and_control();
     failures += test_stream_period_gating();
     failures += test_cascade_pumps_inner_loop();
     failures += test_exit_brakes_and_silences();

@@ -72,7 +72,7 @@
 | A00 | 计划 + 裁定解除记录 | `agent/phase4_app_rewrite/` | — | — | `DONE`（bffdecf + baseline chore c958a3f） |
 | S01 | chassis 底盘速度环服务 | `app/service/chassis/` | speed_loop.c、task1 速度部分、task_groups 采样所有权 | V07（部分）、V10（部分） | `DONE`（契约 bffdecf，修订 926bac0；代码 8a611d5；审计处置 69c29fa。E01 0 命中 / E02 无越界 / E03 140 PASS 0 FAIL＝128 基线+12 / E04 exit 0、0 诊断、chassis.o 进链接） |
 | S02 | line_follow 循迹服务（外环+丢线策略） | `app/service/line_follow/` | track_follow.c、task1 循迹部分、gray_test | V03、V03-DUP、V07（部分） | `DONE`（契约 6dfdc85，修订 88010fd；代码 bb4825c；审计处置 53e9967。E01 0 命中 / E02 无越界 / E03 159 PASS 0 FAIL＝140 基线+19 / E04 exit 0、0 诊断、两 .o 进链接。Q5 关闭：丢线策略显式重建于 lost_line） |
-| S03 | 遥测/调参链路服务（VOFA） | `app/service/tuning/` | vofa_register.c | V15（替代已建成，旧边待 T01）、V19（closed） | `DONE`（契约 ed4f416，修订 57b54de；代码 d0e4996；审计处置 5a4f089。E01 0 命中 / E02 无越界 / E03 173 PASS 0 FAIL＝159 基线+14 / E04 exit 0、0 诊断、两 .o 经 linkInfo.xml 确证进链 / E05 `u8` 0 命中。Q2 定案入 §5） |
+| S03 | 遥测/调参链路服务（VOFA） | `app/service/tuning/` | vofa_register.c | V15（替代已建成，旧边待 T01）、V19（closed） | `DONE`（契约 ed4f416，修订 57b54de；代码 d0e4996；审计处置 5a4f089。E01 0 命中 / E02 无越界 / E03 173 PASS 0 FAIL＝159 基线+14 / E04 exit 0、0 诊断、两 .o 经 linkInfo.xml 确证进链 / E05 `u8` 0 命中。Q2 定案入 §5；**W1（§22.1）tx 6→10 增益外显 DONE，418 PASS**） |
 | S04 | 人机输入/显示服务（Key/OLED 包装） | `app/service/hmi/` | menu 对 Key/OLED 的直调、task_groups UI 泵送 | V14 的基础 | `DONE`（契约 f8311c8；代码 2dac572；审计处置 ad5ca08。E01 0 命中 / E02 无越界 / E03 185 PASS 0 FAIL＝173 基线+12 / E04 exit 0、0 诊断、hmi.o 经 linkInfo.xml 确证进链） |
 | S05a | 视觉链路 Driver 编解码（`driver/uart_vision`：0xAA55 坐标控制帧 RX + 0xFF 选题握手 TX/RX；vision_uart 增 TX） | `driver/uart_vision/` | vision_bus/vision_coord（帧解析职责） | — | `DONE`（契约 §21.1 冻结 c1d5421，修订 1 b22ad28；代码本提交；审计处置见 §21.1.5。E01 依赖纯净 0 命中 / E02 无越界 / E03 361 PASS 0 FAIL＝334 基线+27 / E04 exit 0、0 诊断、uart_vision.o+vision_uart.o 经 linkInfo.xml 确证进链。arch-auditor 阻断 finding（vision TX 完成 ISR 未接线）已修复：mspm0_runtime.c 补 VisionUart_IsrTxDone；topo-updater 同款交叉确认。自同步分帧不引 Clock、坐标 float32 透传、无弱钩子回调。三闭环第一环，S05b/S05c 待续） |
 | S05b | 视觉坐标→轴映射 Middleware（纯算法：像素误差→X/Y 轴脉冲增量，死区/步长/限幅/极性单一所有者） | `middleware/vision_aim/` | 2DPlatform 的 visionhdl_step/clamp 几何 | — | `DONE`（契约 §21.2 冻结 8b74cf0；代码本提交；审计处置见 §21.2.5。E01 依赖纯净 0 命中 / E02 无越界 / E03 377 PASS 0 FAIL＝361 基线+16 / E04 exit 0、0 诊断、vision_aim.o 经 linkInfo.xml 确证进链。arch-auditor 六轴全过、无阻断/无重要、2 建议级仅注释收敛（F1 active 单语义、F2 回拉超 max_step 有意不防御）。输出定为有符号 int32 脉冲增量/轴（非角度）；纯函数不持位置状态（cur_pulse 调用方传入）；极性唯一开关 sign[axis]、修 (int32)coord 早失精度 bug。零调用者预期态，S05c 待续。**修订1 P→PD DONE（契约 §21.4，代码本提交）**：E01 0 命中 / E02 无越界（.ccsproject 会话前既存未纳入）/ E03 416 PASS 0 FAIL＝404 基线+12（vision_aim 10 + gimbal 2）/ E04 exit 0、0 诊断、vision_aim.o+gimbal.o 经 linkInfo.xml 确证进链。arch-auditor 五项全过、无阻断/无重要、1 建议级文档处置（D 时间基=每帧无 dt、max_step 兜底、帧率漂移留调参）。kd 单一所有者=vision_aim、prev_error 状态=gimbal 持有、无 I（cur_pulse 累加即积分器）、无微分滤波（坐标已 Kalman §8.2）、kd=0 逐位退化回旧 P） |
@@ -2420,6 +2420,13 @@ forbidden_files：`hc-team/app/service/tuning/tuning.c` / `tuning.h`（生命周
 | E02 | 范围审计 | `git status` + `git diff --stat` 对照 §22.1.1 | 无越界改动 |
 | E03 | 主机测试 | PowerShell：`rtk proxy make -C tests/host all` | ≥418 PASS / 0 FAIL（416 基线 + 净新 ≥2），必含：tx×10 布局与顺序、增益回显=cmd 值（改 cmd→下一拍 tx 相应变）、目标既进 cmd 又进 tx、反馈只进 tx 无 cmd 绑定、pwm 不再注册、cmd×8 不变、隔离性（外部改运行值不回写 cmd） |
 | E04 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 diagnostics、tuning_chassis.o 重编并经 linkInfo.xml 确证进链 |
+
+#### 22.1.4 完成记录（Phase 2+3，代码本提交）
+
+- TDD 红→绿：先改 `test_tuning`（tx×10 布局 + 增益回显 + 目标既显既控），在旧 tx×6 上 5 条帧解码用例转红（frame 28B≠预期 44B），再实现 `tuning_chassis` 转绿。
+- E01 0 命中（tuning 仍仅 `chassis.h` + `uart_vofa.h`）；E02 仅动 §22.1.1 三文件（`.ccsproject` 会话前既存未纳入）；E03 **418 PASS / 0 FAIL**＝416 基线 + 净新 2（`test_tx_gain_echo_tracks_cmd`、`test_target_both_display_and_control`；`test_tx_frame_is_snapshot_copy` 改写为 `test_tx_frame_layout_and_echo`）；E04 exit 0、0 诊断、`tuning_chassis.o` 经 linkInfo.xml 确证进链（3 处）。
+- arch-auditor 无阻断/无重要（四点：依赖矩阵合规 / 增益回显纯赋值非第二所有者 / cmd→tx 显示不破坏隔离本意 / 无越界防御）；1 建议级（`test_tuning.c:122` 过时注释「6 通道」）已改「10 通道」。
+- topo-updater 同步见索引 §10。
 
 ### 22.2 W2 契约（World-2 装配点亮 —— SYS01 增量 + SpeedTune 运行条目）——冻结
 
