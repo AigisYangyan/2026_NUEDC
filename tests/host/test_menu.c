@@ -302,23 +302,27 @@ static bool test_run_sublist_maps_to_global_entry(void)
     return true;
 }
 
-static bool test_run_active_menu_draws_nothing(void)
+static bool test_run_active_draws_running_once(void)
 {
-    uint32_t transfers;
+    uint32_t before_enter;
+    uint32_t after_enter;
 
     setup_ready(k_groups, 4u);
     press(KEY_ID_K3); /* ENTER DEBUG → RUN_LIST */
-    press(KEY_ID_K3); /* ENTER 条目 0 → RUN_ACTIVE */
+    before_enter = FakeI2cPort_GetTransferCount();
+
+    press(KEY_ID_K3); /* ENTER 条目 0 → RUN_ACTIVE：menu 画统一 RUNNING 横幅一次 */
     ASSERT_EQ_INT(MENU_SCREEN_RUN_ACTIVE, (int)Menu_GetScreen());
     ASSERT_EQ_INT(0, (int)Scheduler_GetActiveEntry());
+    after_enter = FakeI2cPort_GetTransferCount();
+    ASSERT_TRUE(after_enter > before_enter); /* RUNNING 横幅绘制发生（旧行为=零绘制，此断言转红） */
 
-    /* 激活期菜单让出整屏：多拍泵送（无条目绘制）→ 零 I2C 事务 */
-    transfers = FakeI2cPort_GetTransferCount();
+    /* 横幅画一次即止：无输入的多拍泵送不重绘（复用 s_dirty 门控） */
     for (int i = 0; i < 8; ++i) {
         advance(5u);
         tick();
     }
-    ASSERT_TRUE(FakeI2cPort_GetTransferCount() == transfers);
+    ASSERT_TRUE(FakeI2cPort_GetTransferCount() == after_enter);
     return true;
 }
 
@@ -516,8 +520,8 @@ int main(void)
              test_enter_run_group_opens_sublist);
     run_test("test_run_sublist_maps_to_global_entry",
              test_run_sublist_maps_to_global_entry);
-    run_test("test_run_active_menu_draws_nothing",
-             test_run_active_menu_draws_nothing);
+    run_test("test_run_active_draws_running_once",
+             test_run_active_draws_running_once);
     run_test("test_back_from_active_returns_to_sublist",
              test_back_from_active_returns_to_sublist);
     run_test("test_back_from_sublist_returns_to_group_list",

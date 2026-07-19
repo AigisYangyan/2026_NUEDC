@@ -263,6 +263,20 @@ class GimbalStepbus_API {
   +GimbalStepbus_TrySendSetZero(axis) bool
 }
 
+class EncoderTest_API {
+  <<app:service, NEW W3, DEBUG entry idx1>>
+  +EncoderTest_Start()
+  +EncoderTest_Update(now_ms)
+  +EncoderTest_Stop()
+}
+
+class MotorCheck_API {
+  <<app:service, NEW W3, DEBUG entry idx2>>
+  +MotorCheck_Start()
+  +MotorCheck_Update(now_ms)
+  +MotorCheck_Stop()
+}
+
 class SpeedLoop_API {
   <<app:task>>
   +SpeedLoop_Init()
@@ -403,6 +417,8 @@ Scheduler_API --> TaskGroups_API : dispatch active group
 %% real caller of Scheduler_Init; main.c drives Scheduler_Run(Clock_NowMs()) every tick
 %% (Q1-decided wiring realized: System reads Clock_NowMs() and passes now_ms as a plain
 %% parameter — Scheduler_Run itself still never calls Clock_API directly).
+%% W3 (2026-07-19): s_entries[] grows from 1 (SpeedTune) to 3 (+EncoderTest idx1, +MotorDir
+%% idx2); s_debug_entries[]={0,1,2}. Single-active-entry invariant unchanged (index V21 W3 note).
 RunRegistry_API --> SpeedLoop_API : lifecycle
 RunRegistry_API --> GrayTest_API : lifecycle
 RunRegistry_API --> UartTest_API : lifecycle
@@ -418,8 +434,13 @@ Menu_API ..> OLED_API : VIOLATION UI calls Driver
 %% MenuUI_API / MenuParam_API (UI01) — 2026-07-19 W2: no longer zero callers.
 %% AppCompose_API (assembly layer) registers Menu_Setup(s_groups) and wires Menu_Tick as
 %% Scheduler background_step; MenuParam_API remains private to menu, invoked only via MenuUI_API.
+%% W3 (2026-07-19, contract §23.0 amendment): RUN_ACTIVE display-ownership revision — menu now
+%% draws a uniform "RUNNING" banner (row0) + clears row1..3 on every RUN_ACTIVE render, instead of
+%% leaving the whole screen to the active entry's on_step. No entry opt-in flag exists yet (future
+%% extension point), so today there is no dual-writer conflict — this is still the same
+%% MenuUI_API --> Hmi_API : Hmi_PrintLine edge below, not a new dependency.
 MenuUI_API --> SchedulerEntry_API : GetEntryCount/GetEntryName/EnterEntry/LeaveEntry, same-layer controlled
-MenuUI_API --> Hmi_API : Update/PollInput/IsDisplayReady/PrintLine
+MenuUI_API --> Hmi_API : Update/PollInput/IsDisplayReady/PrintLine (W3: PrintLine also renders RUN_ACTIVE banner)
 MenuUI_API --> MenuParam_API : delegates PARAM_LIST/PARAM_EDIT screens, private submodule
 MenuParam_API --> Hmi_API : PrintLine render
 
@@ -482,7 +503,7 @@ VofaRegister_API ..> VofaDriver_API : VIOLATION direct Driver profile registrati
 VofaRegister_API ..> TrackFollow_API : VIOLATION exposes task state
 
 Chassis_API --> Clock_API : 10ms period gate, unsigned-subtract elapsed
-Chassis_API --> Encoder_API : sole new-chain sampling owner, real elapsed
+Chassis_API --> Encoder_API : primary new-chain sampling owner, real elapsed (W3: EncoderTest_API is a second, mutually-exclusive caller, see index V21 W3 note)
 Chassis_API --> Motor_API : SetOutput + Update
 Chassis_API --> PID_API : dual-axis Pid_UpdateIncremental, each side owns static Pid_T
 
@@ -577,6 +598,13 @@ Gimbal_API --> Clock_API : 10ms self-gate, unsigned-subtract elapsed
 Gimbal_API --> GimbalStepbus_API : same-layer controlled, private pulse dispatch submodule
 GimbalStepbus_API --> Emm42_API : Build*Frame packing (dir/magnitude split sole owner here; RPM clamp stays emm42.c)
 GimbalStepbus_API --> StepmotorUart_API : TryWrite/IsTxIdle/ConsumeTxDone/Read (drain+discard, vision is the only feedback path)
+
+%% EncoderTest_API / MotorCheck_API (W3, landed 2026-07-19) — two new DEBUG-group scheduler
+%% entries (app_compose.c s_entries idx1/idx2), diagnostic-only, mutually exclusive with each
+%% other and with SpeedTune/route etc. under the single-active-entry invariant (index V21 W3 note).
+EncoderTest_API --> Encoder_API : Encoder_Update(elapsed) sampling + Encoder_GetSnapshot, second sampling call point (mutual-exclusion mitigated, not concurrent with chassis.c)
+EncoderTest_API --> VofaDriver_API : vofa_clear_profile/vofa_register_int x2/vofa_register_float x2/vofa_run, tx-only (no bind_cmd)
+MotorCheck_API --> Motor_API : Motor_SetOutput both wheels +/-200 + Motor_Update(elapsed) + Motor_BrakeAll on Stop, zero re-clamp/re-slew (sole owner stays motor.c)
 ```
 
 ## 4. 当前启动与调度逻辑图
@@ -591,11 +619,13 @@ flowchart TD
   SysInit --> ServiceInit[Hmi_Init + Chassis_Init + Tuning_Init]
   SysInit --> AppCompose[AppCompose_Install, W2 SYS02]
   SysInit --> BoardIRQ[Board_EnableInterrupts]
-  AppCompose --> SchedulerInit[Scheduler_Init s_entries=SpeedTune x1, background_step=Menu_Tick]
-  AppCompose --> MenuSetupCall[Menu_Setup s_groups=DEBUG x1]
+  AppCompose --> SchedulerInit[Scheduler_Init s_entries=SpeedTune,EncoderTest,MotorDir x3, background_step=Menu_Tick]
+  AppCompose --> MenuSetupCall[Menu_Setup s_groups=DEBUG x1, entries idx0..2]
   Main --> MainLoop[while 1: Scheduler_Run Clock_NowMs]
   MainLoop -->|idle, no entry active| MenuTickPump[background_step -> Menu_Tick, HMI only]
   MainLoop -->|SpeedTune entered| SpeedTuneStep[on_step -> Tuning_Update -> cascaded Chassis_Update]
+  MainLoop -->|EncoderTest entered, W3| EncTestStep[on_step -> EncoderTest_Update -> Encoder_Update 2nd sampling call + vofa_run]
+  MainLoop -->|MotorDir entered, W3| MotorDirStep[on_step -> MotorCheck_Update -> Motor_SetOutput +/-200 both wheels + Motor_Update]
 
   SysTick[SysTick Handler] -->|1 ms| TickMs[s_tick_ms++]
   MainLoop -->|query elapsed| TickMs

@@ -45,7 +45,7 @@ extern "C" {
 typedef enum {
     MENU_SCREEN_GROUP_LIST = 0, /* L1 根界面：一级分类列表 */
     MENU_SCREEN_RUN_LIST,       /* L2：某运行分类的条目子列表 */
-    MENU_SCREEN_RUN_ACTIVE,     /* 某条目激活中：菜单让出整屏显示，仅响应 BACK 停止 */
+    MENU_SCREEN_RUN_ACTIVE,     /* 某条目激活中：菜单画统一 RUNNING 横幅，仅响应 BACK 停止 */
     MENU_SCREEN_PARAM_LIST,     /* L2：某参数分类的参数表浏览 */
     MENU_SCREEN_PARAM_EDIT,     /* 单参数就地调整 */
 } Menu_Screen;
@@ -96,9 +96,10 @@ void Menu_Setup(const Menu_Group_T *groups, uint8_t group_count);
  * @brief 周期泵送（匹配 Scheduler background_step 签名）。每拍：
  *        ① Hmi_Update()（面板泵送，hmi 自门控 5ms）；
  *        ② Hmi_PollInput() 取一个语义事件 → 依当前界面转移/编辑/切换 scheduler 条目；
- *        ③ 非 RUN_ACTIVE 且有待渲染且 Hmi_IsDisplayReady() → 经 Hmi_PrintLine 渲染当前界面。
+ *        ③ 有待渲染且 Hmi_IsDisplayReady() → 经 Hmi_PrintLine 渲染当前界面（含 RUN_ACTIVE 的 RUNNING 横幅）。
  * @param now_ms 预留以匹配钩子签名；当前菜单事件驱动、不做时间门控（门控归 hmi/scheduler）。
- * @note  RUN_ACTIVE 期菜单不写任何显示行——整屏显示所有权归激活条目的 on_step。
+ * @note  RUN_ACTIVE 期菜单只写固定 RUNNING 横幅（row0）+ 清 row1..3；条目自绘整屏＝未来按条目
+ *        opt-in flag，当前无条目 opt-in（§23.0 修订 UI01 显示所有权契约）。
  */
 void Menu_Tick(uint32_t now_ms);
 

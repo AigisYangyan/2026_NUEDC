@@ -77,8 +77,12 @@ GIMBAL_TEST_SRC = test_gimbal.c
 BSL_ENTRY_SRC = ../../hc-team/driver/bsl_entry/bsl_entry.c
 FAKE_BSL_INVOKE_SRC = fake_bsl_invoke.c
 BSL_ENTRY_TEST_SRC = test_bsl_entry.c
+ENCODER_TEST_SVC_SRC = ../../hc-team/app/service/encoder_test/encoder_test.c
+ENCODER_TEST_SVC_TEST_SRC = test_encoder_test.c
+MOTOR_CHECK_SVC_SRC = ../../hc-team/app/service/motor_check/motor_check.c
+MOTOR_CHECK_SVC_TEST_SRC = test_motor_check.c
 
-all: test_encoder run test_pid run_pid test_motor run_motor test_key run_key test_uart_fifo run_uart_fifo test_vofa_rx run_vofa_rx test_stepmotor_uart run_stepmotor_uart test_uart_vision run_uart_vision test_oled run_oled test_imu run_imu test_gray run_gray test_track_error run_track_error test_chassis run_chassis test_lost_line run_lost_line test_line_follow run_line_follow test_tuning run_tuning test_hmi run_hmi test_scheduler run_scheduler test_menu run_menu test_heading run_heading test_odometry run_odometry test_motion run_motion test_track_elements run_track_elements test_speed_plan run_speed_plan test_route run_route test_vision_aim run_vision_aim test_gimbal_stepbus run_gimbal_stepbus test_gimbal run_gimbal test_bsl_entry run_bsl_entry
+all: test_encoder run test_pid run_pid test_motor run_motor test_key run_key test_uart_fifo run_uart_fifo test_vofa_rx run_vofa_rx test_stepmotor_uart run_stepmotor_uart test_uart_vision run_uart_vision test_oled run_oled test_imu run_imu test_gray run_gray test_track_error run_track_error test_chassis run_chassis test_lost_line run_lost_line test_line_follow run_line_follow test_tuning run_tuning test_hmi run_hmi test_scheduler run_scheduler test_menu run_menu test_heading run_heading test_odometry run_odometry test_motion run_motion test_track_elements run_track_elements test_speed_plan run_speed_plan test_route run_route test_vision_aim run_vision_aim test_gimbal_stepbus run_gimbal_stepbus test_gimbal run_gimbal test_bsl_entry run_bsl_entry test_encoder_test run_encoder_test test_motor_check run_motor_check
 
 test_encoder: $(DRIVER_SRC) $(ENCODER_OWNER_SRC) $(FAKE_SRC) $(MOTOR_DRIVER_SRC) $(MOTOR_FAKE_SRC) $(PID_SRC) $(TEST_SRC)
 	$(CC) $(CFLAGS) -o $@ $(DRIVER_SRC) $(ENCODER_OWNER_SRC) $(FAKE_SRC) $(MOTOR_DRIVER_SRC) $(MOTOR_FAKE_SRC) $(PID_SRC) $(TEST_SRC) $(GC_LDFLAGS) -lm
@@ -262,6 +266,21 @@ test_bsl_entry: $(BSL_ENTRY_SRC) ../../hc-team/driver/bsl_entry/bsl_entry.h $(FA
 run_bsl_entry: test_bsl_entry
 	./test_bsl_entry
 
+# encoder_test = 编码器脉冲遥测诊断服务（契约 §23.2）：真实 encoder_test + encoder + uart_vofa
+# + board_uart×4 + fake_board_gpio（编码器原始注入）+ fake_uart_port（VOFA TX 抓取）；无 Clock、无 motor。
+test_encoder_test: $(ENCODER_TEST_SVC_SRC) ../../hc-team/app/service/encoder_test/encoder_test.h $(DRIVER_SRC) $(FAKE_SRC) $(VOFA_DRIVER_SRC) $(BOARD_UART_VISION_SRC) $(BOARD_UART_VOFA_SRC) $(BOARD_UART_STEPMOTOR_SRC) $(BOARD_UART_IMU_SRC) $(FAKE_UART_PORT_SRC) $(ENCODER_TEST_SVC_TEST_SRC)
+	$(CC) $(CFLAGS) -o $@ $(ENCODER_TEST_SVC_SRC) $(DRIVER_SRC) $(FAKE_SRC) $(VOFA_DRIVER_SRC) $(BOARD_UART_VISION_SRC) $(BOARD_UART_VOFA_SRC) $(BOARD_UART_STEPMOTOR_SRC) $(BOARD_UART_IMU_SRC) $(FAKE_UART_PORT_SRC) $(ENCODER_TEST_SVC_TEST_SRC) $(GC_LDFLAGS) -lm
+
+run_encoder_test: test_encoder_test
+	./test_encoder_test
+
+# motor_check = 电机方向自检服务（契约 §23.3）：真实 motor_check + motor + fake_motor_hw；无 Clock。
+test_motor_check: $(MOTOR_CHECK_SVC_SRC) ../../hc-team/app/service/motor_check/motor_check.h $(MOTOR_DRIVER_SRC) $(MOTOR_FAKE_SRC) $(MOTOR_CHECK_SVC_TEST_SRC)
+	$(CC) $(CFLAGS) -o $@ $(MOTOR_CHECK_SVC_SRC) $(MOTOR_DRIVER_SRC) $(MOTOR_FAKE_SRC) $(MOTOR_CHECK_SVC_TEST_SRC) $(GC_LDFLAGS) -lm
+
+run_motor_check: test_motor_check
+	./test_motor_check
+
 ifeq ($(OS),Windows_NT)
 clean:
 	cmd.exe /D /C "if exist test_encoder.exe del /Q /F test_encoder.exe"
@@ -322,9 +341,13 @@ clean:
 	cmd.exe /D /C "if exist test_gimbal del /Q /F test_gimbal"
 	cmd.exe /D /C "if exist test_bsl_entry.exe del /Q /F test_bsl_entry.exe"
 	cmd.exe /D /C "if exist test_bsl_entry del /Q /F test_bsl_entry"
+	cmd.exe /D /C "if exist test_encoder_test.exe del /Q /F test_encoder_test.exe"
+	cmd.exe /D /C "if exist test_encoder_test del /Q /F test_encoder_test"
+	cmd.exe /D /C "if exist test_motor_check.exe del /Q /F test_motor_check.exe"
+	cmd.exe /D /C "if exist test_motor_check del /Q /F test_motor_check"
 else
 clean:
-	rm -f test_encoder test_encoder.exe test_pid test_pid.exe test_motor test_motor.exe test_key test_key.exe test_uart_fifo test_uart_fifo.exe test_vofa_rx test_vofa_rx.exe test_stepmotor_uart test_stepmotor_uart.exe test_uart_vision test_uart_vision.exe test_oled test_oled.exe test_imu test_imu.exe test_gray test_gray.exe test_track_error test_track_error.exe test_chassis test_chassis.exe test_lost_line test_lost_line.exe test_line_follow test_line_follow.exe test_tuning test_tuning.exe test_hmi test_hmi.exe test_scheduler test_scheduler.exe test_menu test_menu.exe test_heading test_heading.exe test_odometry test_odometry.exe test_motion test_motion.exe test_track_elements test_track_elements.exe test_speed_plan test_speed_plan.exe test_route test_route.exe test_vision_aim test_vision_aim.exe test_gimbal_stepbus test_gimbal_stepbus.exe test_gimbal test_gimbal.exe test_bsl_entry test_bsl_entry.exe
+	rm -f test_encoder test_encoder.exe test_pid test_pid.exe test_motor test_motor.exe test_key test_key.exe test_uart_fifo test_uart_fifo.exe test_vofa_rx test_vofa_rx.exe test_stepmotor_uart test_stepmotor_uart.exe test_uart_vision test_uart_vision.exe test_oled test_oled.exe test_imu test_imu.exe test_gray test_gray.exe test_track_error test_track_error.exe test_chassis test_chassis.exe test_lost_line test_lost_line.exe test_line_follow test_line_follow.exe test_tuning test_tuning.exe test_hmi test_hmi.exe test_scheduler test_scheduler.exe test_menu test_menu.exe test_heading test_heading.exe test_odometry test_odometry.exe test_motion test_motion.exe test_track_elements test_track_elements.exe test_speed_plan test_speed_plan.exe test_route test_route.exe test_vision_aim test_vision_aim.exe test_gimbal_stepbus test_gimbal_stepbus.exe test_gimbal test_gimbal.exe test_bsl_entry test_bsl_entry.exe test_encoder_test test_encoder_test.exe test_motor_check test_motor_check.exe
 endif
 
-.PHONY: all run run_pid run_motor run_key run_uart_fifo run_vofa_rx run_stepmotor_uart run_uart_vision run_oled run_imu run_gray run_track_error run_chassis run_lost_line run_line_follow run_tuning run_hmi run_scheduler run_menu run_heading run_odometry run_motion run_track_elements run_speed_plan run_route run_vision_aim run_gimbal_stepbus run_gimbal run_bsl_entry clean
+.PHONY: all run run_pid run_motor run_key run_uart_fifo run_vofa_rx run_stepmotor_uart run_uart_vision run_oled run_imu run_gray run_track_error run_chassis run_lost_line run_line_follow run_tuning run_hmi run_scheduler run_menu run_heading run_odometry run_motion run_track_elements run_speed_plan run_route run_vision_aim run_gimbal_stepbus run_gimbal run_bsl_entry run_encoder_test run_motor_check clean

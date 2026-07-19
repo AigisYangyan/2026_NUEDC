@@ -61,3 +61,7 @@ tests/host/test_gimbal
 tests/host/test_gimbal.exe
 tests/host/test_bsl_entry
 tests/host/test_bsl_entry.exe
+tests/host/test_encoder_test
+tests/host/test_encoder_test.exe
+tests/host/test_motor_check
+tests/host/test_motor_check.exe

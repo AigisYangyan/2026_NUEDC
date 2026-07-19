@@ -6,13 +6,14 @@
  *   GROUP_LIST --ENTER RUN 组--> RUN_LIST --ENTER 条目--> RUN_ACTIVE --BACK--> RUN_LIST
  *   GROUP_LIST --ENTER PARAM 组--> PARAM_LIST <--BACK--> (menu_param 子状态机) --BACK--> GROUP_LIST
  *   RUN_LIST --BACK--> GROUP_LIST
- * RUN_ACTIVE 期：菜单不写任何显示行——整屏显示所有权归激活条目的 on_step
- * （避免双写者冲突，与 V21 双泵同构的显示所有权隔离）；仅 BACK 触发 Scheduler_LeaveEntry。
+ * RUN_ACTIVE 期：菜单画统一 RUNNING 横幅（row0）+ 清 row1..3；条目自绘整屏＝未来按条目
+ * opt-in flag，当前无条目 opt-in 故 menu 独占显示、无双写（§23.0 修订 UI01 显示所有权契约）；
+ * 仅 BACK 触发 Scheduler_LeaveEntry。
  *
  * 活动一级分类索引 = GROUP_LIST 光标 s_group_cursor（下探 L2 期间不变）；RUN 组的条目
  * 子列表位 j 经 g->entries[j] 映射为 scheduler 全局条目索引（scheduler 是条目唯一所有者）。
  *
- * 渲染门控：仅当「有待渲染 且 非 RUN_ACTIVE 且 显示就绪」时渲染一次并清待渲染位——
+ * 渲染门控：仅当「有待渲染 且 显示就绪」时渲染一次并清待渲染位——
  * 无输入事件即不重绘（避免冗余 I2C 事务）；显示未就绪则保持待渲染，就绪后补绘。
  */
 #include <stdbool.h>
@@ -118,6 +119,18 @@ static void render_run_list(void)
                 run_entry_name_of);
 }
 
+/* RUN_ACTIVE 统一横幅：menu 占 row0=RUNNING、清 row1..3。对每个运行条目（debug/test/未来）
+ * 一致生效；条目自绘整屏＝未来按条目 opt-in flag，当前无条目 opt-in，故无双写者冲突。 */
+static void render_run_active(void)
+{
+    uint8_t i;
+
+    (void)Hmi_PrintLine(0u, "RUNNING");
+    for (i = 1u; i <= MENU_VISIBLE_ITEMS; ++i) {
+        (void)Hmi_PrintLine(i, "");
+    }
+}
+
 /* GROUP_LIST（L1）事件处理；返回是否产生需要重绘的变化。 */
 static bool handle_group_list(Hmi_Input ev)
 {
@@ -174,9 +187,10 @@ static bool handle_run_list(Hmi_Input ev)
         if (total == 0u) {
             return false;
         }
-        /* 子列表位 → scheduler 全局条目索引。 */
+        /* 子列表位 → scheduler 全局条目索引。进入成功→置脏，渲染统一 RUNNING 横幅。 */
         if (Scheduler_EnterEntry(active_group()->entries[s_run_cursor])) {
-            s_screen = MENU_SCREEN_RUN_ACTIVE; /* 让出显示，无待渲染 */
+            s_screen = MENU_SCREEN_RUN_ACTIVE;
+            return true;
         }
         return false;
     case HMI_INPUT_BACK:
@@ -242,8 +256,10 @@ static void render(void)
         MenuParam_Render();
         break;
     case MENU_SCREEN_RUN_ACTIVE:
+        render_run_active();
+        break;
     default:
-        break; /* 让出显示；渲染门控已排除，此处不触及 */
+        break;
     }
 }
 
@@ -264,7 +280,7 @@ void Menu_Tick(uint32_t now_ms)
     Hmi_Update();
     handle_event(Hmi_PollInput());
 
-    if (s_dirty && (s_screen != MENU_SCREEN_RUN_ACTIVE) && Hmi_IsDisplayReady()) {
+    if (s_dirty && Hmi_IsDisplayReady()) {
         render();
         s_dirty = false;
     }
