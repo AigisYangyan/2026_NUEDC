@@ -89,6 +89,7 @@
 | SYS01 | 装配入口更新 | `app/system/` | sys_init.c 增量改造 | — | 随各阶段（**W2 §22.2 World-2 点亮 DONE**：main→Scheduler_Run，SpeedTune 条目接 tuning，旧 SysRun 停用，418 PASS。**W3 §23.3 app_compose 接入 EncoderTest/MotorDir 两 DEBUG 诊断条目 DONE（2026-07-19）：DEBUG 组三条目，429 PASS，本提交**。**W4 §24 app_compose 接入 GrayTest 12 路灰度数字量遥测条目 DONE（2026-07-19）：DEBUG 组四条目，434 PASS，本提交**。**W5 §25 动态调参框架 DONE（2026-07-19）：TUNE 参数组 + 片内 flash 持久化 + 循迹外环增益首参数集。PT1 param_store Driver（18fc9b4，442 PASS）+ PT2 param_tune Service+LineFollow_GetGains（bd9a67b，448 PASS）+ PT3 menu action 钩子+app_compose TUNE 接线（451 PASS，本提交）。板载 TUNE 组按钮调循迹外环增益、K3 SAVE 掉电 flash 保存；真实 flash 擦/写硬件边界待用户上板验证。**W6 §26 app_compose 接入 LineFollow 循迹运行条目 DONE（2026-07-19）：DEBUG 组第 5 条（idx4）——on_enter `LineFollow_Init` 归零→`ParamTune_Init` 重推持久增益（关闭 V28）→`Start`、on_step `Update` 级联 Chassis 沿线跑、on_exit `Stop` 安全停车；`s_lf_cfg` 保守 UNCALIBRATED 占位（低速起步/超时有界/element_mask=0），几何用建议式 recovery≈2.7×pitch；契约 §26 冻结 4aab90b，代码 b907003。E01 仅 app_compose.c 在范围 / E02 arch-scan 空输出 / E03 接线序 Init→ParamTune_Init→Start / E04 exit=Stop+保守配置 / E05 451 PASS 0 FAIL 无回归 / E06 exit 0、0 诊断、app_compose.o 进链 5 符号 .text 可达。arch-auditor 六红线全过、无发现放行。现场调参闭环成立：选它跑→TUNE 改增益 SAVE→再跑→看效果。标定量上板实测替换待用户自理**） |
 | M04 | move_profile 距离参数化梯形速度剖面（Middleware 纯函数：已行进距离+目标+加减速→前馈基速，加速-匀速-减速自带位置反馈） | `middleware/move_profile/` | — | — | `DONE`（契约 §27 冻结 b98cf18，修订1 64fe6d5；代码 536883f；arch-auditor 契约逐条成立、无阻断/无重要、1 建议级文档处置；拓扑同步见 §10。E01 8 文件在范围 / E02 依赖纯净仅 `<math.h>`/`<stddef.h>` / E03 无关 / E04 467 PASS 0 FAIL＝451 基线+10（move_profile 单测）/ E05 exit 0、0 诊断、move_profile.o 经 linkInfo.xml `<input_file>` 进链、新符号零调用者 DCE 可达性待 T01。距离剖面纯函数，与 speed_plan（横向误差→基速）输入域不同非复刻；「定长运动速度剖面」新单一所有者落定，mm→m 仅量纲对齐非第二距离所有者） |
 | S06c | motion 定长直行原语（`Motion_StartProfiledStraight`：move_profile 前馈 + 既有航向保持 PID，旧恒速 STRAIGHT 不改） | `app/service/motion/`（S06 契约修订流程扩面） | — | — | `DONE`（契约 §27 冻结 b98cf18；代码 536883f；arch-auditor 六项通过、1 建议级（base∓corr 终段 nuance）文档处置入 §27.4；拓扑同步见 §10。E01 8 文件在范围 / E02 无关 / E03 唯一新增 include=move_profile.h（Service→Middleware）/ E04 467 PASS 0 FAIL＝含 motion profiled 6 / E05 exit 0、0 诊断、motion.o 经 linkInfo.xml 进链、新符号零调用者 DCE 可达性待 T01。纵向按距离剖面无纵向 PID（用户 2026-07-19 裁定）；V21 推进点 3→4；旧 STRAIGHT/TURN/ARC 一字未改；过零换向所有者仍 motor.c 非新安全缺口） |
+| MS02 | ProfiledStraight 运行条目 + DRIVE 参数组按钮调参持久化（motion 剖面 setter/getter + param_tune 扩 blob schema2 + app_compose 接 DEBUG 条目/DRIVE 组） | `app/service/motion/`+`app/service/param_tune/`+`app/system/` | — | — | 契约 §28 冻结（本提交）；`施工中`——距离按钮可调默认 1000mm、新开 DRIVE 组、heading_hold=false、schema 升 2 旧 blob 一次性失效；接线后 motion 零调用者状态解除 |
 | T01 | 赛题 Task（薄编排）+ 旧 tasks 整体删除 | `app/tasks/` | 全部旧 `tasks/**` | V03/V07/V13 残余/V15 全关，baseline 清空 | **最后**（赛题公布后） |
 
 ## 4. 通用施工规则（每模块适用）
@@ -3182,3 +3183,108 @@ bool Motion_StartProfiledStraight(float distance_mm, bool heading_hold);
 - 修订1（64fe6d5，代码前）：BUILD 中发现 E05 原文「`MoveProfile_Speed`/`Motion_StartProfiledStraight` `.text` 可达」为过度声称——新原语零调用者是 §裁定2 明示的预期态，`-ffunction-sections` 下新函数为死代码被 GC，不入映像；可达性须待 T01 接线后成立。E05 postcondition 改为断言两 .o 进链接输入 + linkInfo `<input_file>` + `.out` 重链 `link_errors=0`，并显式记录新符号因零调用者 DCE、可达性递延。计数与其余行不变。
 - 现场调参手册：`docs/定长梯形剖面直行_位置环调参手册.md`（参数清单/标定顺序/公式/对症表/终段提示；诚实标注当前零调用者、参数在 Motion_Config、TUNE 现场调参待 T01 接线）。
 - 验收（代码 536883f）：5 行全过——E01 仅 8 个 allowed 文件在范围（`.ccsproject` 会话前既存未纳入、`Debug/**/*.mk`+`.o` gitignore 本地生成物未纳入）、零触碰 chassis/odometry/pid/speed_plan/driver/route / E02 move_profile.[ch] 仅 `<math.h>`/`<stddef.h>`（零跨层）/ E03 motion.c 唯一新增 include=`middleware/move_profile/move_profile.h`（Service→Middleware）无 DL HAL / E04 host 467 PASS 0 FAIL＝451 基线+move_profile 10+motion profiled 6 / E05 exit 0、0 诊断、move_profile.c+motion.c 均重编、move_profile.o(`<input_file>` fl-45)+motion.o 经 linkInfo.xml 进链、`.out` 重链 link_errors=0、新符号零调用者 DCE 可达性递延 T01。arch-auditor 契约逐条成立、无阻断/无重要、1 建议级（base∓corr 终段行为 nuance）文档处置入 §27.4，明确非新安全缺口（过零换向所有者仍 motor.c）。topo-updater 同步见 §10。
+
+## 28. MS02 契约（ProfiledStraight 运行条目 + DRIVE 参数组按钮调参持久化）——冻结
+
+- **task_id**: MS02-drive_tune_wiring
+- **goal**: 把定长梯形剖面直行封装上板，与循迹环同款闭环：(a) DEBUG 组新增运行条目
+  `ProfiledStraight`，进页跑一段定长直行（默认 1000mm）、退页确定性停车；(b) 新一级参数组
+  `DRIVE`（进入显示 PARAMS 界面）按钮调 motion 剖面 4 参数 + 测试距离，K3 `SAVE` 断电存片内 flash。
+  用户 2026-07-20 裁定：测试距离按钮可调默认 1000mm、新开独立一级组 DRIVE；`heading_hold=false`
+  （开环直行测纵向剖面）；schema_ver 1→2 向后不兼容（旧 13B blob 因长度不符被忽略→用默认，一次性）。
+
+- **Architecture**：
+  - Abstraction：
+    - motion 新增运行时读写口 `Motion_SetProfileParams`/`Motion_GetProfileParams`——「已应用剖面参数」
+      的即时读写（供按钮调参），与 `LineFollow_Set/GetGains` 同款 Model A。
+    - `ProfiledStraight` 运行条目：选它跑 → 改 DRIVE 参数 SAVE → 再选它跑 → 看效果（不用改代码烧录）。
+  - Hidden state：motion 的 `s_cfg.profile_*` 成为「已应用剖面参数」唯一存储（Motion_Init 不再是唯一写者，
+    但仍是**同一所有者 motion**，只是多一条写路径，非新所有者）；param_tune 扩为持久化编排两组值 +
+    自持测试距离 `s_dist_mm`（唯一 param_tune 持值项——测试设定量无 Service 所有者）；app_compose 新增
+    `s_ms_cfg`/`s_drive_params[]`/`ProfiledStraight` 三钩子。
+  - Owner layer：motion=Service、param_tune=Service、app_compose=App 装配根、menu=UI（零改）、param_store=Driver（零改）。
+  - Allowed dependency direction：param_tune(Service)→motion(Service) 同层受控（同其已有→line_follow）；
+    app_compose(装配根)→motion/param_tune(Service)；均 §4 允许。
+
+### 28.1 allowed_files（无 glob）
+
+allowed_files：
+- `hc-team/app/service/motion/motion.h` + `.c`（+`Motion_SetProfileParams`/`Motion_GetProfileParams` 运行时读写口；写 `s_cfg.profile_*`）
+- `hc-team/app/service/param_tune/param_tune.h` + `.c`（blob schema_ver 1→2、扩 payload 至 33B、+motion 剖面 4 参数 get/set/step（委派 Motion）+ 自持测试距离 Dist get/set、Init/Save 扩、默认常量）
+- `hc-team/app/system/app_compose.c`（+include motion.h；+`s_ms_cfg`；+3 个 profiledstraight_* 钩子；`s_entries[]` 加 idx5；`s_debug_entries[]` 加 5；+`s_drive_params[]`；`s_groups[]` 加 DRIVE 组）
+- `tests/host/test_motion.c`（+SetProfileParams/GetProfileParams 用例）
+- `tests/host/test_param_tune.c`（+schema2 往返/默认/距离/剖面委派用例）
+- `tests/host/Makefile`（test_param_tune 链接集 +motion 链：MOTION/MOVE_PROFILE/ODOMETRY/HEADING/IMU/board_uart×4/fake_uart_port）
+- `Debug/makefile`（无新 .c，仅在 app_compose/motion/param_tune 已在链——**若无新 .o 则本文件零改**）
+- `agent/phase4_app_rewrite/plan_app_first_order.md`（本契约 §28 + 状态表 + 交付）
+- `agent/api_architecture_topology.md`（§6 V21/V28 补注、§7 覆盖、§10 日志）
+- `agent/topology/app.md`（motion 激活边 + param_tune→motion 边 + DRIVE 组）
+
+forbidden_files（关键）：
+- `hc-team/middleware/**`（move_profile/odometry/pid 仅调用不改）
+- `hc-team/driver/param_store/**`（单扇区单记录不改——扩 blob 在 param_tune payload 层，不碰 Driver）
+- `hc-team/app/ui/menu/**`（Menu_Param_T/Menu_Group_T 机制不改，仅装配层填表）
+- `hc-team/app/service/line_follow/**`、`hc-team/app/service/chassis/**`（仅调用）
+- `hc-team/app/system/{main.c,sys_init.c,app_compose.h}`（装配序不变）
+
+### 28.2 公共接口（最小面）
+
+```c
+/* motion.h 增量：剖面参数运行时读写（Model A，已应用值唯一属 motion 的 s_cfg.profile_*） */
+void Motion_SetProfileParams(float cruise_mps, float start_mps,
+                             float accel_mps2, float decel_mps2);   /* 即时生效，写 s_cfg.profile_* */
+void Motion_GetProfileParams(float *cruise_mps, float *start_mps,
+                             float *accel_mps2, float *decel_mps2); /* 指针均非空；读已应用值唯一出口 */
+
+/* param_tune.h 增量：DRIVE 组 get/set（milli 口径）+ 测试距离（mm）+ 步长常量 */
+#define TUNE_STEP_CRUISE_MILLI 10   /* 占位，现场再定 */
+#define TUNE_STEP_START_MILLI  10
+#define TUNE_STEP_ACCEL_MILLI  10
+#define TUNE_STEP_DECEL_MILLI  10
+#define TUNE_STEP_DIST_MM      50
+int32_t ParamTune_GetCruise_milli(void);  void ParamTune_SetCruise_milli(int32_t v);  /* 委派 Motion_Get/SetProfileParams */
+int32_t ParamTune_GetStart_milli(void);   void ParamTune_SetStart_milli(int32_t v);
+int32_t ParamTune_GetAccel_milli(void);   void ParamTune_SetAccel_milli(int32_t v);
+int32_t ParamTune_GetDecel_milli(void);   void ParamTune_SetDecel_milli(int32_t v);
+int32_t ParamTune_GetDist_mm(void);       void ParamTune_SetDist_mm(int32_t v);       /* param_tune 自持 s_dist_mm（唯一持值项） */
+/* ParamTune_Init/Save 扩为读写 schema_ver=2 的 33B blob（LF 增益 + 剖面 4 参数 + 距离） */
+```
+
+blob v2 布局（33B，小端）：[0]ver=2、[1..12]kp/ki/kd milli、[13..16]cruise、[17..20]start、[21..24]accel、[25..28]decel milli、[29..32]dist_mm。旧 v1(13B) 因 `ParamStore_Read(len=33)` 长度不符→false→全默认（一次性丢旧 LF 增益，dev 板可接受，重调 SAVE 即恢复）。
+
+### 28.3 数据链与单一所有者（§8.2）
+
+- 剖面参数链：按钮→menu_param→`ParamTune_Set*_milli`（milli↔float ×1000，唯一换算所有者）→`Motion_SetProfileParams`（写 `s_cfg.profile_*`，**已应用值唯一属 motion**）→profiled straight 读用；SAVE→`Motion_GetProfileParams` 读回序列化→`ParamStore_Save`。
+- 测试距离链：按钮→`ParamTune_Set/GetDist_mm`（param_tune 自持 `s_dist_mm`，唯一 param_tune 持值项，测试设定量无 Service 家）→运行条目 on_enter 读 `ParamTune_GetDist_mm()` 传 `Motion_StartProfiledStraight(dist, false)`。
+- 不复做：脉冲→mm/剖面数学归 move_profile/odometry；限幅/换向/超时/刹车归 motor.c；NV 完整性归 param_store。param_tune 只加 payload 字段，不碰 Driver 框定。
+- V28 接线：`profiledstraight_enter` 序 = `Motion_Init(&s_ms_cfg)`(归零/重置) → `ParamTune_Init()`(重推持久剖面参数+距离) → `Motion_StartProfiledStraight(ParamTune_GetDist_mm(), false)`。
+- V21：motion 由零调用者→经 scheduler 条目激活；单活动条目不变量下与 SpeedTune/LineFollow 互斥，**不新增第 5 个 Chassis_Update 推进点**（仍是 motion 模块级单推进）。
+- V22：剖面 setter 只写 `s_cfg.profile_*`，不新增 mm_per_pulse/heading_sign 第二所有者、不复算 move_profile 内部。
+
+### 28.4 preserved_behavior
+
+- 既有 5 条 DEBUG 条目 + TUNE 组（LF 增益）+ 开机 ParamTune_Init 行为：LF 增益链保持；schema 升级后旧 blob 一次性失效走默认（LF 增益回 0 默认，需重调 SAVE）——已在 §28.2 声明，属预期。
+- motion 既有 API（Init/StartStraight/StartProfiledStraight/Turn/Arc/Update/Stop/Get*）签名语义不变；`Motion_Init` 仍重置全 cfg，新 setter 是**额外**写路径（同一所有者）。
+- menu/param_store/chassis/line_follow/move_profile/odometry 零改动；装配序不变。
+
+### 28.5 证据行（≤6，恰 1 条固件构建行）
+
+| ID | 项 | 命令 | 期望 |
+|---|---|---|---|
+| E01 | 范围审计 | `git status` + `git diff --stat` 对照 §28.1 | 无 allowed_files 之外改动（`.ccsproject`/Debug 本地生成物不纳入） |
+| E02 | 跨层扫描 | Grep motion.c/param_tune.c/app_compose.c 新增 `#include` + `& .claude/hooks/arch-scan.ps1 -Mode check` | motion.c 无新增 include；param_tune.c +`motion.h`（Service→Service）；app_compose.c +`motion.h`（装配→Service）；arch-scan 空输出、无 DL HAL |
+| E03 | 主机全套（回归+计数） | PowerShell：`rtk proxy make -C tests/host all` | 0 FAIL；total = 467 基线 + motion setter 用例 + param_tune schema2 用例（分项验收锁定） |
+| E04 | 接线序 + V28 | Grep `app_compose.c` profiledstraight_enter 体 | 序为 `Motion_Init(&s_ms_cfg)` → `ParamTune_Init()` → `Motion_StartProfiledStraight(ParamTune_GetDist_mm(), false)`（Init 归零后重推持久值） |
+| E05 | 持久化往返 + 向后 | test_param_tune 断言（含 schema2 存→读→应用、空存→默认、旧 13B→默认） | 往返值全恢复；旧/空记录退默认；距离与剖面参数经 Motion 委派正确读回 |
+| E06 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 诊断；`app_compose.o`+`motion.o`+`move_profile.o` 经 linkInfo.xml 进链；**`Motion_StartProfiledStraight`/`MoveProfile_Speed` 现经运行条目可达（`.text` 在映像，零调用者状态解除）** |
+
+### 28.6 Stop conditions
+
+- 若发现单扇区 param_store 无法容两组值（33B > 48 上限，或需多记录）→ 停止报告（应 33B ≤ 48 成立）。
+- 若剖面 setter 需绕过 motion 直接改 move_profile 内部 → 停止（§8.2）。
+- 若须改 menu/param_store Driver 才能加组/存值 → 停止（应纯装配层填表 + payload 扩字段）。
+- baseline drift：BUILD 起测 host ≠ 467 PASS → 停止，先改契约。
+
+### 28.7 契约修订记录
+
+- 冻结（本提交）：范围/接口/6 证据行按用户 2026-07-20 裁定（距离按钮可调默认 1000mm / 新开 DRIVE 组 / heading_hold=false / schema 升 2 旧 blob 一次性失效）确定；基线 467 PASS（§27 验收）锁定，BUILD 起复核漂移。
