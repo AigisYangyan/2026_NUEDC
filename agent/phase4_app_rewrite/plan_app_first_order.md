@@ -2983,3 +2983,80 @@ typedef struct {
    已明示「低优先、供主 agent 裁量、非阻断」。
 
 **结论**：W5 三提交分层与单一所有者链路与声明一致，评审放行。建议 1、2 移交用户/后续立项，不阻断收官。
+
+## 26. W6 契约（LineFollow 循迹运行条目接入 DEBUG 组）——冻结
+
+- **task_id**: RE01-line_follow_entry
+- **goal**: `app_compose.c` 的 `s_entries[]` 新增第 5 条运行条目「LineFollow」并挂进 DEBUG 组
+  （`s_debug_entries` idx4）。菜单进入该条目 →
+  - `on_enter`：`LineFollow_Init(&s_lf_cfg)`（存配置、外环增益归零）→ `ParamTune_Init()`
+    （重推 SAVE 的持久增益，**关闭 V28 接线注意**，否则会用零增益跑一拍）→
+    `(void)LineFollow_Start()`（配置有效则 TRACKING；无效安全保持 IDLE 不动底盘）；
+  - `on_step`：`LineFollow_Update()`（10ms 自门控，TRACKING/RECOVERING 期末尾恒推
+    `Chassis_Update()` 沿线跑；`now_ms` 不用，服务自持 Clock 门控——与 speedtune_step 同构）；
+  - `on_exit`：`LineFollow_Stop()`（→IDLE + `Chassis_Stop()` 确定性停车）。
+  - 配置 `s_lf_cfg` = 保守 UNCALIBRATED 占位常量（低速起步、有界超时、`element_enable_mask=0`，
+    几何用头文件建议式 `recovery≈2.7×pitch`）；外环 PID 增益**不在此表**（走 TUNE 组 / param_tune
+    持久化），故占位配置与现场调参无冲突。用户 2026-07-19 三裁定：**保守占位+醒目标注 / DEBUG 组第 5 条 / 只跑不接遥测**。
+
+- **Architecture**：
+  - Abstraction：一条可从板载菜单进入的循迹运行条目——进页起步循迹、退页安全停车，
+    配合 TUNE 组构成「选它跑 → 改增益 SAVE → 再选它跑 → 看效果」的现场调参闭环。
+  - Hidden state：文件静态 `s_lf_cfg` 配置常量 + 三个钩子适配函数，全落 `app_compose.c`（装配根）。
+  - Owner layer：App 装配层（`app/system`）——运行条目接线，**非新 Service**。钩子仅把
+    `Scheduler_Entry_T` 签名适配到既成 `LineFollow_*` / `ParamTune_*` Service，与 `speedtune_*` 适配 `Tuning_*` 同构。
+  - Allowed dependency direction：`app/system` → `app/service`（`line_follow.h`、`param_tune.h` 均 Service 头；System 是装配根，§3.6 允许）。
+
+### 26.1 allowed_files（无 glob）
+
+allowed_files：
+- `hc-team/app/system/app_compose.c`（修改：+include line_follow.h；3 个 linefollow_* 钩子 + `s_lf_cfg` 常量；`s_entries[]` 加第 5 条；`s_debug_entries[]` 加 idx4）
+- `agent/phase4_app_rewrite/plan_app_first_order.md`（本契约 §26 + 状态表 SYS01 行追加 + 交付说明）
+- `agent/api_architecture_topology.md`（§6 V28「接线注意」关闭一份 + §10 更新日志）
+- `agent/topology/app.md`（若 `s_entries[]`/DEBUG 组条目图在此文件——topo-updater 收工判定）
+
+forbidden_files：
+- `hc-team/app/service/**`（`line_follow` / `param_tune` / `tuning` 等仅调用不改）
+- `hc-team/app/{tasks,scheduler,ui}/**`（`scheduler.h` 仅 include 不改）
+- `hc-team/app/system/sys_init.c`、`hc-team/app/system/main.c`、`hc-team/app/system/app_compose.h`（装配顺序与前置不变，零触碰）
+- `hc-team/driver/**`、`hc-team/middleware/**`
+- `Debug/makefile`、`hc-team/app/system/subdir_*.mk`（无新 .o，不改）
+- `tests/host/**`（`app_compose.c` 不入主机编译，无新用例）
+
+### 26.2 单一所有者（不复做）
+
+- **外环增益**：`line_follow`（Set/Get），`param_tune` 重推是唯一持久化推入路径——本条目 `on_enter`
+  只调 `ParamTune_Init()`，不自持/不复算增益。
+- **Chassis_Update 泵送**：`line_follow` 在 TRACKING/RECOVERING 独占；scheduler **单活动条目不变量**
+  保证本条目与 tuning/motion 不同时驱动（**V21 对本条目关闭一份**）。
+- **差速限幅/换向/超时/斜率**：全归下游 `line_follow` 外环 PID cfg / `speed_plan` / `lost_line` /
+  `motor.c`，本装配层零复做（§8.1 既有保护不重复实现）。
+- **配置标定量**：占位 UNCALIBRATED 常量唯一在 `app_compose.c`；现场经 TUNE 组调 PID 增益。
+
+### 26.3 preserved_behavior
+
+- 既有 4 条 DEBUG 条目（SpeedTune/EncoderTest/MotorDir/GrayTest）+ TUNE 参数组 + 开机 `ParamTune_Init` 行为零改动。
+- `main→Scheduler_Run` 空转仍只泵 `Menu_Tick`；进 LineFollow 条目才注册/驱动，退页刹停。
+- scheduler / menu / hmi / 所有 service / driver / middleware 零改动；`sys_init` 装配序不变。
+
+### 26.4 证据行（≤6，恰 1 条固件构建行）
+
+| ID | 项 | 命令 | 期望 |
+|---|---|---|---|
+| E01 | 范围审计 | `git status` + `git diff --stat` 对照 §26.1 | 无 allowed_files 之外改动（尤其零触碰 sys_init.c/main.c/app_compose.h/service/driver/middleware） |
+| E02 | 装配层闸门 | PowerShell：`& .claude/hooks/arch-scan.ps1 -Mode check` | 空输出（app_compose 新增 include 仅 `line_follow.h` Service 头，无 DL HAL/Driver/Middleware） |
+| E03 | 接线序 + V28 关闭 | Grep `app_compose.c` linefollow_enter 体 | 序为 `LineFollow_Init(&s_lf_cfg)` → `ParamTune_Init()` → `LineFollow_Start()`（Init 归零后重推持久增益，非零增益跑一拍） |
+| E04 | 安全停 + 保守配置 | Grep `app_compose.c`（linefollow_exit + `s_lf_cfg`） | on_exit = `LineFollow_Stop()`（→IDLE+Chassis_Stop）；`s_lf_cfg` 含 UNCALIBRATED 标注、`straight_speed_mps`≤0.30 且 `min_speed`≤straight、`lost_timeout_ms`>0 有界、`element_enable_mask=0` |
+| E05 | 主机测试 | PowerShell：`rtk proxy make -C tests/host all` | =451 PASS / 0 FAIL（app_compose 不入主机编译，0 新用例，证无回归） |
+| E06 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 诊断、`app_compose.o` 经 linkInfo.xml 进链，`LineFollow_Init/Start/Update/Stop` 与 `ParamTune_Init` 可达 |
+
+### 26.5 Stop conditions
+
+- `LineFollow_*` 或 `ParamTune_*` 公共面与本契约声称不符（签名/前置）→ 停止报告。
+- 需改 `sys_init` 装配序或 `Chassis_Init` 位置才能起步 → 停止报告（前置应已成立）。
+- 需在装配层复做增益/限幅/超时/换向 → 停止报告（单一所有者违规）。
+- baseline drift：BUILD 起测 host ≠ 451 PASS → 停止，先改契约。
+
+### 26.6 契约修订记录
+
+- 冻结（本提交）：任务范围与 6 证据行按用户 2026-07-19 三裁定确定；基线 451 PASS 实测锁定。
