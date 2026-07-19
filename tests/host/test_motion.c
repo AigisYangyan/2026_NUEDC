@@ -71,6 +71,11 @@ static Motion_Config_T default_cfg(void)
     cfg.mm_per_pulse = 1.0f;       /* 1 脉冲 = 1 mm，断言直观 */
     cfg.heading_sign = 1.0f;
     cfg.straight_speed_mps = 0.30f;
+    /* 梯形剖面：匀速 0.60、起步 0.15、加速=减速 0.5 m/s^2（断言直观，mm_per_pulse=1）。 */
+    cfg.profile_cruise_mps = 0.60f;
+    cfg.profile_start_mps = 0.15f;
+    cfg.profile_accel_mps2 = 0.5f;
+    cfg.profile_decel_mps2 = 0.5f;
     cfg.turn_speed_mps = 0.30f;
     cfg.arc_speed_mps = 0.30f;
     cfg.track_width_mm = 100.0f;   /* R=200 → half=50：inner=0.225、outer=0.375（断言直观） */
@@ -455,6 +460,112 @@ static int test_telemetry_reflects_state(void)
     return 0;
 }
 
+/* ---- 定长梯形剖面直行原语（S06c，计划表 §27）---------------------------- */
+
+/* StartProfiledStraight 参数校验：<=0 拒绝并保持前态、>0 进入 PROFILED_STRAIGHT。 */
+static int test_start_profiled_rejects_nonpositive(void)
+{
+    setup();
+    TEST_ASSERT_TRUE(Motion_StartProfiledStraight(0.0f, false) == false);
+    TEST_ASSERT_TRUE(Motion_StartProfiledStraight(-5.0f, true) == false);
+    TEST_ASSERT_TRUE(Motion_GetState() == MOTION_IDLE);
+    TEST_ASSERT_TRUE(Motion_StartProfiledStraight(1000.0f, false) == true);
+    TEST_ASSERT_TRUE(Motion_GetState() == MOTION_PROFILED_STRAIGHT);
+    printf("PASS: test_start_profiled_rejects_nonpositive\n");
+    return 0;
+}
+
+/* 起步段：dist≈0 → 前馈基速 = 剖面起步速 profile_start_mps(0.15)，远低于匀速上限。 */
+static int test_profiled_starts_at_start_speed(void)
+{
+    Chassis_Telemetry_T ct;
+
+    setup();
+    TEST_ASSERT_TRUE(Motion_StartProfiledStraight(2000.0f, false));
+    tick();   /* 首拍播种、dist=0 → base=start=0.15 */
+    Chassis_GetTelemetry(&ct);
+    TEST_ASSERT_NEAR(ct.target_mps[CHASSIS_SIDE_LEFT], 0.15f, 1e-3f);
+    TEST_ASSERT_NEAR(ct.target_mps[CHASSIS_SIDE_RIGHT], 0.15f, 1e-3f);
+    TEST_ASSERT_TRUE(ct.target_mps[CHASSIS_SIDE_LEFT] < 0.60f);   /* 未到匀速 */
+    printf("PASS: test_profiled_starts_at_start_speed\n");
+    return 0;
+}
+
+/* 匀速段：dist 进入平台区（337.5mm≤dist≤1640mm）→ 前馈基速夹到匀速上限 0.60。 */
+static int test_profiled_reaches_cruise_midway(void)
+{
+    Chassis_Telemetry_T ct;
+
+    setup();
+    TEST_ASSERT_TRUE(Motion_StartProfiledStraight(2000.0f, false));
+    drive_forward(700);   /* 一次大位移 */
+    tick();               /* 底盘采样→total=700 */
+    tick();               /* 消费 d=700 → dist≈700（平台区）→ base=cruise */
+    Chassis_GetTelemetry(&ct);
+    TEST_ASSERT_NEAR(ct.target_mps[CHASSIS_SIDE_LEFT], 0.60f, 1e-3f);
+    TEST_ASSERT_NEAR(ct.target_mps[CHASSIS_SIDE_RIGHT], 0.60f, 1e-3f);
+    printf("PASS: test_profiled_reaches_cruise_midway\n");
+    return 0;
+}
+
+/* 减速段：dist 逼近目标（剩余 100mm）→ 前馈 = sqrt(2*decel*0.1)=0.3162，低于匀速上限。 */
+static int test_profiled_decelerates_near_target(void)
+{
+    Chassis_Telemetry_T ct;
+
+    setup();
+    TEST_ASSERT_TRUE(Motion_StartProfiledStraight(2000.0f, false));
+    drive_forward(1900);
+    tick();               /* 采样→total=1900 */
+    tick();               /* 消费 → dist≈1900，rem=100mm → 减速段 */
+    Chassis_GetTelemetry(&ct);
+    TEST_ASSERT_NEAR(ct.target_mps[CHASSIS_SIDE_LEFT], 0.316228f, 2e-3f);
+    TEST_ASSERT_TRUE(ct.target_mps[CHASSIS_SIDE_LEFT] < 0.60f);   /* 已降速 */
+    printf("PASS: test_profiled_decelerates_near_target\n");
+    return 0;
+}
+
+/* 到位：dist≥target → Chassis_Stop（刹车）+ DONE + IsDone（同恒速直行到位判据）。 */
+static int test_profiled_completes_and_brakes(void)
+{
+    int i;
+    Motion_Telemetry_T t;
+
+    setup();
+    TEST_ASSERT_TRUE(Motion_StartProfiledStraight(2000.0f, false));
+    for (i = 0; i < 60; i++) {
+        drive_forward(100);
+        tick();
+        if (Motion_IsDone()) {
+            break;
+        }
+    }
+    TEST_ASSERT_TRUE(Motion_IsDone());
+    TEST_ASSERT_TRUE(Motion_GetState() == MOTION_DONE);
+    TEST_ASSERT_TRUE(FakeMotorHw_IsBrakeActive(MOTOR_LEFT));
+    TEST_ASSERT_TRUE(FakeMotorHw_IsBrakeActive(MOTOR_RIGHT));
+    Motion_GetTelemetry(&t);
+    TEST_ASSERT_TRUE(t.x_mm >= 2000.0f - 1e-3f);
+    printf("PASS: test_profiled_completes_and_brakes\n");
+    return 0;
+}
+
+/* 航向保持仍生效（横向正交）：rel>0（偏 CCW/左）→ 左快右慢；且前馈基速非零（剖面驱动）。 */
+static int test_profiled_heading_hold_corrects_ccw(void)
+{
+    Chassis_Telemetry_T ct;
+
+    setup();
+    TEST_ASSERT_TRUE(Motion_StartProfiledStraight(1000.0f, true));
+    push_yaw(0.0f);  tick();   /* 播种航向=0=基准 */
+    push_yaw(10.0f); tick();   /* 漂到 +10° CCW，dist≈0 → base=start */
+    Chassis_GetTelemetry(&ct);
+    TEST_ASSERT_TRUE(ct.target_mps[CHASSIS_SIDE_LEFT] >
+                     ct.target_mps[CHASSIS_SIDE_RIGHT] + 1e-4f);
+    printf("PASS: test_profiled_heading_hold_corrects_ccw\n");
+    return 0;
+}
+
 /* ---- 圆弧原语（S06b，计划表 §19）---------------------------------------- */
 
 /* StartArc 参数校验：R≤0 / arc_deg=0 / R<track/2 拒绝并保持前态；合法→ARC。 */
@@ -694,6 +805,12 @@ int main(void)
     failures += test_stop_from_any_state_idles_and_brakes();
     failures += test_imu_frame_parsed_into_pose_heading();
     failures += test_telemetry_reflects_state();
+    failures += test_start_profiled_rejects_nonpositive();
+    failures += test_profiled_starts_at_start_speed();
+    failures += test_profiled_reaches_cruise_midway();
+    failures += test_profiled_decelerates_near_target();
+    failures += test_profiled_completes_and_brakes();
+    failures += test_profiled_heading_hold_corrects_ccw();
     failures += test_start_arc_rejects_invalid();
     failures += test_arc_feedforward_ratio_ccw();
     failures += test_arc_feedforward_ratio_cw();

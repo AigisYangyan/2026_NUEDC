@@ -37,11 +37,12 @@ extern "C" {
 
 /** 运动状态机。IDLE/DONE 时底盘静默（不泵内环，刹车真值表保持——确定性驻停）。 */
 typedef enum {
-    MOTION_IDLE = 0,   /* 无原语 */
-    MOTION_STRAIGHT,   /* 直行中 */
-    MOTION_TURN,       /* 原地转中 */
-    MOTION_ARC,        /* 圆弧行进中 */
-    MOTION_DONE,       /* 原语完成（已 Chassis_Stop） */
+    MOTION_IDLE = 0,          /* 无原语 */
+    MOTION_STRAIGHT,          /* 恒速直行中 */
+    MOTION_TURN,              /* 原地转中 */
+    MOTION_ARC,               /* 圆弧行进中 */
+    MOTION_DONE,              /* 原语完成（已 Chassis_Stop） */
+    MOTION_PROFILED_STRAIGHT, /* 梯形剖面定长直行中（追加于末尾，既有值不重排） */
 } Motion_State;
 
 /** 运动服务配置。由装配层填写后经 Motion_Init 按值拷入。 */
@@ -50,7 +51,14 @@ typedef struct {
     float mm_per_pulse;        /* >0，实测标定，无默认值 */
     float heading_sign;        /* +1 或 −1，实测标定 */
     /* 运动基速。 */
-    float straight_speed_mps;  /* 直行基速（前进为正） */
+    float straight_speed_mps;  /* 恒速直行基速（前进为正；仅 MOTION_STRAIGHT 用） */
+    /* 定长梯形剖面直行（MOTION_PROFILED_STRAIGHT）：纵向前馈由 move_profile 按距离产出，
+       无纵向 PID（剖面即位置闭环，§27 裁定）。头文件扁平化剖面 cfg，不暴露 MoveProfile_Config_T
+       类型（同 mm_per_pulse/heading_sign 对 odometry cfg 的扁平化先例）。 */
+    float profile_cruise_mps;  /* 剖面匀速段速度上限（>0） */
+    float profile_start_mps;   /* 剖面加速段起步速（脱静摩擦，0<=start<=cruise） */
+    float profile_accel_mps2;  /* 剖面加速度（m/s^2，>0） */
+    float profile_decel_mps2;  /* 剖面减速度（m/s^2，>0） */
     float turn_speed_mps;      /* 原地转单轮速度幅值上限（>0） */
     float arc_speed_mps;       /* 圆弧圆心线速度基速（前进为正，>0；仅圆弧原语用） */
     /* 圆弧几何：轮距是本服务新增的单一所有者（§19.0），仅用于圆弧前馈内外轮速比，
@@ -94,6 +102,18 @@ void Motion_Init(const Motion_Config_T *cfg);
  * @note   捕获当前位姿为起点参考、清航向保持 PID 史。
  */
 bool Motion_StartStraight(float distance_mm, bool heading_hold);
+
+/**
+ * @brief  开始一段梯形剖面定长直行（起步平滑加速、中段匀速、末段减速停准）。
+ * @param  distance_mm   目标前进距离（mm）；<=0 → 返回 false 保持当前态。
+ * @param  heading_hold  true = 按 IMU 航向纠偏保持直线；false = 双轮等速开环直行。
+ * @return true 已进入 PROFILED_STRAIGHT。
+ * @note   纵向基速由 move_profile 按已行进距离产出（前馈 = 位置闭环，无纵向 PID）；
+ *         横向沿用航向保持 PID（与 MOTION_STRAIGHT 同一实例）。捕获当前位姿为起点参考、
+ *         清航向保持 PID 史。到位判据同直行：dist>=distance_mm → Chassis_Stop + DONE。
+ *         近终点若因静摩擦失速属标定项（交调用者超时/现场标定，不加驱动下限，同 TURN 先例）。
+ */
+bool Motion_StartProfiledStraight(float distance_mm, bool heading_hold);
 
 /**
  * @brief  开始一次原地定角转。

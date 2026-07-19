@@ -27,6 +27,7 @@
 #include "app/service/chassis/chassis.h"
 #include "driver/encoder/encoder.h"
 #include "driver/imu/imu.h"
+#include "middleware/move_profile/move_profile.h"
 #include "middleware/odometry/odometry.h"
 #include "middleware/pid/pid.h"
 
@@ -148,6 +149,22 @@ bool Motion_StartStraight(float distance_mm, bool heading_hold)
     return true;
 }
 
+bool Motion_StartProfiledStraight(float distance_mm, bool heading_hold)
+{
+    if (distance_mm <= 0.0f) {
+        return false;
+    }
+    s_ref_x_mm = s_pose.x_mm;
+    s_ref_y_mm = s_pose.y_mm;
+    s_heading_hold = heading_hold;
+    s_target = distance_mm;
+    s_progress = 0.0f;
+    Pid_Reset(&s_hold_pid);
+    s_ref_heading_deg = s_pose.heading_deg;
+    s_state = MOTION_PROFILED_STRAIGHT;
+    return true;
+}
+
 bool Motion_StartTurn(float relative_deg)
 {
     if (relative_deg == 0.0f) {
@@ -205,6 +222,43 @@ static void motion_step_straight(bool heading_valid)
         s_state = MOTION_DONE;
         return;   /* DONE：本拍不泵内环，刹车保持 */
     }
+
+    if (s_heading_hold && heading_valid) {
+        float rel = s_pose.heading_deg - s_ref_heading_deg;
+        corr = Pid_UpdatePositional(&s_hold_pid, 0.0f, rel);
+    }
+    Chassis_SetTargetMps(base - corr, base + corr);
+    Chassis_Update();
+}
+
+/* PROFILED_STRAIGHT：梯形剖面定长直行。纵向前馈由 move_profile 按已行进距离产出
+ * （前馈 = 位置闭环，无纵向 PID）；横向沿用航向保持外环（与 motion_step_straight 同实例、同符号约定）。
+ *   base = MoveProfile_Speed(剖面 cfg, dist, target)（自限 [0,cruise]，永不超匀速上限）；
+ *   dist>=target → Chassis_Stop + DONE（与恒速直行同一到位判据）。
+ * 单一所有者：距离→前馈速度归 move_profile；dist（起点欧氏位移）沿用直行同一算法（motion.c 既有所有者，
+ *   非第二距离源）；差速限幅/换向/超时/刹车归 motor.c 经 chassis、航向差速限幅归 hold pid cfg——本函数不复做。 */
+static void motion_step_profiled_straight(bool heading_valid)
+{
+    float dx = s_pose.x_mm - s_ref_x_mm;
+    float dy = s_pose.y_mm - s_ref_y_mm;
+    float dist = sqrtf(dx * dx + dy * dy);
+    MoveProfile_Config_T pcfg;
+    float base;
+    float corr = 0.0f;
+
+    s_progress = dist;
+
+    if (dist >= s_target) {
+        Chassis_Stop();
+        s_state = MOTION_DONE;
+        return;   /* DONE：本拍不泵内环，刹车保持 */
+    }
+
+    pcfg.cruise_mps = s_cfg.profile_cruise_mps;
+    pcfg.start_mps = s_cfg.profile_start_mps;
+    pcfg.accel_mps2 = s_cfg.profile_accel_mps2;
+    pcfg.decel_mps2 = s_cfg.profile_decel_mps2;
+    base = MoveProfile_Speed(&pcfg, dist, s_target);
 
     if (s_heading_hold && heading_valid) {
         float rel = s_pose.heading_deg - s_ref_heading_deg;
@@ -317,6 +371,9 @@ void Motion_Update(void)
     case MOTION_STRAIGHT:
         motion_step_straight(imu.valid);
         break;
+    case MOTION_PROFILED_STRAIGHT:
+        motion_step_profiled_straight(imu.valid);
+        break;
     case MOTION_TURN:
         motion_step_turn();
         break;
@@ -356,7 +413,7 @@ void Motion_GetTelemetry(Motion_Telemetry_T *out)
         return;
     }
     active = (s_state == MOTION_STRAIGHT) || (s_state == MOTION_TURN) ||
-             (s_state == MOTION_ARC);
+             (s_state == MOTION_ARC) || (s_state == MOTION_PROFILED_STRAIGHT);
 
     out->state = s_state;
     out->x_mm = s_pose.x_mm;
