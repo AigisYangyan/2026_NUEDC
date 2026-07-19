@@ -6,15 +6,17 @@
  * delta 只是 (coord, cur_pulse, config) 的纯函数，不跨拍记账、不持墙钟。
  * 轴累计物理位置由调用方持有并逐拍传入（见 vision_aim.h 单一所有者声明）。
  *
- * 数据变换链（逐轴，data-chain §8.2）：
+ * 数据变换链（逐轴，data-chain §8.2）——位置式 PD：
  *   coord(px) − center(px) = error(px, float, 不截断)
- *     → 死区：|error|<=deadband → delta 0 / active false
- *     → 比例步长：step = |error|*kp，floor 至 1（越死区最小走 1 脉冲，杜绝触发不动）
- *     → 步长限幅：clamp 至 max_step_pulse（每拍幅值封顶）
- *     → 极性：按 error 符号取正负，再乘 sign[axis]（唯一极性开关）
+ *     → 死区：|error|<=deadband → delta 0 / active false（error 仍写出供调用方存 prev）
+ *     → de = error − prev_error（调用方持有上一拍误差传入）
+ *     → raw = kp*error + kd*de（**无微分滤波**：坐标已上位机 Kalman，二重滤波违 §8.2；
+ *        **无积分**：cur_pulse 累加即积分器；kd=0 逐位退化回纯 P）
+ *     → 幅值 = |raw|，floor 至 1（越死区最小走 1 脉冲），clamp 至 max_step_pulse（每拍幅值封顶=斜率上限）
+ *     → 方向 = sign(raw)（PD 后 D 可在收敛邻域反号=阻尼），再乘 sign[axis]（唯一极性开关）
  *     → 轴程限幅：依 cur_pulse，令 cur+delta 不越 ±travel_limit（<=0 不限幅）
  *
- * 前置条件（不加无依据防御代码）：max_step_pulse >= 1、kp/deadband >= 0、sign ∈ {+1,-1}。
+ * 前置条件（不加无依据防御代码）：max_step_pulse >= 1、kp/kd/deadband >= 0、sign ∈ {+1,-1}。
  */
 #include "middleware/vision_aim/vision_aim.h"
 
@@ -62,38 +64,45 @@ static int32_t vision_aim_clamp_to_travel(int32_t cur, int32_t delta, int32_t li
 static int32_t vision_aim_map_axis(VisionAim_Axis axis,
                                    float coord,
                                    int32_t cur_pulse,
+                                   float prev_error,
                                    float *error_out,
                                    bool *active_out)
 {
     float error = coord - s_cfg.center_px[axis];
-    float mag_err = vision_aim_abs_f32(error);
-    float step_f;
+    float de;
+    float raw;
+    float mag_f;
     float max_step_f;
     int32_t mag;
     int32_t delta;
 
-    *error_out = error;
+    *error_out = error;   /* 恒写出（含死区拍）：供调用方存为下拍 prev_error */
 
     /* 死区：越不过 → 本拍不动 */
-    if (mag_err <= s_cfg.deadband_px[axis]) {
+    if (vision_aim_abs_f32(error) <= s_cfg.deadband_px[axis]) {
         *active_out = false;
         return 0;
     }
     *active_out = true;
 
-    /* 比例步长 + floor 1 + 步长限幅（顺序承旧 visionhdl_step_from_error） */
-    step_f = mag_err * s_cfg.kp[axis];
-    if (step_f < 1.0f) {
-        step_f = 1.0f;
+    /* 位置式 PD：raw = kp*error + kd*de（de=error-prev_error）。无微分滤波（坐标已 Kalman，§8.2）、
+     * 无积分（cur_pulse 累加即积分器）。kd=0 → raw=kp*error，逐位退化回纯 P。 */
+    de = error - prev_error;
+    raw = (s_cfg.kp[axis] * error) + (s_cfg.kd[axis] * de);
+
+    /* 幅值：|raw| floor 1 + 步长限幅（每拍幅值封顶=斜率上限，§8.1；D 项亦不得越顶） */
+    mag_f = vision_aim_abs_f32(raw);
+    if (mag_f < 1.0f) {
+        mag_f = 1.0f;
     }
     max_step_f = (float)s_cfg.max_step_pulse[axis];
-    if (step_f > max_step_f) {
-        step_f = max_step_f;
+    if (mag_f > max_step_f) {
+        mag_f = max_step_f;
     }
-    mag = (int32_t)step_f;   /* step_f>=1.0（前置 max_step>=1）→ mag>=1 */
+    mag = (int32_t)mag_f;   /* mag_f>=1.0（前置 max_step>=1）→ mag>=1 */
 
-    /* 极性：先按误差符号，再乘 sign（唯一极性开关） */
-    delta = (error >= 0.0f) ? mag : -mag;
+    /* 方向：按 raw 符号（PD 后 D 可在收敛邻域反号=阻尼刹车），再乘 sign（唯一极性开关） */
+    delta = (raw >= 0.0f) ? mag : -mag;
     if (s_cfg.sign[axis] < 0) {
         delta = -delta;
     }
@@ -115,6 +124,7 @@ void VisionAim_Init(const VisionAim_Config_T *config)
 
 void VisionAim_Map(float coord_x, float coord_y,
                    int32_t cur_x_pulse, int32_t cur_y_pulse,
+                   float prev_error_x, float prev_error_y,
                    VisionAim_Result_T *out)
 {
     if ((out == NULL) || (s_has_cfg == false)) {
@@ -122,12 +132,12 @@ void VisionAim_Map(float coord_x, float coord_y,
     }
 
     out->delta_pulse[VISION_AIM_AXIS_X] =
-        vision_aim_map_axis(VISION_AIM_AXIS_X, coord_x, cur_x_pulse,
+        vision_aim_map_axis(VISION_AIM_AXIS_X, coord_x, cur_x_pulse, prev_error_x,
                             &out->error_px[VISION_AIM_AXIS_X],
                             &out->active[VISION_AIM_AXIS_X]);
 
     out->delta_pulse[VISION_AIM_AXIS_Y] =
-        vision_aim_map_axis(VISION_AIM_AXIS_Y, coord_y, cur_y_pulse,
+        vision_aim_map_axis(VISION_AIM_AXIS_Y, coord_y, cur_y_pulse, prev_error_y,
                             &out->error_px[VISION_AIM_AXIS_Y],
                             &out->active[VISION_AIM_AXIS_Y]);
 }

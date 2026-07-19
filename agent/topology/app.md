@@ -153,9 +153,9 @@ class Odometry_API {
 }
 
 class VisionAim_API {
-  <<middleware:vision_aim, NEW S05b, zero callers>>
+  <<middleware:vision_aim, S05b revision 1 2026-07-19: P to positional PD>>
   +VisionAim_Init(const VisionAim_Config_T*)
-  +VisionAim_Map(coord_x, coord_y, cur_x_pulse, cur_y_pulse, VisionAim_Result_T*)
+  +VisionAim_Map(coord_x, coord_y, cur_x_pulse, cur_y_pulse, prev_error_x, prev_error_y, VisionAim_Result_T*)
 }
 
 class Chassis_API {
@@ -508,6 +508,14 @@ Odometry_API --> Heading_API : embeds Heading_T, sole caller of Heading_Unwrap
 %% geometry (see index §6 V26). Axis cumulative position STATE stays with the caller
 %% (S05c Gimbal_API, landed 2026-07-18), passed in each tick as cur_pulse — not owned here.
 %% First real caller landed S05c (Gimbal_API edge below), Gimbal_API never recomputes this geometry.
+%% S05b revision 1 (2026-07-19, contract §21.4): P upgraded to positional PD — VisionAim_Config_T
+%% gains kd[axis] (derivative gain, default 0 degrades to pure P bit-for-bit); VisionAim_Map gains
+%% prev_error_x/prev_error_y params. Chain adds de = error - prev_error, raw = kp*error + kd*de.
+%% NO derivative filter (upstream coords already host-side Kalman-filtered, second filter would
+%% violate §8.2, same precedent as IMU built-in Kalman) and NO integral term (cur_pulse accumulation
+%% already is the integrator). Sole-owner set widens to include kd (same file/layer, not cross-module).
+%% prev_error STATE is NOT owned here — owned by the caller (Gimbal_API), mirrors the existing
+%% cur_pulse caller-owned-state precedent; VisionAim_Map stays a pure function, no cross-tick bookkeeping.
 
 Tuning_API --> Clock_API : 10ms self-gate, unsigned-subtract elapsed
 Tuning_API --> VofaDriver_API : vofa_clear_profile + vofa_run, Enter-time RX drain (contract amendment 1)
@@ -541,10 +549,15 @@ Route_API --> Motion_API : STRAIGHT/TURN/ARC segments — Update (incl. IDLE cat
 %% used; stepmotor bus goes Service->Driver directly, bypassing frozen stepmotor_bus.c mgmt
 %% queue). Sole owner of axis cumulative pulse position (accumulated only after a successful
 %% send) and of coordinate-staleness judgement (seq stall -> STOPPED); never recomputes
-%% VisionAim_API's deadband/kp/step-clamp/polarity/travel-limit geometry (V26 audited pass).
+%% VisionAim_API's deadband/kp/kd/step-clamp/polarity/travel-limit geometry (V26 audited pass).
 %% odometry feedforward deliberately NOT wired this round (contract §21.3 design decision 2;
 %% see index §5.2/§6 V22 — Odometry_GetPose read point reserved, not called).
-Gimbal_API --> VisionAim_API : VisionAim_Map per tick, cur_pulse fed by caller, no recompute of aim geometry
+%% S05b revision 1 (2026-07-19): Gimbal_API now also sole-owns prev_error_px[axis] STATE
+%% (s_prev_error_px, mirrors the existing cur_pulse caller-held-state precedent), feeding it into
+%% VisionAim_Map each tick and storing back VisionAim_Result_T.error_px every tick (incl. deadband
+%% ticks) for the next tick's de. On AIMING entry the first frame is seeded so de=0 (no first-tick
+%% derivative kick) before the real dispatch call. gimbal.c never recomputes kp/kd/de itself.
+Gimbal_API --> VisionAim_API : VisionAim_Map per tick (adds prev_error_x/y args, PD revision 1), cur_pulse+prev_error fed by caller, no recompute of aim geometry
 Gimbal_API --> UartVision_API : Poll/GetLatestCoord+GetCoordSeq/SendTopic/GetTopicAck+GetTopicAckSeq
 Gimbal_API --> Clock_API : 10ms self-gate, unsigned-subtract elapsed
 Gimbal_API --> GimbalStepbus_API : same-layer controlled, private pulse dispatch submodule

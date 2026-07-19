@@ -31,6 +31,8 @@ static bool            s_has_cfg = false;
 static Gimbal_State    s_state = GIMBAL_STATE_IDLE;
 
 static int32_t  s_cur_pulse[VISION_AIM_AXIS_COUNT];
+static float    s_prev_error_px[VISION_AIM_AXIS_COUNT];  /* D 项状态：上一拍误差，逐拍喂 VisionAim_Map（比照 cur_pulse 调用方持状态先例） */
+static bool     s_aim_prev_seeded = false;               /* 进 AIMING 后首帧是否已播种 prev（令首拍 de=0，无首拍 D 冲击） */
 
 /* 自门控 */
 static uint32_t s_gate_base_ms = 0u;
@@ -66,6 +68,9 @@ static void gimbal_reset_runtime(void)
     s_state = GIMBAL_STATE_IDLE;
     s_cur_pulse[VISION_AIM_AXIS_X] = 0;
     s_cur_pulse[VISION_AIM_AXIS_Y] = 0;
+    s_prev_error_px[VISION_AIM_AXIS_X] = 0.0f;
+    s_prev_error_px[VISION_AIM_AXIS_Y] = 0.0f;
+    s_aim_prev_seeded = false;
     s_has_gate_base = false;
     s_gate_base_ms = 0u;
     s_pending_main = 0u;
@@ -184,6 +189,7 @@ static void gimbal_step_arming(uint32_t now_ms)
         if (s_arm_step >= GIMBAL_ARM_STEP_DONE) {
             s_has_coord_seq = false;
             s_last_fresh_ms = Clock_NowMs();
+            s_aim_prev_seeded = false;   /* 进 AIMING：首帧重新播种 prev */
             s_state = GIMBAL_STATE_AIMING;
         }
     }
@@ -206,7 +212,23 @@ static void gimbal_aim_dispatch(void)
 
     VisionAim_Map(coord.x, coord.y,
                   s_cur_pulse[VISION_AIM_AXIS_X], s_cur_pulse[VISION_AIM_AXIS_Y],
+                  s_prev_error_px[VISION_AIM_AXIS_X], s_prev_error_px[VISION_AIM_AXIS_Y],
                   &res);
+
+    if (s_aim_prev_seeded == false) {
+        /* 首帧：以本帧误差播种 prev，令 de=0（无首拍 D 冲击），据此重算纯 P 增量后再下发。 */
+        s_prev_error_px[VISION_AIM_AXIS_X] = res.error_px[VISION_AIM_AXIS_X];
+        s_prev_error_px[VISION_AIM_AXIS_Y] = res.error_px[VISION_AIM_AXIS_Y];
+        s_aim_prev_seeded = true;
+        VisionAim_Map(coord.x, coord.y,
+                      s_cur_pulse[VISION_AIM_AXIS_X], s_cur_pulse[VISION_AIM_AXIS_Y],
+                      s_prev_error_px[VISION_AIM_AXIS_X], s_prev_error_px[VISION_AIM_AXIS_Y],
+                      &res);
+    }
+
+    /* 存本拍误差供下一拍 de（死区拍也存，error_px 恒写出）。 */
+    s_prev_error_px[VISION_AIM_AXIS_X] = res.error_px[VISION_AIM_AXIS_X];
+    s_prev_error_px[VISION_AIM_AXIS_Y] = res.error_px[VISION_AIM_AXIS_Y];
 
     s_axis_active[VISION_AIM_AXIS_X] = res.active[VISION_AIM_AXIS_X];
     s_axis_active[VISION_AIM_AXIS_Y] = res.active[VISION_AIM_AXIS_Y];

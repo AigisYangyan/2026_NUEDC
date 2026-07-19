@@ -434,6 +434,57 @@ static int test_travel_limit_clamp(void)
     return 0;
 }
 
+/* §21.4 PD：进 AIMING 首帧播种 prev（de=0）→ 纯 P，无首拍 D 冲击。 */
+static int test_aiming_pd_first_frame_seeds_no_kick(void)
+{
+    Gimbal_Telemetry_T t;
+
+    fresh_cfg();
+    g_cfg.aim.kd[VISION_AIM_AXIS_X] = 0.2f;   /* 开 X 轴微分（kp=0.1） */
+    arm_to_aiming();
+
+    /* err_x=100：未播种(prev=0)时 D 会顶到 0.1*100+0.2*100=30；播种令 de=0 → 纯 P=10。 */
+    push_coord(420.0f, 240.0f);
+    FakeClock_Advance(10u);
+    Gimbal_Update();
+
+    Gimbal_GetTelemetry(&t);
+    TEST_ASSERT(t.cur_pulse[VISION_AIM_AXIS_X] == 10);   /* 首拍纯 P，非 30 */
+    return 0;
+}
+
+/* §21.4 PD：逐拍更新 prev → 误差扩大时 D 助推、缩小时 D 阻尼；cur_pulse 仅成功下发才累加。 */
+static int test_aiming_pd_boost_and_damp_across_frames(void)
+{
+    Gimbal_Telemetry_T t;
+
+    fresh_cfg();
+    g_cfg.aim.kd[VISION_AIM_AXIS_X] = 0.2f;
+    arm_to_aiming();
+
+    /* 帧1 err=100：播种，纯 P=10 → cur=10 */
+    push_coord(420.0f, 240.0f);
+    FakeClock_Advance(10u); Gimbal_Update();
+    FakeUartPort_CompleteStepmotorTx();
+    Gimbal_GetTelemetry(&t);
+    TEST_ASSERT(t.cur_pulse[VISION_AIM_AXIS_X] == 10);
+
+    /* 帧2 err 增至 200：prev=100 → de=100 → raw=0.1*200+0.2*100=40 → cur=50（助推，纯 P 仅 20） */
+    push_coord(520.0f, 240.0f);
+    FakeClock_Advance(10u); Gimbal_Update();
+    FakeUartPort_CompleteStepmotorTx();
+    Gimbal_GetTelemetry(&t);
+    TEST_ASSERT(t.cur_pulse[VISION_AIM_AXIS_X] == 50);
+
+    /* 帧3 err 缩至 150：prev=200 → de=-50 → raw=0.1*150+0.2*(-50)=5 → cur=55（阻尼，纯 P 应为 15） */
+    push_coord(470.0f, 240.0f);
+    FakeClock_Advance(10u); Gimbal_Update();
+    FakeUartPort_CompleteStepmotorTx();
+    Gimbal_GetTelemetry(&t);
+    TEST_ASSERT(t.cur_pulse[VISION_AIM_AXIS_X] == 55);
+    return 0;
+}
+
 #define RUN(fn) do { if ((fn)() != 0) { fails++; } else { printf("PASS: %s\n", #fn); } } while (0)
 
 int main(void)
@@ -454,6 +505,8 @@ int main(void)
     RUN(test_coord_stall_then_timeout);
     RUN(test_stop_deterministic);
     RUN(test_travel_limit_clamp);
+    RUN(test_aiming_pd_first_frame_seeds_no_kick);
+    RUN(test_aiming_pd_boost_and_damp_across_frames);
 
     if (fails == 0) {
         printf("All gimbal tests passed.\n");
