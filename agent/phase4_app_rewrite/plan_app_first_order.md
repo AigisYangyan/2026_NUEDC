@@ -2441,6 +2441,7 @@ forbidden_files：`hc-team/app/service/tuning/tuning.c` / `tuning.h`（生命周
 
 | 文件 | 动作 |
 |---|---|
+| `hc-team/app/system/sys_init.h` | 新建（声明 `SysInit`——现仅寄居冻结的 `task_scheduler.h:127`；main 去 task_scheduler.h 后需 World-2 合规声明 site，见 §22.2.4 修订 1） |
 | `hc-team/app/system/app_compose.h` | 新建（导出 entry 表/分组表 getter 或 extern + 装配入口声明） |
 | `hc-team/app/system/app_compose.c` | 新建（`g_entries[]` + `g_groups[]` + 三 wrapper；持有 SpeedTune 条目定义） |
 | `hc-team/app/system/sys_init.c` | 修改（+include scheduler/menu/hmi/chassis/tuning/app_compose；+Hmi/Chassis/Tuning Init + Scheduler_Init + Menu_Setup） |
@@ -2465,4 +2466,5 @@ forbidden_files：`hc-team/app/service/**`、`hc-team/app/scheduler/**`、`hc-te
 
 #### 22.2.4 契约修订记录
 
-- **冻结初版**（本提交）。W1 先做（改基线为 418），W2 后做（基线取 W1 后值）。Phase 2/3 各自闭环。
+- **冻结初版**（提交 e76151b）。W1 先做（改基线为 418），W2 后做（基线取 W1 后值）。Phase 2/3 各自闭环。
+- **修订 1（本提交，施工前）**：allowed_files 增 `hc-team/app/system/sys_init.h`（新建）。原因：`SysInit` 声明现仅在 World-1 冻结头 `task_scheduler.h:127`；main.c 按契约删该 include 后无层合规声明 site。新建 app/system 自己的 `sys_init.h` 承载 `void SysInit(void)` 声明；`task_scheduler.h` 冻结不可改，其重复声明属无害冗余，T01 删旧文件时消除。E03 基线相应取 W1 后值 418；无新用例（装配根）。
