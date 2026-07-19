@@ -87,6 +87,8 @@
 | S02b | line_follow 深化：M02 元素事件面接入 + M03 速度调制接入（base_speed 合成点仍唯一在 line_follow_apply） | `app/service/line_follow/` | — | — | `DONE`（契约 §18 冻结 b3b2d38；代码 f278894；拓扑同步见 §10。E01 0 命中 / E02 4 文件在范围 / E03 300 PASS 0 FAIL＝285 基线+15（速度调制 5 + 元素事件面 10）/ E04 exit 0、0 诊断、line_follow.o 重编并经 linkInfo.xml 确证进链（speed_plan.o/track_elements.o 已在链）。arch-auditor 三维无发现；base_speed 合成点未搬家、位图并列消费不新开采样点、V21 不新增第四推进点） |
 | S07 | route 分段路线执行服务（段表驱动：FOLLOW_UNTIL(元素)/STRAIGHT/TURN/ARC——新题=换段表） | `app/service/route/` | task1 分段状态机 | — | `DONE`（契约 §20 冻结 5eaa41f；代码 6cb338c；审计无发现；拓扑同步见 §10。E01 0 命中 / E02 无越界 / E03 334 PASS 0 FAIL＝310 基线+24 / E04 exit 0、0 诊断、route.o 经 linkInfo.xml 确证进链 3 引用。arch-auditor 六轴全过、亲验 motion.c IDLE/DONE drive-free；route 每拍≤1 子服务、不构成第四 Chassis_Update 推进点/第二 Imu_Update 排空点，V21 扩条/V23 登记；catch-up 防幻纠偏落定 §20.3） |
 | SYS01 | 装配入口更新 | `app/system/` | sys_init.c 增量改造 | — | 随各阶段（**W2 §22.2 World-2 点亮 DONE**：main→Scheduler_Run，SpeedTune 条目接 tuning，旧 SysRun 停用，418 PASS。**W3 §23.3 app_compose 接入 EncoderTest/MotorDir 两 DEBUG 诊断条目 DONE（2026-07-19）：DEBUG 组三条目，429 PASS，本提交**。**W4 §24 app_compose 接入 GrayTest 12 路灰度数字量遥测条目 DONE（2026-07-19）：DEBUG 组四条目，434 PASS，本提交**。**W5 §25 动态调参框架 DONE（2026-07-19）：TUNE 参数组 + 片内 flash 持久化 + 循迹外环增益首参数集。PT1 param_store Driver（18fc9b4，442 PASS）+ PT2 param_tune Service+LineFollow_GetGains（bd9a67b，448 PASS）+ PT3 menu action 钩子+app_compose TUNE 接线（451 PASS，本提交）。板载 TUNE 组按钮调循迹外环增益、K3 SAVE 掉电 flash 保存；真实 flash 擦/写硬件边界待用户上板验证。**W6 §26 app_compose 接入 LineFollow 循迹运行条目 DONE（2026-07-19）：DEBUG 组第 5 条（idx4）——on_enter `LineFollow_Init` 归零→`ParamTune_Init` 重推持久增益（关闭 V28）→`Start`、on_step `Update` 级联 Chassis 沿线跑、on_exit `Stop` 安全停车；`s_lf_cfg` 保守 UNCALIBRATED 占位（低速起步/超时有界/element_mask=0），几何用建议式 recovery≈2.7×pitch；契约 §26 冻结 4aab90b，代码 b907003。E01 仅 app_compose.c 在范围 / E02 arch-scan 空输出 / E03 接线序 Init→ParamTune_Init→Start / E04 exit=Stop+保守配置 / E05 451 PASS 0 FAIL 无回归 / E06 exit 0、0 诊断、app_compose.o 进链 5 符号 .text 可达。arch-auditor 六红线全过、无发现放行。现场调参闭环成立：选它跑→TUNE 改增益 SAVE→再跑→看效果。标定量上板实测替换待用户自理**） |
+| M04 | move_profile 距离参数化梯形速度剖面（Middleware 纯函数：已行进距离+目标+加减速→前馈基速，加速-匀速-减速自带位置反馈） | `middleware/move_profile/` | — | — | 契约 §27 冻结（本提交）；`施工中`——距离剖面纯函数，与 speed_plan（横向误差→基速）输入域不同非复刻 |
+| S06c | motion 定长直行原语（`Motion_StartProfiledStraight`：move_profile 前馈 + 既有航向保持 PID，旧恒速 STRAIGHT 不改） | `app/service/motion/`（S06 契约修订流程扩面） | — | — | 契约 §27 冻结（本提交）；`施工中`——纵向按距离剖面无 PID（用户 2026-07-19 裁定），V21 推进点将 +1 |
 | T01 | 赛题 Task（薄编排）+ 旧 tasks 整体删除 | `app/tasks/` | 全部旧 `tasks/**` | V03/V07/V13 残余/V15 全关，baseline 清空 | **最后**（赛题公布后） |
 
 ## 4. 通用施工规则（每模块适用）
@@ -3062,3 +3064,117 @@ forbidden_files：
 
 - 冻结（4aab90b）：任务范围与 6 证据行按用户 2026-07-19 三裁定确定；基线 451 PASS 实测锁定。
 - 验收（代码 b907003）：6 行全过——E01 仅 app_compose.c 在范围（.ccsproject 会话前既存未纳入）/ E02 arch-scan 空输出 exit 0 / E03 linefollow_enter 序 `LineFollow_Init(&s_lf_cfg)`→`ParamTune_Init()`→`(void)LineFollow_Start()`（V28 关闭）/ E04 linefollow_exit=`LineFollow_Stop()`、s_lf_cfg straight 0.25≤0.30 且 min 0.12≤straight、lost_timeout 1500>0、element_enable_mask=0、UNCALIBRATED 标注在场 / E05 451 PASS 0 FAIL / E06 exit 0、0 诊断、app_compose.o 经 linkInfo.xml 进链、LineFollow_Init/Start/Update/Stop+ParamTune_Init `.text` 可达。arch-auditor 六红线全过无发现放行。
+
+## 27. M04 + S06c 契约（move_profile 距离梯形剖面 Middleware + motion 定长直行原语）——冻结
+
+- **task_id**: MS01-profiled_straight
+- **goal**: motion 新增定长直行原语 `Motion_StartProfiledStraight(distance_mm, heading_hold)`，
+  纵向基速由**新 Middleware `move_profile`** 产出的「按距离参数化梯形剖面」前馈驱动
+  （加速-匀速-减速，减速段收敛到 0），横向沿用既有航向保持 PID；旧 `MOTION_STRAIGHT`
+  恒速原语一字不改。用户 2026-07-19 裁定：Q1 扩 motion 不扩 chassis；口径①加新原语不动旧；
+  口径②剖面放新 Middleware；**纵向控制律选「按距离梯形剖面·无纵向 PID」**（剖面本身即位置闭环，
+  第二个纵向速度所有者会踩 §8.2；近终点静摩擦失速风险按 TURN 同款处理，交标定+调用者超时，不加下限）。
+
+- **Architecture**：
+  - Abstraction（器件/算法能做什么）：
+    - `move_profile`：给定「已行进距离 + 目标总距离 + 加减速标定」，算出这一拍该给多快的前馈基速——
+      「定长运动的速度剖面」这一数据变换的唯一所有者。纯函数、无状态、无采样。
+    - motion 新原语：走一段指定距离，起步平滑加速、中段匀速、末段平滑减速停准（可选航向保持走直）。
+  - Hidden state：`move_profile` **无隐藏状态**——剖面是 (dist_done, target, cfg) 的纯函数，
+    每拍以实测距离重算（这正是它「自带位置反馈」的原因，区别于 speed_plan 的有状态斜坡）；
+    motion 侧新增私有态仅复用既有 `s_ref_*`/`s_target`/`s_progress`（新原语与直行同构），profile cfg 由 `s_cfg` 扁平字段本地组装。
+  - Owner layer：`move_profile` = Middleware（纯算法）；新原语 = App Service（motion 内）。
+  - Allowed dependency direction：`app/service/motion` → `middleware/move_profile`（Service→Middleware，§4 允许）；
+    `move_profile` → 仅 `<math.h>`/`<stddef.h>`，**不含**任何 Driver/App/其他 Middleware 头。
+
+### 27.1 allowed_files（无 glob）
+
+allowed_files：
+- `hc-team/middleware/move_profile/move_profile.h`（新建：`MoveProfile_Config_T` + `MoveProfile_Speed()` 纯函数）
+- `hc-team/middleware/move_profile/move_profile.c`（新建：距离参数化梯形剖面实现）
+- `hc-team/app/service/motion/motion.h`（修改：+`MOTION_PROFILED_STRAIGHT` 态、+4 个 `profile_*` 扁平 cfg 字段、+`Motion_StartProfiledStraight` 声明）
+- `hc-team/app/service/motion/motion.c`（修改：+include move_profile.h、+`Motion_StartProfiledStraight`、+`motion_step_profiled_straight`、Update switch + Telemetry active 各加一分支）
+- `tests/host/test_move_profile.c`（新建：剖面单测）
+- `tests/host/test_motion.c`（修改：+定长直行用例）
+- `tests/host/Makefile`（修改：+`MOVE_PROFILE_SRC` 变量、`test_move_profile`/`run_move_profile` 目标、`all`/`.PHONY`/`clean` 登记；`test_motion` 与 `test_route` 链接行 +`$(MOVE_PROFILE_SRC)`）
+- `Debug/makefile`（修改：link objs 加 `move_profile.o`、两条 `-include .../move_profile/subdir_*.mk`、clean 列表补 `.o`/`.d`——仓库唯一跟踪的构建接线文件，§3 line 104）
+- `agent/phase4_app_rewrite/plan_app_first_order.md`（本契约 §27 + 状态表 M04/S06c 行 + 交付说明）
+- `agent/api_architecture_topology.md`（§6 V21 推进点 +1 记、新模块登记、§10 更新日志）
+- `agent/topology/driver.md` 或 `agent/topology/app.md`（Middleware/Service 类图——topo-updater 收工判定该文件归属）
+
+forbidden_files（仅列关键，其余全仓库不动）：
+- `hc-team/app/service/chassis/**`（`chassis.h` 仅 include 不改；速度环/无目标限幅空缺不在本任务补）
+- `hc-team/middleware/odometry/**`、`hc-team/middleware/pid/**`、`hc-team/middleware/speed_plan/**`（仅调用/参照，脉冲→mm、限幅、基速调制所有者不动）
+- `hc-team/driver/**`（motion 对 encoder/imu 的既有只读快照调用不新增）
+- `hc-team/app/service/route/**`（motion 上游调用者，本任务不接线；`route.c` 零触碰）
+- 本地生成物 `Debug/hc-team/middleware/move_profile/subdir_*.mk`（须本地补以让固件增量构建生效，但**不入库**，§3 line 104；非 allowed committed 集）
+
+### 27.2 公共接口（最小面）
+
+```c
+/* move_profile.h —— 距离参数化梯形速度剖面（Middleware 纯函数，无状态） */
+typedef struct {
+    float cruise_mps;   /* 匀速段速度上限 v_cruise，>0 */
+    float start_mps;    /* 加速段起始速度（脱静摩擦起步速），0<=start<=cruise */
+    float accel_mps2;   /* 加速度 a_acc (m/s^2)，>0 */
+    float decel_mps2;   /* 减速度 a_dec (m/s^2)，>0 */
+} MoveProfile_Config_T;
+
+/* 返回本拍前馈基速(m/s)：v = clamp(min(cruise,
+ *   sqrt(start^2 + 2*accel*s_m), sqrt(2*decel*rem_m)), 0, cruise)，
+ * 其中 s_m=dist_done_mm/1000、rem_m=(target_mm-dist_done_mm)/1000（mm→m 仅量纲对齐，
+ * 非第二个脉冲→距离换算所有者）。cfg==NULL / target_mm<=0 / dist_done>=target → 0（caller 负责停）。 */
+float MoveProfile_Speed(const MoveProfile_Config_T *cfg,
+                        float dist_done_mm, float target_mm);
+```
+
+```c
+/* motion.h 增量 */
+typedef enum { MOTION_IDLE=0, MOTION_STRAIGHT, MOTION_TURN, MOTION_ARC, MOTION_DONE,
+               MOTION_PROFILED_STRAIGHT /* 追加于末尾，既有值不重排 */ } Motion_State;
+/* Motion_Config_T 追加 4 字段（扁平，头不暴露 MoveProfile_Config_T 类型，同 odometry/pid cfg 扁平化先例）：*/
+float profile_cruise_mps;   /* 定长直行剖面匀速上限，>0 */
+float profile_start_mps;    /* 剖面起步速，0<=start<=cruise */
+float profile_accel_mps2;   /* 剖面加速度 m/s^2，>0 */
+float profile_decel_mps2;   /* 剖面减速度 m/s^2，>0 */
+/* 新原语：起步平滑加速、末段减速停准；heading_hold=true 按 IMU 航向纠偏走直。distance_mm<=0 → false。*/
+bool Motion_StartProfiledStraight(float distance_mm, bool heading_hold);
+```
+
+### 27.3 数据链与单一所有者声明（§8.2，本任务核心）
+
+- 数据链：`Odometry_GetPose → s_pose` → `dist = sqrt(dx²+dy²)`（起点欧氏位移，**所有者仍 motion.c**，
+  与既有 STRAIGHT 同一算法，非第二距离源）→ `MoveProfile_Speed(dist, target)`[前馈基速]
+  → `base ∓ 航向PID corr` → `Chassis_SetTargetMps` → `Chassis_Update`。
+- **纵向剖面（距离→前馈速度）唯一所有者 = `move_profile`**（全新变换，与 speed_plan「横向误差→巡航基速斜坡」输入域不同，非复刻/非竞争所有者）。
+- 脉冲→mm 唯一 `Odometry_Config_T.mm_per_pulse`；move_profile 内 mm→m 仅量纲对齐，**不新增第三个距离换算所有者**（V22 不动）。
+- 差速限幅/换向过零/命令超时/slew/刹车真值表 = `motor.c` 经 chassis；航向保持差速限幅 = `s_hold_pid` cfg（`hold_diff_limit_mps`）——**本任务零复做**。
+- 前馈基速自限于 [0, cruise_mps]，天然回避 `Chassis_SetTargetMps` 无目标限幅的已知空缺（不依赖 chassis 兜底）。
+- **无纵向 PID**（用户裁定）：剖面即位置闭环；不新增第二个从距离信号算速度的所有者。
+
+### 27.4 preserved_behavior
+
+- `MOTION_STRAIGHT`（`Motion_StartStraight` + `motion_step_straight`，恒速 `straight_speed_mps`）、`MOTION_TURN`、`MOTION_ARC` 行为与既有公共面**一字不改**。
+- IMU 排空唯一点仍 `Motion_Update` 内 `Imu_Update()`（V23 不新增）；里程计 total 差值一次性消费不变。
+- 既有 6 个生命周期 API 签名与语义不变；telemetry `target/progress` 对新态语义 = 距离 mm（与 STRAIGHT 同）。
+
+### 27.5 证据行（≤6，恰 1 条固件构建行）
+
+| ID | 项 | 命令 | 期望 |
+|---|---|---|---|
+| E01 | 范围审计 | `git status` + `git diff --stat` 对照 §27.1 | 无 allowed_files 之外改动（本地 `Debug/.../move_profile/subdir_*.mk` 不入库；`.ccsproject` 会话前既存不纳入） |
+| E02 | move_profile 依赖纯净 | Grep `hc-team/middleware/move_profile/move_profile.[ch]` 命中 `#include` | 仅 `<math.h>`/`<stddef.h>`——无 `driver/`、`app/`、其他 `middleware/` 头（Middleware 纯算法零跨层） |
+| E03 | motion 跨层扫描 | Grep `hc-team/app/service/motion/motion.c` 新增 `#include` | 新增仅 `middleware/move_profile/move_profile.h`（Service→Middleware 允许）；无 DL HAL/`ti/` 直含 |
+| E04 | 主机全套（回归+计数） | PowerShell：`rtk proxy make -C tests/host all` | 0 FAIL；total = 451 基线 + move_profile 10 + motion profiled 6 = **467 PASS**（分项验收锁定，偏差走 §27.7 修订） |
+| E05 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 诊断；`move_profile.o` + `motion.o` 经 `Debug/2026_Diansai_linkInfo.xml` 确证进链，`MoveProfile_Speed`/`Motion_StartProfiledStraight` `.text` 可达 |
+
+### 27.6 Stop conditions
+
+- 若发现须在 chassis 或 odometry 内加位置环/前向线距读点才能实现 → 停止报告（应闭在 motion 既有欧氏位移上）。
+- 若剖面需要隐藏状态（斜坡史/积分）才正确 → 停止报告（与「纯函数·无纵向 PID」裁定冲突，须先改契约）。
+- 若须新增第二个脉冲→距离换算、第二个 Chassis_Update 之外的驱动点、第二个 Imu_Update 排空点 → 停止报告（§8.2/V21/V23）。
+- baseline drift：BUILD 起测 host ≠ 451 PASS → 停止，先改契约。
+
+### 27.7 契约修订记录
+
+- 冻结（本提交）：任务范围、接口、5 证据行按用户 2026-07-19 裁定（Q1 扩 motion / 口径①新原语 / 口径②新 Middleware / 纵向按距离剖面无 PID）确定；基线 451 PASS（§26 验收）锁定，BUILD 起复核漂移；计划测试计数 move_profile 10 + motion profiled 6 = +16。
