@@ -227,17 +227,20 @@ class Hmi_API {
 }
 
 class Motion_API {
-  <<app:service, NEW S06, +S06b arc, +MS01 profiled straight 2026-07-20>>
+  <<app:service, NEW S06, +S06b arc, +MS01 profiled straight, +MS02 runtime profile params + watchdog 2026-07-20>>
   +Motion_Init(const Motion_Config_T*)
   +Motion_StartStraight(distance_mm, heading_hold) bool
   +Motion_StartProfiledStraight(distance_mm, heading_hold) bool
   +Motion_StartTurn(relative_deg) bool
   +Motion_StartArc(radius_mm, arc_deg) bool
+  +Motion_SetProfileParams(cruise_mps, start_mps, accel_mps2, decel_mps2)
+  +Motion_GetProfileParams(cruise_mps*, start_mps*, accel_mps2*, decel_mps2*)
   +Motion_Update()
   +Motion_Stop()
   +Motion_GetState() Motion_State
   +Motion_IsDone() bool
   +Motion_GetTelemetry(Motion_Telemetry_T*)
+  note: profile_timeout_ticks cfg field (f333333, §8.1 runaway watchdog) — encoder-derailment safety stop, sole owner motion, 0=disabled
 }
 
 class Route_API {
@@ -293,7 +296,7 @@ class GrayCheck_API {
 }
 
 class ParamTune_API {
-  <<app:service, NEW W5, TUNE menu group, Model A no gain copy>>
+  <<app:service, NEW W5, +MS02 2026-07-20 scope widened to DRIVE group, TUNE+DRIVE menu groups, Model A no gain/profile copy>>
   +ParamTune_Init()
   +ParamTune_GetKp_milli() int32_t
   +ParamTune_GetKi_milli() int32_t
@@ -301,8 +304,18 @@ class ParamTune_API {
   +ParamTune_SetKp_milli(v)
   +ParamTune_SetKi_milli(v)
   +ParamTune_SetKd_milli(v)
+  +ParamTune_GetCruise_milli() int32_t
+  +ParamTune_GetStart_milli() int32_t
+  +ParamTune_GetAccel_milli() int32_t
+  +ParamTune_GetDecel_milli() int32_t
+  +ParamTune_SetCruise_milli(v)
+  +ParamTune_SetStart_milli(v)
+  +ParamTune_SetAccel_milli(v)
+  +ParamTune_SetDecel_milli(v)
+  +ParamTune_GetDist_mm() int32_t
+  +ParamTune_SetDist_mm(v)
   +ParamTune_Save()
-  note: sole owner of persistence orchestration + int32 milli<->float x1000 scale (no gain copy, get/set delegate LineFollow_Get/SetGains)
+  note: sole owner of persistence orchestration + int32 milli<->float x1000 scale (no gain/profile copy, get/set delegate LineFollow_Get/SetGains or Motion_Get/SetProfileParams); MS02: sole self-held owner of test distance s_dist_mm (no Service home for it); blob schema_ver 2 (33B)
 }
 
 class SpeedLoop_API {
@@ -452,6 +465,10 @@ Scheduler_API --> TaskGroups_API : dispatch active group
 %% W6 (2026-07-19): s_entries[] grows to 5 (+LineFollow idx4); s_debug_entries[]={0,1,2,3,4}.
 %% LineFollow is the second entry (after SpeedTune idx0) whose on_step cascades Chassis_Update;
 %% single-active-entry invariant keeps the two mutually exclusive (index V21 W6 note).
+%% MS02 (2026-07-20, §28): s_entries[] grows to 6 (+ProfiledStraight idx5); s_debug_entries[]=
+%% {0,1,2,3,4,5}. ProfiledStraight resolves Motion_API's zero-caller status; single-active-entry
+%% invariant keeps it mutually exclusive with SpeedTune/LineFollow (index V21 MS02 note), does not
+%% add a 5th Chassis_Update drive point (motion stays the same single module-level 3rd point).
 RunRegistry_API --> SpeedLoop_API : lifecycle
 RunRegistry_API --> GrayTest_API : lifecycle
 RunRegistry_API --> UartTest_API : lifecycle
@@ -669,11 +686,26 @@ GrayCheck_API --> VofaDriver_API : vofa_clear_profile/vofa_register_int x12/vofa
 %% ptrs (Menu_Param_T get/set/action), same pattern as AppCompose_API<->Tuning_API above —
 %% menu.c core untouched, action dispatch lives in menu_param.c's PARAM_LIST branch.
 ParamTune_API --> LineFollow_API : LineFollow_GetGains (display real applied value) + LineFollow_SetGains (instant apply), same-layer controlled, sole writer of line_follow gains
-ParamTune_API --> ParamStore_API : ParamStore_Read (boot load) / ParamStore_Save (SAVE action), 13B blob = schema_ver + kp/ki/kd milli LE
+ParamTune_API --> Motion_API : MS02 2026-07-20, same-layer controlled — ParamTune_Get/SetCruise/Start/Accel/Decel_milli delegate Motion_Get/SetProfileParams (int32 milli<->float scale sole owner stays param_tune, applied value sole owner stays motion s_cfg.profile_*, not a new owner)
+ParamTune_API --> ParamStore_API : ParamStore_Read (boot load) / ParamStore_Save (SAVE action), 33B blob = schema_ver(2) + kp/ki/kd milli LE + profile cruise/start/accel/decel milli LE + dist_mm LE (MS02 2026-07-20, schema_ver 1 13B legacy record now rejected by length check -> falls back to all-defaults, one-time)
 ParamStore_API --> DL_HAL : DL_FlashCTL erase/program/read via param_store_hw.c, last 1KB sector 0x0007FC00
-AppCompose_API --> ParamTune_API : ParamTune_Init(), two call sites (AppCompose_Install boot load, W5; LineFollow entry idx4 on_enter re-push after Init zeroes gains, W6), loads persisted gains or defaults and applies to line_follow
-AppCompose_API ..> ParamTune_API : TUNE group Menu_Param_T get/set/action fn ptrs (opaque, invoked later by MenuParam_API)
-MenuParam_API ..> AppCompose_API : PARAM_LIST/PARAM_EDIT invokes registered TUNE get/set/action fn ptrs each op (fn ptr, registered by AppCompose)
+AppCompose_API --> ParamTune_API : ParamTune_Init(), three call sites (AppCompose_Install boot load, W5; LineFollow entry idx4 on_enter re-push after Init zeroes gains, W6; ProfiledStraight entry idx5 on_enter re-push after Motion_Init resets profile params to s_ms_cfg placeholder, MS02), loads persisted gains/profile-params/dist or defaults and applies to line_follow + motion
+AppCompose_API ..> ParamTune_API : TUNE + DRIVE group Menu_Param_T get/set/action fn ptrs (opaque, invoked later by MenuParam_API)
+MenuParam_API ..> AppCompose_API : PARAM_LIST/PARAM_EDIT invokes registered TUNE/DRIVE get/set/action fn ptrs each op (fn ptr, registered by AppCompose)
+
+%% AppCompose_API / Motion_API / ParamTune_API (MS02, landed 2026-07-20, §28) — Motion_API's
+%% "zero external callers" status (recorded at MS01 landing) is resolved: new DEBUG-group
+%% scheduler entry "ProfiledStraight" (idx5) wires Motion_Init/StartProfiledStraight/Update/Stop
+%% directly from app_compose.c. on_enter order (closes index V28-style wiring note for this
+%% entry): Motion_Init(&s_ms_cfg) (resets service + profile params to placeholder) -> ParamTune_Init()
+%% (re-pushes persisted/default profile params + test distance, this entry's on_enter is the
+%% third ParamTune_Init() call site) -> Motion_StartProfiledStraight(ParamTune_GetDist_mm(), false)
+%% (dist<=0 stays IDLE, no motor command). Single-active-entry invariant keeps ProfiledStraight
+%% (idx5) mutually exclusive with SpeedTune (idx0) and LineFollow (idx4) — motion remains the
+%% same single module-level Chassis_Update drive point (third overall, S06-established), this
+%% wiring does NOT add a 5th drive point (see index §6 V21 MS02 note). AppCompose adds zero
+%% re-derivation of profile clamp/timeout-watchdog/heading-hold logic (all sole-owned in motion.c).
+AppCompose_API --> Motion_API : Motion_Init(&s_ms_cfg)/StartProfiledStraight(dist,false)/Update()/Stop(), DEBUG entry idx5 "ProfiledStraight" three hooks, MS02
 
 %% LineFollow_API (W6, landed 2026-07-19) — fifth DEBUG-group scheduler entry (idx4
 %% "LineFollow"), first real caller of the outer line-follow control loop. on_enter order
@@ -699,9 +731,9 @@ flowchart TD
   SysInit --> ServiceInit[Hmi_Init + Chassis_Init + Tuning_Init]
   SysInit --> AppCompose[AppCompose_Install, W2 SYS02]
   SysInit --> BoardIRQ[Board_EnableInterrupts]
-  AppCompose --> SchedulerInit[Scheduler_Init s_entries=SpeedTune,EncoderTest,MotorDir,GrayTest,LineFollow x5, background_step=Menu_Tick]
-  AppCompose --> MenuSetupCall[Menu_Setup s_groups=DEBUG+TUNE x2, DEBUG entries idx0..4, TUNE params=LFKp,LFKi,LFKd,SAVE x4]
-  AppCompose --> ParamTuneInitCall[ParamTune_Init, W5: read param_store or default -> LineFollow_SetGains; also re-invoked by LineFollow on_enter, W6]
+  AppCompose --> SchedulerInit[Scheduler_Init s_entries=SpeedTune,EncoderTest,MotorDir,GrayTest,LineFollow,ProfiledStraight x6, background_step=Menu_Tick]
+  AppCompose --> MenuSetupCall[Menu_Setup s_groups=DEBUG+TUNE+DRIVE x3, DEBUG entries idx0..5, TUNE params=LFKp,LFKi,LFKd,SAVE x4, DRIVE params=Dist,Cruise,Start,Accel,Decel,SAVE x6]
+  AppCompose --> ParamTuneInitCall[ParamTune_Init, W5: read param_store schema_ver 2 or default -> LineFollow_SetGains + Motion_SetProfileParams; also re-invoked by LineFollow on_enter W6 and ProfiledStraight on_enter MS02, three call sites]
   Main --> MainLoop[while 1: Scheduler_Run Clock_NowMs]
   MainLoop -->|idle, no entry active| MenuTickPump[background_step -> Menu_Tick, HMI only]
   MainLoop -->|SpeedTune entered| SpeedTuneStep[on_step -> Tuning_Update -> cascaded Chassis_Update]
@@ -709,8 +741,11 @@ flowchart TD
   MainLoop -->|MotorDir entered, W3| MotorDirStep[on_step -> MotorCheck_Update -> Motor_SetOutput +/-200 both wheels + Motor_Update]
   MainLoop -->|GrayTest entered, W4| GrayTestStep[on_step -> GrayCheck_Update -> Gray_ReadDarkBitmap 2nd read point + vofa_run, tx-only]
   MainLoop -->|LineFollow entered, W6| LineFollowStep[on_enter LineFollow_Init then ParamTune_Init then Start; on_step -> LineFollow_Update -> cascaded Chassis_Update in TRACKING/RECOVERING; on_exit LineFollow_Stop]
+  MainLoop -->|ProfiledStraight entered, MS02| ProfiledStraightStep[on_enter Motion_Init then ParamTune_Init reapply profile params+dist then StartProfiledStraight dist,false; on_step -> Motion_Update -> profile watchdog check -> cascaded Chassis_Update; on_exit Motion_Stop]
   MainLoop -->|TUNE group, K3 on Kp/Ki/Kd row, W5| TuneEditStep[MenuParam_Handle -> ParamTune_Get/Set*_milli -> LineFollow_Get/SetGains, no menu-side scale/copy]
   MainLoop -->|TUNE group, K3 on SAVE row, W5| TuneSaveStep[MenuParam_Handle action -> ParamTune_Save -> ParamStore_Save, flash write]
+  MainLoop -->|DRIVE group, K3 on Dist/Cruise/Start/Accel/Decel row, MS02| DriveEditStep[MenuParam_Handle -> ParamTune_Get/SetDist_mm self-held or ParamTune_Get/SetCruise/Start/Accel/Decel_milli -> Motion_Get/SetProfileParams, no menu-side scale/copy]
+  MainLoop -->|DRIVE group, K3 on SAVE row, MS02| DriveSaveStep[MenuParam_Handle action -> ParamTune_Save -> ParamStore_Save, same 33B blob as TUNE SAVE]
 
   SysTick[SysTick Handler] -->|1 ms| TickMs[s_tick_ms++]
   MainLoop -->|query elapsed| TickMs
