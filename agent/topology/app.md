@@ -162,6 +162,11 @@ class VisionAim_API {
   +VisionAim_Map(coord_x, coord_y, cur_x_pulse, cur_y_pulse, prev_error_x, prev_error_y, VisionAim_Result_T*)
 }
 
+class MoveProfile_API {
+  <<middleware:move_profile, NEW MS01 2026-07-20 (§27), stateless>>
+  +MoveProfile_Speed(const MoveProfile_Config_T*, dist_done_mm, target_mm) float
+}
+
 class Chassis_API {
   <<app:service>>
   +Chassis_Init()
@@ -222,9 +227,10 @@ class Hmi_API {
 }
 
 class Motion_API {
-  <<app:service, NEW S06, +S06b arc>>
+  <<app:service, NEW S06, +S06b arc, +MS01 profiled straight 2026-07-20>>
   +Motion_Init(const Motion_Config_T*)
   +Motion_StartStraight(distance_mm, heading_hold) bool
+  +Motion_StartProfiledStraight(distance_mm, heading_hold) bool
   +Motion_StartTurn(relative_deg) bool
   +Motion_StartArc(radius_mm, arc_deg) bool
   +Motion_Update()
@@ -579,6 +585,16 @@ Odometry_API --> Heading_API : embeds Heading_T, sole caller of Heading_Unwrap
 %% prev_error STATE is NOT owned here — owned by the caller (Gimbal_API), mirrors the existing
 %% cur_pulse caller-owned-state precedent; VisionAim_Map stays a pure function, no cross-tick bookkeeping.
 
+%% MoveProfile_API (MS01, landed 2026-07-20, §27) — pure function, stateless, E01 dependency
+%% scan 0 hits against Driver/App/other middleware/DL HAL (only <math.h>/<stddef.h>). Trapezoidal
+%% speed profile parameterized by distance (accel sqrt(start^2+2a*s) / cruise clamp / decel
+%% sqrt(2a*rem)->0), self-feeds position via dist_done_mm each tick (no module-level state).
+%% Sole owner of "distance -> feedforward speed" transform; internal mm->m is dimensional
+%% alignment only, NOT a second pulse->distance owner (that stays Odometry_Config_T.mm_per_pulse,
+%% see index §6 V22 — unchanged this round). Distinct input domain from SpeedPlan_API (lateral
+%% error magnitude -> cruise base ramp): non-competing owners, see index §6 V25 boundary note.
+%% First and only caller: Motion_API (edge below), motion_step_profiled_straight.
+
 Tuning_API --> Clock_API : 10ms self-gate, unsigned-subtract elapsed
 Tuning_API --> VofaDriver_API : vofa_clear_profile + vofa_run, Enter-time RX drain (contract amendment 1)
 Tuning_API --> TuningChassis_API : profile lifecycle orchestration, sole caller
@@ -593,7 +609,8 @@ Motion_API --> Encoder_API : GetSnapshot read-only, never calls Encoder_Update
 Motion_API --> IMU_API : Imu_Update sole owner during active period + Imu_GetSnapshot
 Motion_API --> Odometry_API : Init passthrough cfg + one-shot total_pulses delta consume + GetPose, first real caller S06
 Motion_API --> PID_API : straight/arc heading-correction outer loop (shared instance), Pid_UpdatePositional, out_limit = hold_diff_limit_mps sole owner
-Motion_API --> Chassis_API : same-layer controlled, SetTargetMps + cascaded Update (STRAIGHT/TURN/ARC, S06b reuses same drive point) + Stop (DONE/Stop)
+Motion_API --> MoveProfile_API : MS01 2026-07-20, motion_step_profiled_straight feeds dist_done_mm(Euclidean from Pose, motion's existing owner)+target_mm -> longitudinal feedforward base_mps, no longitudinal PID, first and only caller
+Motion_API --> Chassis_API : same-layer controlled, SetTargetMps + cascaded Update (STRAIGHT/TURN/ARC/PROFILED_STRAIGHT, S06b/MS01 reuse same drive mechanism) + Stop (DONE/Stop)
 
 %% Route_API (S07, landed 2026-07-18) — segment-table orchestration, E01 dependency scan
 %% 0 hits against app:tasks/app:scheduler/app:ui/app:system/middleware/driver/DL HAL (only
