@@ -3166,7 +3166,7 @@ bool Motion_StartProfiledStraight(float distance_mm, bool heading_hold);
 | E02 | move_profile 依赖纯净 | Grep `hc-team/middleware/move_profile/move_profile.[ch]` 命中 `#include` | 仅 `<math.h>`/`<stddef.h>`——无 `driver/`、`app/`、其他 `middleware/` 头（Middleware 纯算法零跨层） |
 | E03 | motion 跨层扫描 | Grep `hc-team/app/service/motion/motion.c` 新增 `#include` | 新增仅 `middleware/move_profile/move_profile.h`（Service→Middleware 允许）；无 DL HAL/`ti/` 直含 |
 | E04 | 主机全套（回归+计数） | PowerShell：`rtk proxy make -C tests/host all` | 0 FAIL；total = 451 基线 + move_profile 10 + motion profiled 6 = **467 PASS**（分项验收锁定，偏差走 §27.7 修订） |
-| E05 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 诊断；`move_profile.o` + `motion.o` 经 `Debug/2026_Diansai_linkInfo.xml` 确证进链，`MoveProfile_Speed`/`Motion_StartProfiledStraight` `.text` 可达 |
+| E05 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 诊断；`move_profile.c`+`motion.c` 均重编（非增量空转）；`move_profile.o`（linkInfo `<input_file>`）+ `motion.o`（链接对象）经 `Debug/2026_Diansai_linkInfo.xml` 确证进链、`.out` 重链 `link_errors=0`。**新符号 `MoveProfile_Speed`/`Motion_StartProfiledStraight` 因零调用者（route/T01 未接线，§裁定2 预期态）经 `-ffunction-sections` DCE 不入映像，可达性待 T01 接线成立——不作 `.text` 可达断言**（E05 冻结时的「.text 可达」为过度声称，见 §27.7 修订1） |
 
 ### 27.6 Stop conditions
 
@@ -3177,4 +3177,5 @@ bool Motion_StartProfiledStraight(float distance_mm, bool heading_hold);
 
 ### 27.7 契约修订记录
 
-- 冻结（本提交）：任务范围、接口、5 证据行按用户 2026-07-19 裁定（Q1 扩 motion / 口径①新原语 / 口径②新 Middleware / 纵向按距离剖面无 PID）确定；基线 451 PASS（§26 验收）锁定，BUILD 起复核漂移；计划测试计数 move_profile 10 + motion profiled 6 = +16。
+- 冻结（b98cf18）：任务范围、接口、5 证据行按用户 2026-07-19 裁定（Q1 扩 motion / 口径①新原语 / 口径②新 Middleware / 纵向按距离剖面无 PID）确定；基线 451 PASS（§26 验收）锁定，BUILD 起复核漂移；计划测试计数 move_profile 10 + motion profiled 6 = +16。
+- 修订1（本提交，代码前）：BUILD 中发现 E05 原文「`MoveProfile_Speed`/`Motion_StartProfiledStraight` `.text` 可达」为过度声称——新原语零调用者是 §裁定2 明示的预期态，`-ffunction-sections` 下新函数为死代码被 GC，不入映像；可达性须待 T01 接线后成立。E05 postcondition 改为断言两 .o 进链接输入 + linkInfo `<input_file>` + `.out` 重链 `link_errors=0`，并显式记录新符号因零调用者 DCE、可达性递延。计数与其余行不变。
