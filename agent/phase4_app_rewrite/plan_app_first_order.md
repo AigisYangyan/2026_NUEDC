@@ -2365,7 +2365,7 @@ void VisionAim_Map(float coord_x, float coord_y,
 |---|---|---|---|
 | E01 | 依赖纯净 | Grep `hc-team/driver/\|hc-team/app/\|middleware/pid\|ti_msp_dl_config\|ti/driverlib`（path=`hc-team/middleware/vision_aim`，`#include` 行） | 0 命中（仍仅 `<stdint/stdbool/stddef>` 与自身头；尤其**未引入 pid.h**） |
 | E02 | 范围审计 | `git status` + `git diff --stat` 对照 §21.4.1 | 无越界（尤其 `middleware/pid`、`driver/**`、`board.syscfg` 零改） |
-| E03 | 主机测试 | PowerShell：`rtk proxy make -C tests/host all` | ≥（施工前 rerun 确认的基线，预期 401）+ ≥10 新用例 / 0 FAIL。必含——**kd=0 回归**：与旧 P 逐位等价（既有用例全过 + 显式等价断言）；**D 阻尼**：de 与 e 反号(误差在缩小)时 \|raw\|<纯 P、同号(误差在扩大)时放大；**无 I**：恒定误差连续多拍 delta 不逐拍累增(纯 P+D 恒定误差→恒定 delta)；**无滤波/无隐藏状态**：相同 (coord,cur,prev) 输入输出可复现、无 alpha 记忆；**死区**：内 delta=0 且 active=false 但 out.error_px 仍=e；**极性**：sign 作用于 raw(±1 得反号)；**轴程限幅**：依 cur_pulse 截断不变；**gimbal 线程状态**：进 AIMING 首拍 prev:=e(de=0 无首拍 D 冲击)、逐拍 prev:=out.error_px(死区拍也更新)、仅成功下发才 cur_pulse+=delta(不变)；**安全**：Init 不产生位移、Gimbal_Stop 确定性停(不变)、max_step 每拍封顶 D 不越 |
+| E03 | 主机测试 | PowerShell：`rtk proxy make -C tests/host all` | ≥ 404 基线（Phase 2 首步 clean rerun 已确认）+ ≥10 新用例 = ≥414 PASS / 0 FAIL。必含——**kd=0 回归**：与旧 P 逐位等价（既有用例全过 + 显式等价断言）；**D 阻尼**：de 与 e 反号(误差在缩小)时 \|raw\|<纯 P、同号(误差在扩大)时放大；**无 I**：恒定误差连续多拍 delta 不逐拍累增(纯 P+D 恒定误差→恒定 delta)；**无滤波/无隐藏状态**：相同 (coord,cur,prev) 输入输出可复现、无 alpha 记忆；**死区**：内 delta=0 且 active=false 但 out.error_px 仍=e；**极性**：sign 作用于 raw(±1 得反号)；**轴程限幅**：依 cur_pulse 截断不变；**gimbal 线程状态**：进 AIMING 首拍 prev:=e(de=0 无首拍 D 冲击)、逐拍 prev:=out.error_px(死区拍也更新)、仅成功下发才 cur_pulse+=delta(不变)；**安全**：Init 不产生位移、Gimbal_Stop 确定性停(不变)、max_step 每拍封顶 D 不越 |
 | E04 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 diagnostics、vision_aim.o + gimbal.o 经 linkInfo.xml 确证进入 .out 链接 |
 
 - **主机测试链接组成**：test_vision_aim 仍不链任何 fake（纯算法）；test_gimbal 沿用 §21.3 既有 fake 组成（不新增 fake）。
@@ -2373,4 +2373,4 @@ void VisionAim_Map(float coord_x, float coord_y,
 #### 21.4.5 契约修订记录
 
 - **冻结初版**（本提交）。Phase 1 完成：契约冻结，零生产代码。TDD（红）→ 施工 → 逐行证据 → arch-auditor → topo-updater 为其后闭环。
-- **待复核基线**：Phase 2 首步 rerun 主机基线，若非 401 即漂移，先在单独提交修订本节 E03 基线数再写码。
+- **基线已复核（本修订提交）**：Phase 2 首步 `rtk proxy make -C tests/host clean+all` = **404 PASS / 0 FAIL**（较 §21.2 冻结时 401 +3，属 S05c 之后既有增量、非本任务引入）。E03 目标锚定 **404 基线**；`rtk make` 会压缩 PASS 行、计数取证必须走 `rtk proxy make`（本次踩坑登记）。
