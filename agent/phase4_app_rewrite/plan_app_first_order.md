@@ -3236,9 +3236,13 @@ void Motion_SetProfileParams(float cruise_mps, float start_mps,
 void Motion_GetProfileParams(float *cruise_mps, float *start_mps,
                              float *accel_mps2, float *decel_mps2); /* 指针均非空；读已应用值唯一出口 */
 
-/* Motion_Config_T 增量（修订1，arch-auditor §8.1 安全看门狗）：PROFILED_STRAIGHT 运行拍数上限，
-   超时→Chassis_Stop+DONE 防跑飞（编码器脱线 dist≈0 时 base=start 非零会一直冲）；0=禁用。所有者=motion。 */
-uint32_t profiled_timeout_ticks;
+/* Motion_Config_T 增量（修订1/2，arch-auditor §8.1 双看门狗，所有者=motion）：
+   profile_timeout_ticks：PROFILED_STRAIGHT 运行拍数上限（防「移动但永不达标」，如 mm_per_pulse 严重失标→物理过冲）；
+   profile_stall_ticks（修订2，用户 TB6612 关切）：命令在动(base>0)但编码器无进展的连续拍数上限——
+     快速切停（防堵转：起步速偏低卡住/编码器脱线/撞障时，增量式速度环积分顶满 PWM 灌堵转电流进 TB6612）。
+   均超时→Chassis_Stop+DONE；0=禁用。stall 应设短（~0.8s）保护驱动，timeout 长（~15s）兜底。 */
+uint32_t profile_timeout_ticks;
+uint32_t profile_stall_ticks;
 
 /* param_tune.h 增量：DRIVE 组 get/set（milli 口径）+ 测试距离（mm）+ 步长常量 */
 #define TUNE_STEP_CRUISE_MILLI 10   /* 占位，现场再定 */
@@ -3275,6 +3279,9 @@ blob v2 布局（33B，小端）：[0]ver=2、[1..12]kp/ki/kd milli、[13..16]cr
   （超时→Chassis_Stop+DONE，所有者=motion，主机可测）。属**安全看门狗**（防跑飞），区别于 TURN 先例交调用者的
   **收敛完成超时**（调参策略）——后者仍归 T01 赛题层。仅 PROFILED_STRAIGHT 加（本轮唯一上板路径）；
   STRAIGHT/TURN/ARC 未接线，其完成超时保持交调用者（既有设计不动）。`mm_per_pulse` 占位须上板标定（否则过冲）。
+- **§8.1 堵转看门狗（修订2，TB6612 保护）**：调出速度环增益后，起步速偏低致堵转→增量式 PID 积分顶满 PWM→堵转电流。
+  加 `profile_stall_ticks`：命令在动但编码器无进展连续 N 拍→快速 Chassis_Stop+DONE（~0.8s，比 max-runtime 15s 快得多，
+  专为保护驱动芯片）。与 profile_timeout_ticks 并存（stall 防堵转/脱线/撞障、timeout 防物理过冲）。主防线=Start 设够+标 mm_per_pulse。
 
 ### 28.5 证据行（≤6，恰 1 条固件构建行）
 
@@ -3298,4 +3305,5 @@ blob v2 布局（33B，小端）：[0]ver=2、[1..12]kp/ki/kd milli、[13..16]cr
 
 - 冻结（4990b09）：范围/接口/6 证据行按用户 2026-07-20 裁定（距离按钮可调默认 1000mm / 新开 DRIVE 组 / heading_hold=false / schema 升 2 旧 blob 一次性失效）确定；基线 467 PASS（§27 验收）锁定，BUILD 起复核漂移。
 - 主体验收（代码 7c891cb）：6 行全过——E01 8 文件在范围 / E02 param_tune+app_compose 仅 +motion.h（Service）、motion.c 无新增 include、arch-scan exit 0 / E03 host 475 PASS 0 FAIL＝467+motion 3+param_tune 5 / E04 profiledstraight_enter 序 Motion_Init(&s_ms_cfg)→ParamTune_Init()→StartProfiledStraight(GetDist_mm,false) / E05 test_param_tune schema2 往返+默认+旧 13B 忽略退默认 / E06 exit 0、0 诊断、app_compose.o+motion.o+move_profile.o+param_tune.o 进链、Motion_StartProfiledStraight/MoveProfile_Speed/Motion_SetProfileParams/ParamTune_GetDist_mm 现进 .map 可达（零调用者解除）。
-- 修订1（代码后，arch-auditor 处置）：arch-auditor 6 声明 5 成立、1 建议级——PROFILED_STRAIGHT 缺 §8.1 反馈超时停止，编码器脱线 dist≈0→base=start 一直冲，本轮首次上板可达。裁定为**安全看门狗**（非 TURN 式收敛完成超时），归 motion：+`Motion_Config_T.profiled_timeout_ticks`（0=禁用）+ motion_step_profiled_straight 拍数上限超时→Chassis_Stop+DONE；s_ms_cfg 设实际界（1500≈15s）；test_motion +看门狗用例（编码器不进→N 拍后停）。default_cfg 该字段=0 不影响既有用例。`mm_per_pulse` 占位过冲风险登记，上板须标定。安全看门狗添加是 §28 允许 motion 文件内的修订（新原语首次上板前补齐 §8.1 timeout-stop 安全行），单独提交。
+- 修订1（代码后，arch-auditor 处置）：arch-auditor 6 声明 5 成立、1 建议级——PROFILED_STRAIGHT 缺 §8.1 反馈超时停止，编码器脱线 dist≈0→base=start 一直冲，本轮首次上板可达。裁定为**安全看门狗**（非 TURN 式收敛完成超时），归 motion：+`Motion_Config_T.profile_timeout_ticks`（0=禁用）+ motion_step_profiled_straight 拍数上限超时→Chassis_Stop+DONE；s_ms_cfg 设实际界（1500≈15s）；test_motion +看门狗用例。代码 f333333。
+- 修订2（用户 TB6612 关切，代码后）：用户问「起步卡住会不会烧 TB6612」。核实：chassis 默认增益 0（`chassis.c:27`）、sys_init 从不设增益→未调速度环时 PWM=0 不堵转；**一旦调出速度环增益，起步速偏低致堵转 → 增量式 PID 积分顶满 out_limit=±1000（`chassis.c:29`）→ 堵转电流灌 TB6612**，而修订1 的 15s max-runtime 看门狗对驱动芯片太慢。加**无进展/堵转看门狗** `profile_stall_ticks`：命令在动(base>0)但编码器无进展连续 N 拍→快速 Chassis_Stop+DONE（~0.8s，所有者 motion）。与 max-runtime 并存捕获不同故障（stall=堵转/脱线/撞障；timeout=物理过冲）。s_ms_cfg profile_stall_ticks=80(0.8s)、profile_timeout_ticks=1500。test_motion +堵转停/移动不误触发/禁用不干扰用例。**主防线仍是把 Start 设到真实脱离静摩擦速以上（别堵转）+ 上板前标 mm_per_pulse**；驱动侧硬件兜底=TB6612 热关断。安全看门狗添加是 §28 允许 motion 文件内修订，单独提交。
