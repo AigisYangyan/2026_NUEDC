@@ -1,6 +1,18 @@
 ## T-VTXQ1 VOFA 传输层 TX 软件队列（drop→enqueue，消除遥测 TX 丢帧）
 
-Status: pending
+Status: ACCEPTED (2026-07-20)
+<!--
+验收（提交 b99fc2a，契约冻结于 eb6a73c 早于代码）：
+- 复现：旧码 `FAIL: vofa tx queue holds frame while busy`（忙时丢帧）。
+- E01：rtk make -C tests/host all 全绿，test_uart_fifo 13→28(+15)，无 FAIL/error。
+- E02：rtk make -C Debug all 绿，vofa_uart.c 重编入链、无新告警。
+- E03：git diff 仅 vofa_uart.c/.h + test_uart_fifo.c（拓扑同步另计）。
+- E04：vofa_uart.c 无 app/middleware/callback/extern 命中（V02/V09 保持）。
+- arch-auditor 五项通过；按其建议删 kick 内不可达 chunk>BUFFER 死钳位，改编译期断言固化 RING≤BUFFER。
+- 剩余风险：主机 fake 只证队列/kick 逻辑，真机 DMA 续传（IsrTxDone 内 kick 的 #if !HOST_TEST 段）
+  由用户上板验证（板级归用户，decree 2026-07-16）。
+-->
+
 Goal: `VofaUart_TryWrite` 在上一段 TX DMA 在途时不再丢弃整帧，而是把字节存入有界软件 TX FIFO；
 `VofaUart_IsrTxDone` 在 DMA 完成时自动搬运下一段，从而一个 DMA 窗口内背靠背提交的 VOFA 遥测按序发出、
 不丢；仅当 TX FIFO 满才拒绝并计数（`VofaUart_GetTxOverflowCount`），不静默丢。
