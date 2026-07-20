@@ -224,7 +224,7 @@ OLED_API --> DL_HAL : I2C_AUX exclusive
 VisionUart_API --> DL_HAL : UART_VISION RX TX DMA
 UartVision_API --> VisionUart_API : task-context drain and TryWrite, Driver-Driver same layer controlled
 VofaUart_API --> DL_HAL : UART_HOST_LINK = UART5 PA1/PA0 230400 RX DMA TX DMA
-StepmotorUart_API --> DL_HAL : UART_STEPPER_BUS RX DMA TX DMA
+StepmotorUart_API --> DL_HAL : UART_STEPPER_BUS = UART7 PB15/PB16 256000 RX DMA TX DMA
 ImuUart_API --> DL_HAL : UART_IMU = UART3 PA25/PA26 230400 IRQ RX polling TX
 IMU_API --> ImuUart_API : 5-byte frame TX and RX drain
 IMU_API --> Clock_API : frame freshness timestamp
