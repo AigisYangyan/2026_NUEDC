@@ -52,14 +52,8 @@ static uint16_t emm42_speed_rpm_to_proto(uint16_t speed_rpm)
     return (uint16_t)proto_speed;
 }
 
-static uint8_t emm42_clamp_accel_grade(uint8_t acceleration)
-{
-    if (acceleration > EMM42_ACCEL_MAX_GRADE) {
-        return EMM42_ACCEL_MAX_GRADE;
-    }
-
-    return acceleration;
-}
+/* 加速度档为 uint8_t，域即 0-255（EMM42_ACCEL_MIN/MAX_GRADE），协议满量程无需限幅：
+ * 原 clamp 分支 acceleration>255 恒假（编译器 -Wtype-limits 实证），已删，调用点直传。 */
 
 static bool emm42_prepare_out(uint8_t *out, uint8_t *out_len, uint8_t frame_len)
 {
@@ -119,7 +113,7 @@ bool Emm42_BuildSpeedFrame(uint8_t axis_id,
     out[2] = direction;
     out[3] = (uint8_t)(speed_proto >> 8);
     out[4] = (uint8_t)(speed_proto);
-    out[5] = emm42_clamp_accel_grade(acceleration);
+    out[5] = acceleration;
     out[6] = EMM42_SYNC_FLAG;
     out[7] = EMM42_CHECK_BYTE;
     return true;
@@ -215,7 +209,7 @@ bool Emm42_BuildQPosPresetFrame(uint8_t axis_id,
     out[1] = EMM42_CMD_QPOS_PRESET;
     out[2] = (uint8_t)(speed_proto >> 8);
     out[3] = (uint8_t)(speed_proto);
-    out[4] = emm42_clamp_accel_grade(acceleration);
+    out[4] = acceleration;
     out[5] = mode;
     out[6] = EMM42_SYNC_FLAG;
     out[7] = EMM42_CHECK_BYTE;
