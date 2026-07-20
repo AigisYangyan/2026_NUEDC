@@ -3181,7 +3181,7 @@ bool Motion_StartProfiledStraight(float distance_mm, bool heading_hold);
 
 - 冻结（b98cf18）：任务范围、接口、5 证据行按用户 2026-07-19 裁定（Q1 扩 motion / 口径①新原语 / 口径②新 Middleware / 纵向按距离剖面无 PID）确定；基线 451 PASS（§26 验收）锁定，BUILD 起复核漂移；计划测试计数 move_profile 10 + motion profiled 6 = +16。
 - 修订1（64fe6d5，代码前）：BUILD 中发现 E05 原文「`MoveProfile_Speed`/`Motion_StartProfiledStraight` `.text` 可达」为过度声称——新原语零调用者是 §裁定2 明示的预期态，`-ffunction-sections` 下新函数为死代码被 GC，不入映像；可达性须待 T01 接线后成立。E05 postcondition 改为断言两 .o 进链接输入 + linkInfo `<input_file>` + `.out` 重链 `link_errors=0`，并显式记录新符号因零调用者 DCE、可达性递延。计数与其余行不变。
-- 现场调参手册：`docs/定长梯形剖面直行_位置环调参手册.md`（参数清单/标定顺序/公式/对症表/终段提示；诚实标注当前零调用者、参数在 Motion_Config、TUNE 现场调参待 T01 接线）。
+- 现场调参手册：`docs/底盘调参/定长梯形剖面直行_位置环调参手册.md`（参数清单/标定顺序/公式/对症表/终段提示；MS02 起已接线板载操作）。底盘调参三层手册（速度环手填/循迹外环/位置环）+ 总览收拢于 `docs/底盘调参/`（含 `README.md` 级联总览与上板顺序）。
 - 验收（代码 536883f）：5 行全过——E01 仅 8 个 allowed 文件在范围（`.ccsproject` 会话前既存未纳入、`Debug/**/*.mk`+`.o` gitignore 本地生成物未纳入）、零触碰 chassis/odometry/pid/speed_plan/driver/route / E02 move_profile.[ch] 仅 `<math.h>`/`<stddef.h>`（零跨层）/ E03 motion.c 唯一新增 include=`middleware/move_profile/move_profile.h`（Service→Middleware）无 DL HAL / E04 host 467 PASS 0 FAIL＝451 基线+move_profile 10+motion profiled 6 / E05 exit 0、0 诊断、move_profile.c+motion.c 均重编、move_profile.o(`<input_file>` fl-45)+motion.o 经 linkInfo.xml 进链、`.out` 重链 link_errors=0、新符号零调用者 DCE 可达性递延 T01。arch-auditor 契约逐条成立、无阻断/无重要、1 建议级（base∓corr 终段行为 nuance）文档处置入 §27.4，明确非新安全缺口（过零换向所有者仍 motor.c）。topo-updater 同步见 §10。
 
 ## 28. MS02 契约（ProfiledStraight 运行条目 + DRIVE 参数组按钮调参持久化）——冻结
