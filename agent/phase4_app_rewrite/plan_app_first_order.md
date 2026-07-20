@@ -3520,7 +3520,7 @@ RX/TX 钩子，够用）。
 | E01 | 依赖纯净 | Grep `#include` 行（path=`hc-team/app/service/tuning` + `hc-team/app/service/gimbal`） | tuning_gimbal.c 只见 `tuning_gimbal.h`/`gimbal.h`/`uart_vofa.h`；gimbal.c 无新增 include；两目录 `app/tasks/\|app/scheduler/\|app/ui/\|ti_msp_dl_config\|ti/driverlib\|param_tune\|param_store` 0 命中 |
 | E02 | 装配层闸门 | PowerShell：`& .claude/hooks/arch-scan.ps1 -Mode check` | 空输出 |
 | E03 | 范围审计 | `git status` + `git diff --stat` 对照 §30.1 | 无 allowed_files 之外改动（`.ccsproject`/`tests/host/test_emm42.exe` 会话前既存不计） |
-| E04 | 主机测试 | PowerShell：`rtk proxy make -C tests/host all` | **510 基线（W7 §29.7）+ ≥10 新用例，0 FAIL**。必含：Enter 后大误差坐标零步进 TX（DB=10000 零出力）；负增益/负 DB 清洗为 0；MS<1 floor 1；setter 生效（kp 改变 → delta 按新值）；setter 不清 prev_error（换挡不断环）；ReselectTopic 未选过题→false、选过→重握手；GO 单次消费（一次 Apply 只触发一次）；Exit 后 STOPPED 无 TX；帧=13 通道；遥测 last_error_px/last_delta_pulse 死区拍 error 有值 delta=0 |
+| E04 | 主机测试 | PowerShell：`rtk proxy make -C tests/host all` | **510 基线（W7 §29.7）+ ≥10 新用例，0 FAIL**。必含：Enter 后大误差坐标零出力（DB=10000：cur_pulse 恒 0、下发绝对目标恒 (0,0)——绝对帧幂等重发是既有 AIMING 行为，非出力）；负增益/负 DB 清洗为 0；MS<1 floor 1；setter 生效（kp 改变 → delta 按新值）；setter 不清 prev_error（换挡不断环）；ReselectTopic 未选过题→false、选过→重握手；GO 单次消费（一次 Apply 只触发一次）；Exit 后 STOPPED 无 TX；帧=13 通道；遥测 last_error_px/last_delta_pulse 死区拍 error 有值 delta=0 |
 | E05 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 diagnostics、`tuning_gimbal.o` 新进链 + `gimbal.o`/`tuning.o`/`app_compose.o` 重编经 linkInfo.xml 确证；`Gimbal_SetAimTuning`/`Gimbal_ReselectTopic`/`TuningGimbal_Apply` 可达 |
 
 ### 30.4 Stop conditions
@@ -3533,4 +3533,7 @@ RX/TX 钩子，够用）。
 
 ### 30.5 契约修订记录
 
-- 冻结（本提交）：范围/接口/安全机制（DB=10000 进页零出力，floor-1 爬行事实）/5 证据行确定。
+- 冻结（2399390）：范围/接口/安全机制（DB=10000 进页零出力，floor-1 爬行事实）/5 证据行确定。
+- 修订 1（本提交，施工前）：E04「零出力」断言更正——gimbal AIMING 拍对每帧新坐标**无条件重发
+  双轴绝对目标帧**（幂等自愈，gimbal.c:246 实读），故零出力的可观察定义是「cur_pulse 恒 0、
+  绝对目标恒 (0,0)」，不是「零步进 TX」。原措辞「零步进 TX」与既有代码事实冲突。
