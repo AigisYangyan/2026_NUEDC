@@ -3,11 +3,14 @@
  * @brief   12 路灰度数字量遥测诊断服务主机测试（W4，契约 §24）。
  *
  * 链接组成：真实 gray_check.c + gray.c + uart_vofa.c + board_uart×4
- *           + fake_gray_port.c（灰度位图注入）+ fake_uart_port.c（VOFA TX 抓取）。
+ *           + fake_gray_port.c（灰度位图注入）+ fake_uart_port.c（VOFA TX 抓取）
+ *           + fake_hmi.c（OLED 面板行文本/绘制计数捕获，W7）。
  * 不链 fake_clock：gray_check 取 now_ms 参数注入，不直读 Clock。
  *
  * 断言策略：帧内容 = FakeUartPort_CopyVofaTx 解 12 个 LE float（int 0/1→float 精确 0.0/1.0）；
  * 验「忠实镜像注入位图 + 通道序恒等（bit i→ch i，无左右重排/反相）+ 10ms 门控 + Stop 清组」。
+ * W7 标定助手面板：FakeHmi_GetRow 精确行文本断言（L/S/T/X 四行）+ 逐行绘制计数验
+ * 「100ms 面板门控 + 行差分不重绘 + 重进条目清零全重绘」。
  * 不验车上左右——那是硬件接线，现场肉眼答（gray.h 位序警告）。
  */
 #include "app/service/gray_check/gray_check.h"
@@ -26,6 +29,9 @@ extern void FakeGrayPort_SetDarkChannels(uint16_t channel_bitmap);
 extern void FakeUartPort_ResetAll(void);
 extern void FakeUartPort_CompleteVofaTx(void);
 extern uint32_t FakeUartPort_CopyVofaTx(uint8_t *out, uint32_t capacity);
+extern void FakeHmi_Reset(void);
+extern const char *FakeHmi_GetRow(uint8_t row);
+extern uint32_t FakeHmi_GetRowPrintCount(uint8_t row);
 
 #define GRAY_FRAME_CHANNELS 12u
 #define GRAY_FRAME_BYTES (GRAY_FRAME_CHANNELS * 4u + 4u) /* 12 通道 + JustFloat 4 字节帧尾 = 52 */
@@ -41,10 +47,19 @@ extern uint32_t FakeUartPort_CopyVofaTx(uint8_t *out, uint32_t capacity);
 static void setup(void)
 {
     FakeGrayPort_Reset();
+    FakeHmi_Reset();
     (void)vofa_init();          /* 内部 VofaUart_Init + 清 profile */
     FakeUartPort_ResetAll();
     GrayCheck_Start();
 }
+
+#define TEST_ASSERT_ROW(row, expected) do { \
+    if (strcmp(FakeHmi_GetRow(row), (expected)) != 0) { \
+        printf("FAIL: row%u \"%s\" != \"%s\" at %s:%d\n", (unsigned)(row), \
+               FakeHmi_GetRow(row), (expected), __FILE__, __LINE__); \
+        return 1; \
+    } \
+} while (0)
 
 /* 抓取最近一帧并解出 count 个 LE float；返回帧长（0 = 无帧）。 */
 static uint32_t copy_frame(float *out, uint32_t count)
@@ -159,6 +174,129 @@ static int test_stop_clears_profile(void)
     return 0;
 }
 
+/* ---- W7 标定助手 OLED 面板用例（契约 §29.4 E04）---------------------------- */
+
+/* 首绘：进条目首拍面板即绘全 4 行（缓存空→全变化），L/S 镜像位图、T 全零、X 行十六进制+路数。 */
+static int test_panel_first_paint_rows(void)
+{
+    setup();
+    FakeGrayPort_SetDarkChannels(0x825u);       /* bit 0,2,5,11 深色 */
+    GrayCheck_Update(1000u);                    /* base=0 → 首拍采样+面板首绘 */
+
+    TEST_ASSERT_ROW(0u, "L:#.#..#.....#");
+    TEST_ASSERT_ROW(1u, "S:#.#..#.....#");
+    TEST_ASSERT_ROW(2u, "T:............");      /* 首拍只播种 prev，不计跳变 */
+    TEST_ASSERT_ROW(3u, "X:825 N:04");
+    printf("PASS: test_panel_first_paint_rows\n");
+    return 0;
+}
+
+/* 粘滞累积：深色消失后 L 行回浅色，S 行保持曾深色的通道（进条目以来 OR）。 */
+static int test_panel_sticky_accumulates(void)
+{
+    setup();
+    FakeGrayPort_SetDarkChannels(0x00Fu);
+    GrayCheck_Update(1000u);
+    FakeUartPort_CompleteVofaTx();
+    FakeGrayPort_SetDarkChannels(0x000u);
+    GrayCheck_Update(1100u);                    /* 采样+面板均到期 */
+
+    TEST_ASSERT_ROW(0u, "L:............");
+    TEST_ASSERT_ROW(1u, "S:####........");
+    TEST_ASSERT_ROW(2u, "T:1111........");      /* 四路各翻转一次 */
+    TEST_ASSERT_ROW(3u, "X:000 N:00");
+    printf("PASS: test_panel_sticky_accumulates\n");
+    return 0;
+}
+
+/* 跳变计数：单路反复翻转，1..9 显示数字、≥10 显示 '*'（饱和标记）。 */
+static int test_panel_toggle_count_saturates(void)
+{
+    uint32_t t;
+    uint32_t k;
+
+    setup();
+    FakeGrayPort_SetDarkChannels(0x001u);
+    GrayCheck_Update(1000u);                    /* 播种 prev=0x001 */
+    FakeUartPort_CompleteVofaTx();
+
+    t = 1000u;
+    for (k = 0u; k < 10u; k++) {                /* 每 10ms 翻转一次 ch0，共 10 次跳变 */
+        t += 10u;
+        FakeGrayPort_SetDarkChannels((k % 2u == 0u) ? 0x000u : 0x001u);
+        GrayCheck_Update(t);
+        FakeUartPort_CompleteVofaTx();
+    }
+    /* t=1100 恰逢面板 100ms 到期：ch0 跳变数=10 → '*'；末拍位图 0x001。 */
+    TEST_ASSERT_ROW(2u, "T:*...........");
+    TEST_ASSERT_ROW(0u, "L:#...........");
+    printf("PASS: test_panel_toggle_count_saturates\n");
+    return 0;
+}
+
+/* 行差分：内容不变的行不重绘（同位图第二个面板周期零 PrintLine）。 */
+static int test_panel_row_diff_no_redraw(void)
+{
+    uint32_t row;
+
+    setup();
+    FakeGrayPort_SetDarkChannels(0x0F0u);
+    GrayCheck_Update(1000u);                    /* 首绘 4 行各一次 */
+    FakeUartPort_CompleteVofaTx();
+    for (row = 0u; row < 4u; row++) {
+        TEST_ASSERT_TRUE(FakeHmi_GetRowPrintCount((uint8_t)row) == 1u);
+    }
+
+    GrayCheck_Update(1100u);                    /* 同位图、无跳变 → 4 行内容全同 → 零重绘 */
+    for (row = 0u; row < 4u; row++) {
+        TEST_ASSERT_TRUE(FakeHmi_GetRowPrintCount((uint8_t)row) == 1u);
+    }
+    printf("PASS: test_panel_row_diff_no_redraw\n");
+    return 0;
+}
+
+/* 面板 100ms 门控：位图已变但面板未到期不重绘；到期后按新内容重绘。 */
+static int test_panel_hundred_ms_gating(void)
+{
+    setup();
+    FakeGrayPort_SetDarkChannels(0x001u);
+    GrayCheck_Update(1000u);                    /* 首绘：L:#... */
+    FakeUartPort_CompleteVofaTx();
+
+    FakeGrayPort_SetDarkChannels(0x002u);
+    GrayCheck_Update(1010u);                    /* 采样到期、面板未到期（10<100）→ 不重绘 */
+    FakeUartPort_CompleteVofaTx();
+    TEST_ASSERT_ROW(0u, "L:#...........");
+    TEST_ASSERT_TRUE(FakeHmi_GetRowPrintCount(0u) == 1u);
+
+    GrayCheck_Update(1100u);                    /* 面板到期 → 按当前位图重绘 */
+    TEST_ASSERT_ROW(0u, "L:.#..........");
+    TEST_ASSERT_TRUE(FakeHmi_GetRowPrintCount(0u) == 2u);
+    printf("PASS: test_panel_hundred_ms_gating\n");
+    return 0;
+}
+
+/* 重进条目 = 统计清零 + 缓存失效全重绘（现场清零手势：BACK→ENTER）。 */
+static int test_panel_restart_clears_stats(void)
+{
+    setup();
+    FakeGrayPort_SetDarkChannels(0xFFFu);
+    GrayCheck_Update(1000u);                    /* sticky=0xFFF */
+    FakeUartPort_CompleteVofaTx();
+    TEST_ASSERT_ROW(1u, "S:############");
+
+    GrayCheck_Stop();
+    GrayCheck_Start();                          /* 重进：统计清零、行缓存失效 */
+    FakeGrayPort_SetDarkChannels(0x000u);
+    GrayCheck_Update(2000u);
+    TEST_ASSERT_ROW(0u, "L:............");
+    TEST_ASSERT_ROW(1u, "S:............");      /* 粘滞已清（旧值不残留） */
+    TEST_ASSERT_ROW(2u, "T:............");
+    TEST_ASSERT_ROW(3u, "X:000 N:00");
+    printf("PASS: test_panel_restart_clears_stats\n");
+    return 0;
+}
+
 int main(void)
 {
     int failures = 0;
@@ -168,6 +306,12 @@ int main(void)
     failures += test_channel_order_no_remap();
     failures += test_ten_ms_gating();
     failures += test_stop_clears_profile();
+    failures += test_panel_first_paint_rows();
+    failures += test_panel_sticky_accumulates();
+    failures += test_panel_toggle_count_saturates();
+    failures += test_panel_row_diff_no_redraw();
+    failures += test_panel_hundred_ms_gating();
+    failures += test_panel_restart_clears_stats();
 
     if (failures != 0) {
         printf("gray_check service tests failed: %d\n", failures);

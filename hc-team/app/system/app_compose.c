@@ -13,12 +13,14 @@
  * - SpeedTune  = 底盘速度环 VOFA 调参（tuning：注册 VOFA 表、10ms 泵速度环 + 发帧、退页刹停清表）；
  * - EncoderTest= 编码器脉冲遥测（encoder_test：注册 VOFA tx×4、10ms 采样发帧、退页清表——不驱动电机）；
  * - MotorDir   = 电机方向自检（motor_check：两轮同向 ±200 前后 2s 循环、退页 Motor_BrakeAll）；
- * - GrayTest   = 12 路灰度数字量遥测（gray_check：注册 VOFA tx×12、10ms 读发 0/1、退页清表——不驱动电机）。
+ * - GrayTest   = 12 路灰度标定助手（gray_check：注册 VOFA tx×12 + 10ms 读发 0/1、OLED 四行
+ *   标定面板（实时/粘滞/跳变/十六进制）、退页清表——不驱动电机；阈值在硬件电位器，固件只做校验）。
  * - LineFollow = 循迹外环运行（line_follow：进页 Init 归零→ParamTune_Init 重推持久增益→Start，
  *                10ms 泵 Update 级联 Chassis 沿线跑，退页 LineFollow_Stop 安全停车；只跑不接遥测）。
  * - ProfiledStraight = 定长梯形剖面直行（motion：进页 Init→ParamTune_Init 重推持久剖面参数+距离→
  *                StartProfiledStraight(dist,false)，10ms 泵 Update 级联 Chassis 跑一段停，退页 Motion_Stop）。
- * RUN_ACTIVE 期 OLED 统一 RUNNING 横幅由 menu 框架负责（各条目不碰 OLED）。
+ * RUN_ACTIVE 期 OLED 统一 RUNNING 横幅由 menu 框架负责；例外：GrayTest 经
+ * Menu_SetEntrySelfDraw 登记 self-draw（W7 §29 opt-in），活动期整屏归 gray_check 面板。
  * 换/加 debug/test 项：在 s_entries[] 补条目 + 在对应分组的 entries 数组补其下标。
  *
  * 参数组（与 DEBUG 平级的 MENU_GROUP_PARAM，进入二级界面均显示 PARAMS）：
@@ -99,12 +101,12 @@ static void motordir_exit(void)
 
 static void graytest_enter(void)
 {
-    GrayCheck_Start();      /* 注册 VOFA tx×12（G1..G12 灰度 0/1），不发电机命令 */
+    GrayCheck_Start();      /* 注册 VOFA tx×12（G1..G12 灰度 0/1）+ 标定统计清零，不发电机命令 */
 }
 
 static void graytest_step(uint32_t now_ms)
 {
-    GrayCheck_Update(now_ms);   /* 10ms 自门控读 12 路 + 发帧（now_ms 由 scheduler 注入） */
+    GrayCheck_Update(now_ms);   /* 10ms 自门控读 12 路 + 发帧 + 100ms OLED 标定面板（self-draw） */
 }
 
 static void graytest_exit(void)
@@ -265,6 +267,8 @@ void AppCompose_Install(void)
                    Menu_Tick);
     Menu_Setup(s_groups,
                (uint8_t)(sizeof(s_groups) / sizeof(s_groups[0])));
+    /* GrayTest（s_entries idx3）自绘整屏：标定面板取代 RUNNING 横幅（W7 §29 opt-in）。 */
+    Menu_SetEntrySelfDraw(3u);
     /* 开机把持久化循迹增益（或默认）载入并应用到 line_follow 外环 PID。
      * LineFollow 运行条目 on_enter 亦按此序（LineFollow_Init 归零后重调 ParamTune_Init 重推）。 */
     ParamTune_Init();

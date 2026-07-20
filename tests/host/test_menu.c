@@ -339,6 +339,43 @@ static bool test_run_active_draws_running_once(void)
     return true;
 }
 
+/* self-draw opt-in（W7 §29）：标记条目 RUN_ACTIVE 期 menu 零绘制（显示权让渡条目服务）；
+ * BACK 回子列表 menu 收回显示权照常重绘；Menu_Setup 复位标记（重装配后 RUNNING 恢复）。 */
+static bool test_run_active_self_draw_entry_menu_draws_nothing(void)
+{
+    uint32_t before_enter;
+    uint32_t after_enter;
+
+    setup_ready(k_groups, 4u);
+    Menu_SetEntrySelfDraw(0u); /* 标记 scheduler 全局条目 0（DEBUG 子列表位 0） */
+    press(KEY_ID_K3); /* ENTER DEBUG → RUN_LIST */
+    before_enter = FakeI2cPort_GetTransferCount();
+
+    press(KEY_ID_K3); /* ENTER 条目 0 → RUN_ACTIVE：self-draw → menu 零绘制 */
+    ASSERT_EQ_INT(MENU_SCREEN_RUN_ACTIVE, (int)Menu_GetScreen());
+    ASSERT_EQ_INT(0, (int)Scheduler_GetActiveEntry());
+    after_enter = FakeI2cPort_GetTransferCount();
+    ASSERT_TRUE(after_enter == before_enter); /* 不画 RUNNING、不清行 */
+
+    for (int i = 0; i < 8; ++i) {
+        advance(5u);
+        tick();
+    }
+    ASSERT_TRUE(FakeI2cPort_GetTransferCount() == after_enter);
+
+    press(KEY_ID_K4); /* BACK → RUN_LIST：menu 收回显示权重绘 */
+    ASSERT_EQ_INT(MENU_SCREEN_RUN_LIST, (int)Menu_GetScreen());
+    ASSERT_TRUE(FakeI2cPort_GetTransferCount() > after_enter);
+
+    /* Menu_Setup 复位标记：重装配后同条目恢复 RUNNING 横幅绘制。 */
+    setup_ready(k_groups, 4u);
+    press(KEY_ID_K3); /* ENTER DEBUG → RUN_LIST */
+    before_enter = FakeI2cPort_GetTransferCount();
+    press(KEY_ID_K3); /* ENTER 条目 0 → RUN_ACTIVE */
+    ASSERT_TRUE(FakeI2cPort_GetTransferCount() > before_enter);
+    return true;
+}
+
 static bool test_back_from_active_returns_to_sublist(void)
 {
     uint32_t transfers;
@@ -578,6 +615,8 @@ int main(void)
              test_run_sublist_maps_to_global_entry);
     run_test("test_run_active_draws_running_once",
              test_run_active_draws_running_once);
+    run_test("test_run_active_self_draw_entry_menu_draws_nothing",
+             test_run_active_self_draw_entry_menu_draws_nothing);
     run_test("test_back_from_active_returns_to_sublist",
              test_back_from_active_returns_to_sublist);
     run_test("test_back_from_sublist_returns_to_group_list",

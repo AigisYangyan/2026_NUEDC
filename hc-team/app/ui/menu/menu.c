@@ -6,9 +6,9 @@
  *   GROUP_LIST --ENTER RUN 组--> RUN_LIST --ENTER 条目--> RUN_ACTIVE --BACK--> RUN_LIST
  *   GROUP_LIST --ENTER PARAM 组--> PARAM_LIST <--BACK--> (menu_param 子状态机) --BACK--> GROUP_LIST
  *   RUN_LIST --BACK--> GROUP_LIST
- * RUN_ACTIVE 期：菜单画统一 RUNNING 横幅（row0）+ 清 row1..3；条目自绘整屏＝未来按条目
- * opt-in flag，当前无条目 opt-in 故 menu 独占显示、无双写（§23.0 修订 UI01 显示所有权契约）；
- * 仅 BACK 触发 Scheduler_LeaveEntry。
+ * RUN_ACTIVE 期：菜单画统一 RUNNING 横幅（row0）+ 清 row1..3；经 Menu_SetEntrySelfDraw
+ * 标记的条目除外——menu 零绘制、整屏归条目服务（W7 §29 显示所有权契约修订 2，
+ * 首个使用者 GrayTest 标定助手）；仅 BACK 触发 Scheduler_LeaveEntry。
  *
  * 活动一级分类索引 = GROUP_LIST 光标 s_group_cursor（下探 L2 期间不变）；RUN 组的条目
  * 子列表位 j 经 g->entries[j] 映射为 scheduler 全局条目索引（scheduler 是条目唯一所有者）。
@@ -34,6 +34,7 @@ static uint8_t             s_group_count;
 static uint8_t             s_group_cursor; /* L1 焦点 = 活动一级分类索引 */
 static uint8_t             s_run_cursor;   /* L2 运行条目子列表焦点 */
 static bool                s_dirty;        /* 有待渲染 */
+static uint32_t            s_self_draw_mask; /* bit i = scheduler 条目 i 自绘整屏（W7 opt-in） */
 
 /* 当前活动一级分类（GROUP_LIST 光标所指；调用前 s_group_count>0 由各处理函数保证）。 */
 static const Menu_Group_T *active_group(void)
@@ -119,11 +120,18 @@ static void render_run_list(void)
                 run_entry_name_of);
 }
 
-/* RUN_ACTIVE 统一横幅：menu 占 row0=RUNNING、清 row1..3。对每个运行条目（debug/test/未来）
- * 一致生效；条目自绘整屏＝未来按条目 opt-in flag，当前无条目 opt-in，故无双写者冲突。 */
+/* RUN_ACTIVE 统一横幅：menu 占 row0=RUNNING、清 row1..3。经 Menu_SetEntrySelfDraw 标记的
+ * 条目除外——menu 零绘制，整屏显示权在条目服务（W7 §29 opt-in）。单写者不变量：单活动条目
+ * + 同拍序（Menu_Tick 先行、on_step 在后）保证任意时刻 OLED 写者唯一，无双写冲突。 */
 static void render_run_active(void)
 {
+    int16_t active = Scheduler_GetActiveEntry();
     uint8_t i;
+
+    if ((active >= 0) && (active < 32) &&
+        (((s_self_draw_mask >> (uint8_t)active) & 1u) != 0u)) {
+        return; /* self-draw 条目：显示权已让渡，menu 不画横幅、不清行 */
+    }
 
     (void)Hmi_PrintLine(0u, "RUNNING");
     for (i = 1u; i <= MENU_VISIBLE_ITEMS; ++i) {
@@ -271,6 +279,14 @@ void Menu_Setup(const Menu_Group_T *groups, uint8_t group_count)
     s_group_cursor = 0u;
     s_run_cursor = 0u;
     s_dirty = true;
+    s_self_draw_mask = 0u; /* 重装配即清 opt-in 标记；装配层随后按需重新登记 */
+}
+
+void Menu_SetEntrySelfDraw(uint8_t entry_index)
+{
+    if (entry_index < 32u) { /* 标记集位宽上限；越界登记视为装配错误，静默忽略防 UB 移位 */
+        s_self_draw_mask |= (uint32_t)1u << entry_index;
+    }
 }
 
 void Menu_Tick(uint32_t now_ms)

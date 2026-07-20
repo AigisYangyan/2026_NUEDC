@@ -3405,5 +3405,21 @@ void Menu_SetEntrySelfDraw(uint8_t entry_index); /* 标记 scheduler 条目 RUN_
 
 ### 29.6 契约修订记录
 
-- 冻结（本提交）：范围/接口/5 证据行按用户 2026-07-21 裁定（方案 A：标定助手，无 flash/无软件阈值）
+- 冻结（2d9ff76）：范围/接口/5 证据行按用户 2026-07-21 裁定（方案 A：标定助手，无 flash/无软件阈值）
   确定；基线 502 PASS 0 FAIL（2026-07-21 实测，36 套件全绿）锁定。
+
+### 29.7 完成记录（代码本提交）
+
+- TDD 红→绿：test_menu self-draw 用例在旧 menu 链接期红（`Menu_SetEntrySelfDraw` 缺符号）；
+  test_gray_check 6 面板用例在旧 gray_check 断言红（行文本全空）。实现后两目标全绿、零警告。
+- 施工：menu `s_self_draw_mask`（Setup 复位、`Menu_SetEntrySelfDraw` 登记、`render_run_active`
+  对标记条目零绘制）；gray_check 统计（sticky OR/逐路跳变饱和计数/prev 播种拍）+ 100ms 面板门控
+  + 行差分缓存（PrintLine 失败不更新缓存下周期重试）+ Start 清零/缓存失效全重绘；app_compose
+  标记 GrayTest idx3；新建 fake_hmi.c（只顶显示面 `Hmi_PrintLine`——缺 PollInput 符号即链接期
+  证明消费面未扩大）；docs 配置指南 +§9 现场标定 SOP。
+- E01 依赖纯净：gray_check include 面 = 自身头 + `hmi/hmi.h`（同层受控白名单）+ driver `gray`/
+  `uart_vofa` + libc；上层/middleware/DL HAL 0 命中。E02 arch-scan check 空输出。E03 范围仅
+  §29.1（`.ccsproject`/`test_emm42.exe` 会话前既存不计）。E04 主机 **509 PASS 0 FAIL**
+  （502 基线 + 6 gray 面板用例 + 1 menu self-draw 用例），36 套件全绿。E05 固件 exit 0、
+  0 diagnostics、`gray_check.o`+`menu.o`+`app_compose.o` 重编，linkInfo.xml 时间戳=构建时刻，
+  `Menu_SetEntrySelfDraw`/`GrayCheck_Update`/`Hmi_PrintLine` 进链 6 符号命中。

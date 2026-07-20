@@ -86,6 +86,7 @@ MOTOR_CHECK_SVC_SRC = ../../hc-team/app/service/motor_check/motor_check.c
 MOTOR_CHECK_SVC_TEST_SRC = test_motor_check.c
 GRAY_CHECK_SVC_SRC = ../../hc-team/app/service/gray_check/gray_check.c
 GRAY_CHECK_SVC_TEST_SRC = test_gray_check.c
+FAKE_HMI_SRC = fake_hmi.c
 PARAM_STORE_SRC = ../../hc-team/driver/param_store/param_store.c
 FAKE_PARAM_STORE_PORT_SRC = fake_param_store_port.c
 PARAM_STORE_TEST_SRC = test_param_store.c
@@ -305,10 +306,11 @@ test_motor_check: $(MOTOR_CHECK_SVC_SRC) ../../hc-team/app/service/motor_check/m
 run_motor_check: test_motor_check
 	./test_motor_check
 
-# gray_check = 12 路灰度数字量遥测诊断服务（契约 §24）：真实 gray_check + gray + uart_vofa
-# + board_uart×4 + fake_gray_port（灰度位图注入）+ fake_uart_port（VOFA TX 抓取）；无 Clock、无 motor。
-test_gray_check: $(GRAY_CHECK_SVC_SRC) ../../hc-team/app/service/gray_check/gray_check.h $(GRAY_DRIVER_SRC) $(FAKE_GRAY_PORT_SRC) $(VOFA_DRIVER_SRC) $(BOARD_UART_VISION_SRC) $(BOARD_UART_VOFA_SRC) $(BOARD_UART_STEPMOTOR_SRC) $(BOARD_UART_IMU_SRC) $(FAKE_UART_PORT_SRC) $(GRAY_CHECK_SVC_TEST_SRC)
-	$(CC) $(CFLAGS) -o $@ $(GRAY_CHECK_SVC_SRC) $(GRAY_DRIVER_SRC) $(FAKE_GRAY_PORT_SRC) $(VOFA_DRIVER_SRC) $(BOARD_UART_VISION_SRC) $(BOARD_UART_VOFA_SRC) $(BOARD_UART_STEPMOTOR_SRC) $(BOARD_UART_IMU_SRC) $(FAKE_UART_PORT_SRC) $(GRAY_CHECK_SVC_TEST_SRC) $(GC_LDFLAGS) -lm
+# gray_check = 12 路灰度标定助手服务（契约 §24 + W7 §29）：真实 gray_check + gray + uart_vofa
+# + board_uart×4 + fake_gray_port（灰度位图注入）+ fake_uart_port（VOFA TX 抓取）
+# + fake_hmi（OLED 面板行捕获，只顶显示面 Hmi_PrintLine）；无 Clock、无 motor。
+test_gray_check: $(GRAY_CHECK_SVC_SRC) ../../hc-team/app/service/gray_check/gray_check.h $(GRAY_DRIVER_SRC) $(FAKE_GRAY_PORT_SRC) $(VOFA_DRIVER_SRC) $(BOARD_UART_VISION_SRC) $(BOARD_UART_VOFA_SRC) $(BOARD_UART_STEPMOTOR_SRC) $(BOARD_UART_IMU_SRC) $(FAKE_UART_PORT_SRC) $(FAKE_HMI_SRC) $(GRAY_CHECK_SVC_TEST_SRC)
+	$(CC) $(CFLAGS) -o $@ $(GRAY_CHECK_SVC_SRC) $(GRAY_DRIVER_SRC) $(FAKE_GRAY_PORT_SRC) $(VOFA_DRIVER_SRC) $(BOARD_UART_VISION_SRC) $(BOARD_UART_VOFA_SRC) $(BOARD_UART_STEPMOTOR_SRC) $(BOARD_UART_IMU_SRC) $(FAKE_UART_PORT_SRC) $(FAKE_HMI_SRC) $(GRAY_CHECK_SVC_TEST_SRC) $(GC_LDFLAGS) -lm
 
 run_gray_check: test_gray_check
 	./test_gray_check
