@@ -12,10 +12,13 @@ void FakeUartPort_ResetAll(void);
 void FakeUartPort_PushVisionBytes(const uint8_t *data, uint32_t length);
 void FakeUartPort_PushVofaBytes(const uint8_t *data, uint32_t length);
 void FakeUartPort_PushStepmotorBytes(const uint8_t *data, uint32_t length);
+void FakeUartPort_CompleteVofaTx(void);
+uint32_t FakeUartPort_CopyVofaTx(uint8_t *out, uint32_t capacity);
 
 #define VISION_FIFO_CAPACITY 512u
 #define VOFA_FIFO_CAPACITY 512u
 #define STEPMOTOR_FIFO_CAPACITY 256u
+#define VOFA_TX_RING_CAPACITY 512u
 
 static int s_test_count = 0;
 
@@ -153,11 +156,79 @@ static void test_stepmotor_fifo_suite(void)
                 "stepmotor wrap after partial read");
 }
 
+/* VOFA 传输层 TX 软件队列（T-VTXQ1）：忙时入队而非丢帧，完成中断排空下一段。
+ * VOFA JustFloat/FireWater 是按尾标重同步的字节流，跨 DMA 段合并搬运合法，
+ * 故断言以字节流按序为准，不要求逐帧再分段。 */
+static void test_vofa_tx_queue_suite(void)
+{
+    uint8_t frame_a[3] = {0xA1u, 0xA2u, 0xA3u};
+    uint8_t frame_b[2] = {0xB1u, 0xB2u};
+    uint8_t frame_c[2] = {0xC1u, 0xC2u};
+    uint8_t seen[16];
+    uint32_t seen_len = 0u;
+
+    /* 忙时入队：A 在途未完成时提交 B —— 旧码丢帧(false)，新码入队(true) */
+    FakeUartPort_ResetAll();
+    expect_true(VofaUart_TryWrite(frame_a, 3u) == true,
+                "vofa tx first frame accepted");
+    seen_len = FakeUartPort_CopyVofaTx(seen, sizeof(seen));
+    expect_true((seen_len == 3u) && (memcmp(seen, frame_a, 3u) == 0),
+                "vofa tx first frame is in flight");
+    expect_true(VofaUart_TryWrite(frame_b, 2u) == true,
+                "vofa tx queue holds frame while busy");
+    seen_len = FakeUartPort_CopyVofaTx(seen, sizeof(seen));
+    expect_true((seen_len == 3u) && (memcmp(seen, frame_a, 3u) == 0),
+                "vofa tx in-flight frame not preempted by queued frame");
+    FakeUartPort_CompleteVofaTx();
+    seen_len = FakeUartPort_CopyVofaTx(seen, sizeof(seen));
+    expect_true((seen_len == 2u) && (memcmp(seen, frame_b, 2u) == 0),
+                "vofa tx queue drains next frame on completion");
+
+    /* 排空后回空闲，再次提交立即在途 */
+    FakeUartPort_CompleteVofaTx();
+    expect_true(VofaUart_TryWrite(frame_c, 2u) == true,
+                "vofa tx accepts after drain");
+    seen_len = FakeUartPort_CopyVofaTx(seen, sizeof(seen));
+    expect_true((seen_len == 2u) && (memcmp(seen, frame_c, 2u) == 0),
+                "vofa tx re-kicks when idle");
+
+    /* 背靠背多帧入队：完成后按字节序合并搬运（B||C） */
+    FakeUartPort_ResetAll();
+    expect_true(VofaUart_TryWrite(frame_a, 3u) == true,
+                "vofa tx burst first accepted");
+    expect_true(VofaUart_TryWrite(frame_b, 2u) == true,
+                "vofa tx burst second queued");
+    expect_true(VofaUart_TryWrite(frame_c, 2u) == true,
+                "vofa tx burst third queued");
+    FakeUartPort_CompleteVofaTx();
+    seen_len = FakeUartPort_CopyVofaTx(seen, sizeof(seen));
+    expect_true((seen_len == 4u) && (seen[0] == 0xB1u) && (seen[1] == 0xB2u) &&
+                    (seen[2] == 0xC1u) && (seen[3] == 0xC2u),
+                "vofa tx queue preserves byte order across frames");
+
+    /* 队列满则拒绝并计数（有界背压，不静默丢） */
+    {
+        uint8_t big[VOFA_TX_RING_CAPACITY];
+
+        FakeUartPort_ResetAll();
+        fill_pattern(big, sizeof(big), 0x10u);
+        expect_true(VofaUart_TryWrite(frame_a, 1u) == true,
+                    "vofa tx overflow setup keeps one frame in flight");
+        expect_true(VofaUart_TryWrite(big, VOFA_TX_RING_CAPACITY) == true,
+                    "vofa tx fills ring to capacity");
+        expect_true(VofaUart_TryWrite(frame_b, 1u) == false,
+                    "vofa tx overflow rejects and counts");
+        expect_true(VofaUart_GetTxOverflowCount() == 1u,
+                    "vofa tx overflow increments counter");
+    }
+}
+
 int main(void)
 {
     test_vision_fifo_suite();
     test_vofa_fifo_suite();
     test_stepmotor_fifo_suite();
+    test_vofa_tx_queue_suite();
 
     printf("All UART FIFO tests passed (%d tests).\n", s_test_count);
     return 0;

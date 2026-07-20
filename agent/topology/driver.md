@@ -77,6 +77,9 @@ class VofaUart_API {
   +VofaUart_Read()
   +VofaUart_TryWrite()
   +VofaUart_GetRxOverflowCount()
+  +VofaUart_GetTxOverflowCount()
+  note: T-VTXQ1 (2026-07-20) — software TX byte-ring FIFO symmetric to RX FIFO; TryWrite busy semantics changed from drop-on-busy to enqueue-on-busy (rejects only when ring would overflow, counts tx overflow)
+  note: VofaUart_IsrTxDone now clears busy AND kicks next DMA segment (vofa_uart_tx_kick, private), was clear-only; TX buffer/in-flight/ISR pump sole-owned by vofa_uart.c, no new callback
 }
 
 class StepmotorUart_API {
@@ -216,7 +219,7 @@ BoardGpio_API --> DL_HAL : DL_GPIO_readPins for key raw levels
 Runtime_API --> Clock_API : bounded millisecond delay
 Runtime_API --> DL_HAL : GPIO UART DMA
 Runtime_API --> VisionUart_API : fixed RX TX DMA dispatch, VISION_TX IRQ clear + VisionUart_IsrTxDone
-Runtime_API --> VofaUart_API : fixed RX DMA completion
+Runtime_API --> VofaUart_API : fixed RX TX DMA dispatch (RX push + VofaUart_IsrTxDone on VOFA_TX complete; pre-existing edge, label corrected 2026-07-20 — was RX-only, TX dispatch already wired)
 Runtime_API --> StepmotorUart_API : fixed RX TX DMA dispatch
 Runtime_API --> ImuUart_API : fixed UART_IMU IRQ RX dispatch, no DMA
 Runtime_API --> BslEntry_API : fixed UART_BSL_ENTRY IRQ RX dispatch, no DMA, ISR calls BslEntry_IsrOnByte

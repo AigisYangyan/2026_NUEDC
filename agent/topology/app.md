@@ -659,7 +659,7 @@ Gimbal_API --> VisionAim_API : VisionAim_Map per tick (adds prev_error_x/y args,
 Gimbal_API --> UartVision_API : Poll/GetLatestCoord+GetCoordSeq/SendTopic/GetTopicAck+GetTopicAckSeq
 Gimbal_API --> Clock_API : 10ms self-gate, unsigned-subtract elapsed
 Gimbal_API --> GimbalStepbus_API : same-layer controlled, private pulse dispatch submodule
-GimbalStepbus_API --> Emm42_API : Build*Frame packing (dir/magnitude split sole owner here; RPM clamp stays emm42.c)
+GimbalStepbus_API --> Emm42_API : Build*Frame packing (absolute pulse passed through, no dir/magnitude split — T-GQ2 removed the split; RPM clamp stays emm42.c; label corrected 2026-07-20, was stale post-T-GQ2 doc drift)
 GimbalStepbus_API --> StepmotorUart_API : TryWrite/IsTxIdle/ConsumeTxDone/Read (drain+discard, vision is the only feedback path)
 
 %% EncoderTest_API / MotorCheck_API (W3, landed 2026-07-19) — two new DEBUG-group scheduler

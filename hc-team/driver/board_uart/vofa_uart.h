@@ -3,8 +3,8 @@
  * @brief   UART_HOST_LINK 角色 Driver：VOFA+ 上位机链路的字节搬运层
  *
  * 模块职责：
- * - 拥有 UART_HOST_LINK 这一条链路的私有 RX FIFO
- * - 提供有界的 TryWrite；ISR/DMA 只搬字节
+ * - 拥有 UART_HOST_LINK 这一条链路的私有 RX FIFO 与软件 TX FIFO
+ * - TryWrite 忙时入队而非丢帧；ISR/DMA 只搬字节，完成中断排空 TX 下一段
  *
  * 本模块**不负责**：
  * - 不认识 JustFloat/FireWater 协议、不组包、不解析 —— 那属于 driver/uart_vofa
@@ -28,6 +28,7 @@ void VofaUart_Init(void);
 uint32_t VofaUart_Read(uint8_t *out, uint32_t capacity);
 bool VofaUart_TryWrite(const uint8_t *data, uint32_t length);
 uint32_t VofaUart_GetRxOverflowCount(void);
+uint32_t VofaUart_GetTxOverflowCount(void);
 
 #ifdef __cplusplus
 }
