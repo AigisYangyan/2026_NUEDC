@@ -22,6 +22,15 @@
 #define EMM42_ORIGIN_RUN_FIXED_1  0x00u
 #define EMM42_ORIGIN_QUIT_FIXED_0 0x48u
 
+#define EMM42_CMD_QPOS_PRESET     0xF1u   /* 快速位置模式：预设速度/加速度/运动模式/同步（手册 §5.3.13） */
+#define EMM42_CMD_QPOS_RUN        0xFCu   /* 快速位置模式：仅发有符号 int32 脉冲即运动 */
+#define EMM42_CMD_MULTI           0xAAu   /* 多电机命令封装（手册 §5.3.1） */
+#define EMM42_CMD_CLEAR_POS       0x0Au   /* 将当前位置角度清零＝建立绝对坐标零点（手册 §5.2.3） */
+#define EMM42_CLEAR_POS_AUX       0x6Du
+#define EMM42_MULTI_BROADCAST     0x00u   /* 多电机命令外层用广播地址，子命令各带真实地址 */
+#define EMM42_MULTI_WRAP_BYTES    5u      /* 封装开销：addr + 0xAA + len_hi + len_lo + 尾 0x6B */
+#define EMM42_MULTI_SUBCMDS_MAX   26u     /* 子命令串上限（封装后 ≤31B，容两条 13B 位置帧，护 out 缓冲） */
+
 static uint16_t emm42_clamp_speed_rpm(uint16_t speed)
 {
     if (speed > EMM42_SPEED_MAX_RPM) {
@@ -185,6 +194,90 @@ bool Emm42_BuildExitHomingFrame(uint8_t axis_id, uint8_t *out, uint8_t *out_len)
     out[0] = axis_id;
     out[1] = EMM42_CMD_ORIGIN_QUIT;
     out[2] = EMM42_ORIGIN_QUIT_FIXED_0;
+    out[3] = EMM42_CHECK_BYTE;
+    return true;
+}
+
+bool Emm42_BuildQPosPresetFrame(uint8_t axis_id,
+                                uint16_t speed_rpm,
+                                uint8_t acceleration,
+                                uint8_t mode,
+                                uint8_t *out,
+                                uint8_t *out_len)
+{
+    uint16_t speed_proto = emm42_speed_rpm_to_proto(speed_rpm);
+
+    if (emm42_prepare_out(out, out_len, 8u) == false) {
+        return false;
+    }
+
+    out[0] = axis_id;
+    out[1] = EMM42_CMD_QPOS_PRESET;
+    out[2] = (uint8_t)(speed_proto >> 8);
+    out[3] = (uint8_t)(speed_proto);
+    out[4] = emm42_clamp_accel_grade(acceleration);
+    out[5] = mode;
+    out[6] = EMM42_SYNC_FLAG;
+    out[7] = EMM42_CHECK_BYTE;
+    return true;
+}
+
+bool Emm42_BuildQPosFrame(uint8_t axis_id, int32_t pulses, uint8_t *out, uint8_t *out_len)
+{
+    uint32_t raw = (uint32_t)pulses;   /* 有符号 int32 位型透传为大端；方向由符号承载，无 dir 字节 */
+
+    if (emm42_prepare_out(out, out_len, 7u) == false) {
+        return false;
+    }
+
+    out[0] = axis_id;
+    out[1] = EMM42_CMD_QPOS_RUN;
+    out[2] = (uint8_t)(raw >> 24);
+    out[3] = (uint8_t)(raw >> 16);
+    out[4] = (uint8_t)(raw >> 8);
+    out[5] = (uint8_t)(raw);
+    out[6] = EMM42_CHECK_BYTE;
+    return true;
+}
+
+bool Emm42_BuildMultiCmdFrame(const uint8_t *sub_cmds,
+                              uint8_t sub_cmds_len,
+                              uint8_t *out,
+                              uint8_t *out_len)
+{
+    uint16_t total = (uint16_t)sub_cmds_len + (uint16_t)EMM42_MULTI_WRAP_BYTES;
+    uint8_t i = 0u;
+
+    if (sub_cmds == NULL) {
+        return false;
+    }
+    if ((sub_cmds_len == 0u) || (sub_cmds_len > EMM42_MULTI_SUBCMDS_MAX)) {
+        return false;
+    }
+    if (emm42_prepare_out(out, out_len, (uint8_t)total) == false) {
+        return false;
+    }
+
+    out[0] = EMM42_MULTI_BROADCAST;
+    out[1] = EMM42_CMD_MULTI;
+    out[2] = (uint8_t)(total >> 8);
+    out[3] = (uint8_t)(total);
+    for (i = 0u; i < sub_cmds_len; i++) {
+        out[4u + i] = sub_cmds[i];
+    }
+    out[4u + sub_cmds_len] = EMM42_CHECK_BYTE;
+    return true;
+}
+
+bool Emm42_BuildClearPositionFrame(uint8_t axis_id, uint8_t *out, uint8_t *out_len)
+{
+    if (emm42_prepare_out(out, out_len, 4u) == false) {
+        return false;
+    }
+
+    out[0] = axis_id;
+    out[1] = EMM42_CMD_CLEAR_POS;
+    out[2] = EMM42_CLEAR_POS_AUX;
     out[3] = EMM42_CHECK_BYTE;
     return true;
 }

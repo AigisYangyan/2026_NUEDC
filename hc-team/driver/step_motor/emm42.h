@@ -90,6 +90,32 @@ bool Emm42_BuildPidConfigFrame(uint8_t axis_id,
                                uint8_t *out,
                                uint8_t *out_len);
 
+/* 快速位置模式（手册 §5.3.13，"适用于二维云台"）：先用本帧预设一次速度/加速度/运动模式，
+ * 之后每拍只发 Emm42_BuildQPosFrame 的 int32 脉冲。速度经 emm42 唯一限幅（≤100RPM）+ ×10 尺度。
+ * mode = EMM42_POSITION_MODE_*（相对上一目标/绝对/相对当前）；组 8 字节帧。 */
+bool Emm42_BuildQPosPresetFrame(uint8_t axis_id,
+                                uint16_t speed_rpm,
+                                uint8_t acceleration,
+                                uint8_t mode,
+                                uint8_t *out,
+                                uint8_t *out_len);
+
+/* 快速位置运动：仅一个有符号 int32 脉冲（大端），方向由符号承载（无独立 dir 字节）。组 7 字节帧。
+ * 语义（相对/绝对）取决于最近一次 Emm42_BuildQPosPresetFrame 设定的 mode。 */
+bool Emm42_BuildQPosFrame(uint8_t axis_id, int32_t pulses, uint8_t *out, uint8_t *out_len);
+
+/* 多电机命令封装（手册 §5.3.1）：把调用方已拼好的子命令串（各子命令含自身地址与尾 0x6B）包进
+ * [广播 0x00, 0xAA, 总长(2B,大端), <子命令串>, 0x6B]，总长 = sub_cmds_len + 5。一帧发完、同起。
+ * sub_cmds_len ∈ [1, 26]，越界或 sub_cmds==NULL → 返回 false（护 out 缓冲）。本函数不解释子命令内容。 */
+bool Emm42_BuildMultiCmdFrame(const uint8_t *sub_cmds,
+                              uint8_t sub_cmds_len,
+                              uint8_t *out,
+                              uint8_t *out_len);
+
+/* 将当前位置角度清零（手册 §5.2.3，功能码 0x0A 辅助码 0x6D）＝建立绝对坐标零点，供绝对位置模式参考。
+ * 注意：与 Emm42_BuildSetZeroFrame(0x93 单圈回零零点) 语义不同。组 4 字节帧。 */
+bool Emm42_BuildClearPositionFrame(uint8_t axis_id, uint8_t *out, uint8_t *out_len);
+
 #ifdef __cplusplus
 }
 #endif
