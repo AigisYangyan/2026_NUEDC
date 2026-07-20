@@ -3307,3 +3307,103 @@ blob v2 布局（33B，小端）：[0]ver=2、[1..12]kp/ki/kd milli、[13..16]cr
 - 主体验收（代码 7c891cb）：6 行全过——E01 8 文件在范围 / E02 param_tune+app_compose 仅 +motion.h（Service）、motion.c 无新增 include、arch-scan exit 0 / E03 host 475 PASS 0 FAIL＝467+motion 3+param_tune 5 / E04 profiledstraight_enter 序 Motion_Init(&s_ms_cfg)→ParamTune_Init()→StartProfiledStraight(GetDist_mm,false) / E05 test_param_tune schema2 往返+默认+旧 13B 忽略退默认 / E06 exit 0、0 诊断、app_compose.o+motion.o+move_profile.o+param_tune.o 进链、Motion_StartProfiledStraight/MoveProfile_Speed/Motion_SetProfileParams/ParamTune_GetDist_mm 现进 .map 可达（零调用者解除）。
 - 修订1（代码后，arch-auditor 处置）：arch-auditor 6 声明 5 成立、1 建议级——PROFILED_STRAIGHT 缺 §8.1 反馈超时停止，编码器脱线 dist≈0→base=start 一直冲，本轮首次上板可达。裁定为**安全看门狗**（非 TURN 式收敛完成超时），归 motion：+`Motion_Config_T.profile_timeout_ticks`（0=禁用）+ motion_step_profiled_straight 拍数上限超时→Chassis_Stop+DONE；s_ms_cfg 设实际界（1500≈15s）；test_motion +看门狗用例。代码 f333333。
 - 修订2（用户 TB6612 关切，代码后）：用户问「起步卡住会不会烧 TB6612」。核实：chassis 默认增益 0（`chassis.c:27`）、sys_init 从不设增益→未调速度环时 PWM=0 不堵转；**一旦调出速度环增益，起步速偏低致堵转 → 增量式 PID 积分顶满 out_limit=±1000（`chassis.c:29`）→ 堵转电流灌 TB6612**，而修订1 的 15s max-runtime 看门狗对驱动芯片太慢。加**无进展/堵转看门狗** `profile_stall_ticks`：命令在动(base>0)但编码器无进展连续 N 拍→快速 Chassis_Stop+DONE（~0.8s，所有者 motion）。与 max-runtime 并存捕获不同故障（stall=堵转/脱线/撞障；timeout=物理过冲）。s_ms_cfg profile_stall_ticks=80(0.8s)、profile_timeout_ticks=1500。test_motion +堵转停/移动不误触发/禁用不干扰用例。**主防线仍是把 Start 设到真实脱离静摩擦速以上（别堵转）+ 上板前标 mm_per_pulse**；驱动侧硬件兜底=TB6612 热关断。安全看门狗添加是 §28 允许 motion 文件内修订，单独提交。
+
+## 29. W7 契约（gray_check 现场标定助手：OLED 自绘面板 + menu 条目自绘 opt-in）——冻结
+
+> 用户需求（2026-07-21 本会话）：不同光线条件下灰度阈值不同，想在 debug 组加「现场调灰度阈值」
+> 条目（flash+key，仿循迹环 TUNE）。器件事实核查（原厂 PDF 40 页全文复核 + `docs/12路灰度传感器
+> 配置指南.md` + gray.h）：**NCHD1 阈值 = 板上电位器给定的比较电压 V-com（手册 p.16/p.23），
+> 全手册无软件阈值/一键标定/串口配置任何途径**；固件读到的位图已是比较器二值化结果，无阈值可调，
+> 固件造「软件阈值」即第二所有者（违 §8.2，gray.h 刻意不做清单）。已按 AGENTS.md 停止并报告，
+> 用户裁定（2026-07-21）：**选方案 A——固件不造阈值，只做标定校验助手**（方案 B 模拟改造被否，
+> 与「硬件改动最小化/5V+串阻」定案冲突）。故本任务无 flash 项、无 TUNE 参数组——没有参数可存。
+
+### 29.0 裁定与范围
+
+- **GrayTest 条目升级为现场标定助手**：进条目后 OLED 实时显示 12 路深色位图 + 进条目以来的
+  粘滞深色位图 + 逐路跳变计数——把手册 p.23 标定终判「上下微抖灯仍不变」从盯 12 个小灯变成
+  一屏可量化读数；同时 OLED 显示的是 **MCU 实际读到的电平**（含接线/串阻链路），板上 LED 只反映
+  模组侧，二者差异本身就是接线故障证据。VOFA tx×12 遥测原样保留（有 PC 时两面可用）。
+- **menu 显示所有权契约修订 2（承 §23.0 第 2 条预留）**：启用「条目自绘整屏 opt-in flag」——
+  新 API `Menu_SetEntrySelfDraw(entry_index)`（装配层在 Menu_Setup 后调用登记）。被标记条目
+  RUN_ACTIVE 期 menu **零绘制**（不画 RUNNING、不清行）；条目服务负责首绘覆盖全部 4 行（盖掉
+  残留列表内容）。单写者不变量保持：任意时刻 OLED 写者唯一（menu，或唯一活动的 self-draw 条目
+  服务——单活动条目不变量 + 同拍序「Menu_Tick 先行、on_step 在后」结构性排除交叠）。
+  未标记条目行为与 T1 逐字节一致（RUNNING 横幅照旧）。Menu_Setup 复位标记集。
+- **gray_check 新增 hmi 依赖 = Service→Service 同层受控**（先例：line_follow→chassis）。
+  只用显示面 **`Hmi_PrintLine`**；**不碰 `Hmi_PollInput`**（语义输入唯一消费者仍是 menu，
+  BACK 退出路径不变、不新增按键路由）。统计清零手势 = 重进条目（BACK→ENTER 即 Start 归零）。
+- **采样单一所有者不变**：统计与 tx 镜像共用既有 10ms 门控内的**同一次** `Gray_ReadDarkBitmap()`
+  ——不加第二读点、不加去抖/滤波/阈值（黑白判定唯一所有者=硬件电位器）。跳变统计需 prev 播种：
+  首拍只记不比（否则进条目时压线路会被误计 12 路跳变）——这是统计正确性所需，非 W4「无播种拍」
+  裁定的回退（那条针对门控基准，保持 base=0 首拍即发/即绘）。
+- **无新公共 getter**：sticky/toggle/绘制缓存/门控基准全私有于 gray_check（公共面签名零变化）。
+- **OLED 面板（100ms 自门控 + 行差分重绘，避免冗余 I2C；`Hmi_PrintLine` 失败则该行缓存不更新、
+  下个周期重试）**，4 行 ASCII（16 列）：
+  - row0 `L:············`（12 格：`#`=深色/1、`.`=浅色/0；左=bit0=G1——仅通道序，不声明车上左右）
+  - row1 `S:············` 粘滞深色（进条目以来 OR 累积）
+  - row2 `T:············` 逐路跳变计数（`.`=0、`1`..`9`、`*`=≥10；计数器饱和不回绕）
+  - row3 `X:%03X N:%02u` 位图十六进制（bit0=LSB，位序实测直读）+ 当前深色路数
+
+### 29.1 allowed_files（无 glob）
+
+| 文件 | 动作 |
+|---|---|
+| `hc-team/app/service/gray_check/gray_check.h` / `.c` | 修改（头注释扩标定助手抽象；.c 增统计+面板渲染；签名不变） |
+| `hc-team/app/ui/menu/menu.h` / `menu.c` | 修改（+`Menu_SetEntrySelfDraw`；`render_run_active` 对标记条目零绘制；显示所有权契约注释修订 2） |
+| `hc-team/app/system/app_compose.c` | 修改（Menu_Setup 后标记 GrayTest idx3 self-draw + 注释同步） |
+| `tests/host/test_gray_check.c` | 修改（+面板用例；既有 5 用例不动） |
+| `tests/host/test_menu.c` | 修改（+self-draw 零绘制用例；既有 RUNNING 用例不动） |
+| `tests/host/fake_hmi.c` | 新建（`Hmi_PrintLine` 捕获：行文本 + 逐行绘制计数 + 可设 ready；仅 test_gray_check 链接） |
+| `tests/host/Makefile` | 修改（test_gray_check 目标 + fake_hmi.c） |
+| `docs/12路灰度传感器配置指南.md` | 修改（追加 §9 现场标定流程 SOP：初始化全量标定 + 光线变化快速复检，含面板图例） |
+| `agent/phase4_app_rewrite/plan_app_first_order.md` | 状态回写（本节完成记录） |
+
+- **forbidden_files**：`hc-team/app/service/hmi/**`（只调不改）、`hc-team/app/service/**` 其余、
+  `hc-team/app/{scheduler,tasks}/**`、`hc-team/app/ui/menu/menu_param.{c,h}`、`hc-team/app/ui/oled/**`、
+  `hc-team/driver/**`、`hc-team/middleware/**`、`board.syscfg`、`Debug/makefile`（无新 .o：
+  gray_check.o/menu.o/app_compose.o 均已登记）、tests/host 其余 `test_*.c`/`fake_*.c`。
+
+### 29.2 公共接口（最小面）+ 单一所有者
+
+```c
+/* gray_check：签名零变化（Start/Update/Stop），行为增量全在 .c 内私有。 */
+/* menu 新增： */
+void Menu_SetEntrySelfDraw(uint8_t entry_index); /* 标记 scheduler 条目 RUN_ACTIVE 期自绘整屏；
+                                                    menu 对其零绘制。index≥32 忽略（mask 位宽）。
+                                                    Menu_Setup 复位全部标记。 */
+```
+
+- **单一所有者声明**：黑白判定=硬件电位器（唯一阈值所有者，固件零阈值）；12 路原子读=gray driver；
+  sticky/toggle 统计与面板格式化=gray_check 唯一拥有；OLED 行写语义/就绪门控=hmi；
+  RUN_ACTIVE 显示权=menu，或经 opt-in 让渡给唯一活动的 self-draw 条目。
+- **前置条件**：装配层已完成 `vofa_init()` 与 `Hmi_Init()`+底层 OLED/Key 初始化（World-2 既有序）。
+
+### 29.3 preserved_behavior
+
+- gray_check VOFA 帧内容/节奏/注册序逐字节不变（既有 5 用例原样过）；
+- 未标记条目的 menu 全部界面/转移/RUNNING 横幅与 T1 一致；SpeedTune/EncoderTest/MotorDir/
+  LineFollow/ProfiledStraight 五条目行为不变；
+- 空转态仍只泵 Menu_Tick；scheduler/hmi/driver/middleware 零源码改动；参数组（TUNE/DRIVE）不变。
+
+### 29.4 证据行（≤6，恰 1 条固件构建行）
+
+| 行 | 名称 | 命令 | 预期 |
+|---|---|---|---|
+| E01 | 依赖纯净 | Grep `app/tasks/\|app/scheduler/\|app/ui/\|app/system/\|middleware/\|ti_msp_dl_config\|ti/driverlib`（path=`hc-team/app/service/gray_check`，`#include` 行） | 上层+middleware+DL HAL 前缀 0 命中；另核 driver/ 命中仅 `gray`+`uart_vofa`、`app/service/` 命中仅自身头 + `hmi/hmi.h`（Service→Service 同层受控，本契约白名单） |
+| E02 | 装配层闸门 | PowerShell：`& .claude/hooks/arch-scan.ps1 -Mode check` | 空输出（menu/app_compose 新增依赖均层内合法，无 DL HAL 泄漏） |
+| E03 | 范围审计 | `git status` + `git diff --stat` 对照 §29.1 | 无 allowed_files 之外改动（`.ccsproject` 会话前既存不计） |
+| E04 | 主机测试 | PowerShell：`rtk proxy make -C tests/host all` | **502 基线（2026-07-21 实测）+ ≥7 新用例，0 FAIL**。必含：首绘 4 行全绘且 L/S/T/X 内容正确；粘滞累积（深色消失后 S 保持）；跳变计数（n 次翻转→digit n、≥10→`*`、首拍不误计）；行差分（内容不变的行不重绘）；100ms 面板门控（位图变了但未到期不重绘）；重进条目统计清零+缓存失效全重绘；menu：标记条目 RUN_ACTIVE 零绘制（I2C 传输数不增）、未标记条目 RUNNING 照旧 |
+| E05 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 diagnostics、`gray_check.o`+`menu.o`+`app_compose.o` 重编经 linkInfo.xml 进链；`Menu_SetEntrySelfDraw`/`Hmi_PrintLine`（自 gray_check）可达 |
+
+### 29.5 Stop conditions
+
+- 若面板需要 hmi 新接口（如按格绘制/局部刷新）→ 停止（应 `Hmi_PrintLine` 整行覆写够用）；
+- 若 self-draw 需要 menu 向条目转发按键 → 停止（清零=重进条目，不扩输入面）；
+- 若统计需要第二次 `Gray_ReadDarkBitmap()` 或任何去抖/滤波 → 停止（§8.2 单一所有者）；
+- baseline drift：BUILD 起测 host ≠ 502 PASS → 停止，先改契约。
+
+### 29.6 契约修订记录
+
+- 冻结（本提交）：范围/接口/5 证据行按用户 2026-07-21 裁定（方案 A：标定助手，无 flash/无软件阈值）
+  确定；基线 502 PASS 0 FAIL（2026-07-21 实测，36 套件全绿）锁定。
