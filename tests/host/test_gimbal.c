@@ -3,8 +3,9 @@
  * @brief   Host tests for gimbal 云台视觉瞄准服务 (S05c, 契约 §21.3).
  *
  * 覆盖：Init 静默；选题握手（发 0xFF 帧 / TX 忙 / 确认匹配→ARMING / 号不匹配保持 / ack 超时→STOPPED）；
- * ARMING 逐拍 enable×2+setzero×2→AIMING；AIMING 像素闭环下发相对移动 + cur_pulse 仅成功下发才累加；
- * 总线忙不累加；死区不下发；坐标停顿保持后超时→STOPPED；Gimbal_Stop 确定性；轴程限幅经 vision_aim 生效。
+ * ARMING 逐拍 enable×2+preset×2+clear×2→AIMING；AIMING 像素闭环把双轴绝对目标一帧(0xAA)发出；
+ * cur_pulse 无条件累加绝对目标（忙帧自愈）；死区目标不变；坐标停顿保持后超时→STOPPED；
+ * Gimbal_Stop 确定性；轴程限幅经 vision_aim 生效。
  *
  * 链接：真实 gimbal/gimbal_stepbus/uart_vision/vision_aim/emm42/stepmotor_uart/board_uart×4
  *       + fake_uart_port（视觉 RX 注入 + 步进 TX 抓取/完成）+ fake_clock。
@@ -140,9 +141,9 @@ static void arm_to_aiming(void)
     FakeClock_Advance(10u);
     Gimbal_Update();               /* HANDSHAKING → ARMING */
 
-    for (k = 0; k < 4; k++) {
+    for (k = 0; k < 6; k++) {
         FakeClock_Advance(10u);
-        Gimbal_Update();           /* 逐拍一帧 enable/setzero */
+        Gimbal_Update();           /* 逐拍一帧 enable/preset/clear（六帧） */
         FakeUartPort_CompleteStepmotorTx();
     }
     /* 现应 AIMING，has_coord_seq=false */
@@ -242,6 +243,24 @@ static int expect_stepmotor_tx(const uint8_t *expect, uint8_t expect_len)
     return 0;
 }
 
+/* 用真实 emm42 builder 组「双轴绝对协同」期望帧：0xAA 裹 FC_Y(y)∥FC_X(x)，Y(addr1) 在前。 */
+static uint8_t build_expected_dual(int32_t x_pulse, int32_t y_pulse, uint8_t *exp)
+{
+    uint8_t fy[8];
+    uint8_t fx[8];
+    uint8_t ly = 0u;
+    uint8_t lx = 0u;
+    uint8_t subs[16];
+    uint8_t exp_len = 0u;
+
+    Emm42_BuildQPosFrame((uint8_t)EMM42_AXIS_Y, y_pulse, fy, &ly);
+    Emm42_BuildQPosFrame((uint8_t)EMM42_AXIS_X, x_pulse, fx, &lx);
+    memcpy(subs, fy, ly);
+    memcpy(subs + ly, fx, lx);
+    Emm42_BuildMultiCmdFrame(subs, (uint8_t)(ly + lx), exp, &exp_len);
+    return exp_len;
+}
+
 static int test_arming_sequence_to_aiming(void)
 {
     uint8_t exp[32];
@@ -265,15 +284,29 @@ static int test_arming_sequence_to_aiming(void)
     if (expect_stepmotor_tx(exp, el) != 0) { return 1; }
     FakeUartPort_CompleteStepmotorTx();
 
-    /* 帧3 setzero X */
+    /* 帧3 preset X（F1，mode=ABS，speed=30 交 emm42 限幅） */
     FakeClock_Advance(10u); Gimbal_Update();
-    Emm42_BuildSetZeroFrame((uint8_t)EMM42_AXIS_X, exp, &el);
+    Emm42_BuildQPosPresetFrame((uint8_t)EMM42_AXIS_X, 30u, EMM42_POSITION_ACCEL_FIXED,
+                               EMM42_POSITION_MODE_ABSOLUTE, exp, &el);
     if (expect_stepmotor_tx(exp, el) != 0) { return 1; }
     FakeUartPort_CompleteStepmotorTx();
 
-    /* 帧4 setzero Y → AIMING */
+    /* 帧4 preset Y */
     FakeClock_Advance(10u); Gimbal_Update();
-    Emm42_BuildSetZeroFrame((uint8_t)EMM42_AXIS_Y, exp, &el);
+    Emm42_BuildQPosPresetFrame((uint8_t)EMM42_AXIS_Y, 30u, EMM42_POSITION_ACCEL_FIXED,
+                               EMM42_POSITION_MODE_ABSOLUTE, exp, &el);
+    if (expect_stepmotor_tx(exp, el) != 0) { return 1; }
+    FakeUartPort_CompleteStepmotorTx();
+
+    /* 帧5 clear X（0x0A 建立绝对坐标零点） */
+    FakeClock_Advance(10u); Gimbal_Update();
+    Emm42_BuildClearPositionFrame((uint8_t)EMM42_AXIS_X, exp, &el);
+    if (expect_stepmotor_tx(exp, el) != 0) { return 1; }
+    FakeUartPort_CompleteStepmotorTx();
+
+    /* 帧6 clear Y → AIMING */
+    FakeClock_Advance(10u); Gimbal_Update();
+    Emm42_BuildClearPositionFrame((uint8_t)EMM42_AXIS_Y, exp, &el);
     if (expect_stepmotor_tx(exp, el) != 0) { return 1; }
     FakeUartPort_CompleteStepmotorTx();
 
@@ -312,13 +345,12 @@ static int test_aiming_dispatch_accumulate(void)
     fresh_cfg();
     arm_to_aiming();
 
-    push_coord(420.0f, 240.0f);   /* err_x=100 → delta 10 CW；err_y=0 → 死区 */
+    push_coord(420.0f, 240.0f);   /* err_x=100 → delta 10；err_y=0 → 死区，delta 0 */
     FakeClock_Advance(10u);
     Gimbal_Update();
 
-    Emm42_BuildPositionFrame((uint8_t)EMM42_AXIS_X, EMM42_DIR_CW, 30u,
-                             EMM42_POSITION_ACCEL_FIXED, 10u,
-                             EMM42_POSITION_MODE_RELATIVE, exp, &el);
+    /* 一帧双轴绝对目标：X 绝对=10、Y 绝对=0（Y 死区未动仍随帧发出，绝对幂等）。 */
+    el = build_expected_dual(10, 0, exp);
     if (expect_stepmotor_tx(exp, el) != 0) { return 1; }
 
     Gimbal_GetTelemetry(&t);
@@ -330,24 +362,37 @@ static int test_aiming_dispatch_accumulate(void)
     return 0;
 }
 
-static int test_aiming_bus_busy_no_accumulate(void)
+/* 绝对方案自愈：总线忙时目标仍无条件累加，下一帧发的是最新绝对目标（不重放中间增量）。 */
+static int test_aiming_bus_busy_still_accumulates_selfheal(void)
 {
+    uint8_t exp[32];
+    uint8_t el;
     Gimbal_Telemetry_T t;
 
     fresh_cfg();
     arm_to_aiming();
 
-    push_coord(420.0f, 240.0f);   /* 首帧：dispatch X=10，总线忙（不完成 TX） */
+    push_coord(420.0f, 240.0f);   /* 首帧：dispatch，目标 X=10，总线忙（不完成 TX） */
     FakeClock_Advance(10u);
     Gimbal_Update();
     Gimbal_GetTelemetry(&t);
     TEST_ASSERT(t.cur_pulse[VISION_AIM_AXIS_X] == 10);
 
-    push_coord(520.0f, 240.0f);   /* 新坐标：想再走 20，但总线仍忙 → 拒发 → 不累加 */
+    push_coord(520.0f, 240.0f);   /* 新坐标：再走 20，总线仍忙 → 拒发但目标仍累加到 30（自愈） */
     FakeClock_Advance(10u);
     Gimbal_Update();
     Gimbal_GetTelemetry(&t);
-    TEST_ASSERT(t.cur_pulse[VISION_AIM_AXIS_X] == 10);   /* 仍 10，未变 30 */
+    TEST_ASSERT(t.cur_pulse[VISION_AIM_AXIS_X] == 30);   /* 无条件累加：10→30 */
+
+    /* 总线空出：下一新坐标发出的是最新绝对目标（30，非重放两条 10+20 增量）。 */
+    FakeUartPort_CompleteStepmotorTx();
+    push_coord(520.0f, 240.0f);   /* 同坐标，err 不变 → de=0 → 纯 P 再走 20 → 目标 50 */
+    FakeClock_Advance(10u);
+    Gimbal_Update();
+    Gimbal_GetTelemetry(&t);
+    TEST_ASSERT(t.cur_pulse[VISION_AIM_AXIS_X] == 50);
+    el = build_expected_dual(50, 0, exp);
+    if (expect_stepmotor_tx(exp, el) != 0) { return 1; }
     return 0;
 }
 
@@ -500,7 +545,7 @@ int main(void)
     RUN(test_arming_sequence_to_aiming);
     RUN(test_arming_timeout_stops);
     RUN(test_aiming_dispatch_accumulate);
-    RUN(test_aiming_bus_busy_no_accumulate);
+    RUN(test_aiming_bus_busy_still_accumulates_selfheal);
     RUN(test_deadband_no_dispatch);
     RUN(test_coord_stall_then_timeout);
     RUN(test_stop_deterministic);

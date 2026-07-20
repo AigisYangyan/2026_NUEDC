@@ -9,9 +9,10 @@
  * 单一所有者（数据链 §8.2 / V26 / V22）：
  * - 死区/比例/步长限幅/极性/轴程限幅几何：唯一在 vision_aim，本服务逐拍把自持 cur_pulse 传入
  *   VisionAim_Map，绝不复算第二份；
- * - 轴累计物理位置状态：唯一在本服务（vision_aim 纯函数不持位置），仅在成功下发后累加；
+ * - 轴累计绝对位置目标状态：唯一在本服务（vision_aim 纯函数不持位置），每拍无条件累加
+ *   （绝对重发幂等、忙帧自愈；轴程限幅仍由 vision_aim 依 cur_pulse 施加）；
  * - 坐标编解码/CRC/分帧：唯一在 uart_vision；坐标时效判定（seq 停顿）：唯一在本服务；
- * - RPM 限幅+×10：唯一在 emm42.c；脉冲→dir/magnitude 拆分：在 gimbal_stepbus。
+ * - RPM 限幅+×10 与 0xAA/FC 封装：唯一在 emm42.c；双轴拼帧按轴序：在 gimbal_stepbus（无 dir/幅值拆分）。
  *
  * odometry 运动前馈（契约 §21.3 设计定案 2）：本轮不接线——预留接入点在 Gimbal_Update 的 AIMING 拍
  * （届时读 Odometry_GetPose() 折入瞄准），几何等有目标世界模型时以契约修订补入；本头不含 odometry.h。
@@ -44,14 +45,14 @@ typedef enum {
 
 typedef struct {
     VisionAim_Config_T aim;      /* 透传 vision_aim：死区/kp/步长/极性/轴程限幅几何唯一所有者（本服务不复算） */
-    uint16_t step_speed_rpm;     /* 相对移动下发速度；emm42 限幅唯一所有者夹到 ≤100，本服务不复夹 */
+    uint16_t step_speed_rpm;     /* F1 快速位置预设速度（ARMING 期每轴设定一次）；emm42 限幅唯一所有者夹 ≤100，本服务不复夹 */
     uint32_t coord_timeout_ms;   /* AIMING 期坐标 seq 连续无进展达此时长 → STOPPED（安全停） */
     uint32_t ack_timeout_ms;     /* HANDSHAKING 期无确认帧达此时长 → STOPPED */
 } Gimbal_Config_T;
 
 typedef struct {
     Gimbal_State state;
-    int32_t  cur_pulse[VISION_AIM_AXIS_COUNT];   /* 轴累计脉冲位置（本服务唯一所有者；仅成功下发后累加） */
+    int32_t  cur_pulse[VISION_AIM_AXIS_COUNT];   /* 轴累计绝对脉冲目标（本服务唯一所有者；每拍无条件累加，忙帧自愈） */
     float    last_coord_x;
     float    last_coord_y;
     uint32_t last_coord_seq;                     /* 最近消费的坐标 seq */
@@ -78,8 +79,10 @@ bool Gimbal_SelectTopic(uint8_t main_task, uint8_t sub_task);
  * 周期推进。末尾恒推进 GimbalStepbus_Service（消费 TX 完成 + drain/discard 步进 RX）；
  * 自门控 GIMBAL_UPDATE_PERIOD_MS：到期 → UartVision_Poll → 状态机：
  *   HANDSHAKING：确认帧 seq 进展且回显号匹配 → ARMING（cur_pulse=0）；超 ack_timeout_ms → STOPPED。
- *   ARMING：总线空时逐拍下发一帧 enable(X)/enable(Y)/setzero(X)/setzero(Y)；四帧发完 → AIMING。
- *   AIMING：坐标 seq 进展 → VisionAim_Map → 每 delta≠0 轴总线空则下发相对移动、成功后 cur_pulse 累加；
+ *   ARMING：总线空时逐拍下发一帧 enable(X)/enable(Y)/preset(X)/preset(Y)/clear(X)/clear(Y)；
+ *           六帧发完 → AIMING（preset 设 mode=ABSOLUTE+速度，clear 建立绝对坐标零点）。
+ *   AIMING：坐标 seq 进展 → VisionAim_Map → 双轴无条件累加绝对目标 cur_pulse（轴程限幅经 vision_aim）
+ *           → 总线空则一帧 0xAA 发双轴绝对目标（忙则跳过、下一拍发最新目标自愈）；
  *           seq 连续无进展达 coord_timeout_ms → STOPPED（短暂停顿保持 AIMING 静默不动）。
  */
 void Gimbal_Update(void);

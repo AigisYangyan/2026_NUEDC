@@ -6,7 +6,7 @@
  *   IDLE       --SelectTopic ok-->        HANDSHAKING
  *   HANDSHAKING--确认帧号匹配-->           ARMING(cur_pulse=0)
  *   HANDSHAKING--ack_timeout_ms-->         STOPPED
- *   ARMING     --enable×2+setzero×2 发完--> AIMING
+ *   ARMING     --enable×2+preset×2+clear×2 发完--> AIMING
  *   AIMING     --coord seq 停顿≥timeout--> STOPPED（短暂停顿保持 AIMING 静默不动）
  *   任意态      --Gimbal_Stop-->            STOPPED
  *   任意态      --SelectTopic-->            HANDSHAKING（重选题）
@@ -19,12 +19,15 @@
 
 #include <stddef.h>
 
-/* ARMING 期逐拍下发的四帧序（enable X→enable Y→setzero X→setzero Y）。 */
+/* ARMING 期逐拍下发的六帧序：enable X→Y（使能锁轴）→ preset X→Y（F1 设 mode=ABSOLUTE+速度）
+ * → clear X→Y（0x0A 建立绝对坐标零点，令 cur_pulse=0 对应装配时物理位置）。 */
 #define GIMBAL_ARM_STEP_ENABLE_X 0u
 #define GIMBAL_ARM_STEP_ENABLE_Y 1u
-#define GIMBAL_ARM_STEP_ZERO_X   2u
-#define GIMBAL_ARM_STEP_ZERO_Y   3u
-#define GIMBAL_ARM_STEP_DONE     4u
+#define GIMBAL_ARM_STEP_PRESET_X 2u
+#define GIMBAL_ARM_STEP_PRESET_Y 3u
+#define GIMBAL_ARM_STEP_CLEAR_X  4u
+#define GIMBAL_ARM_STEP_CLEAR_Y  5u
+#define GIMBAL_ARM_STEP_DONE     6u
 
 static Gimbal_Config_T s_cfg;
 static bool            s_has_cfg = false;
@@ -53,9 +56,6 @@ static bool     s_has_coord_seq = false;
 static uint32_t s_last_coord_seq = 0u;
 static uint32_t s_last_fresh_ms = 0u;
 
-/* 双轴交替下发（避免每拍恒 X 先发挤占 Y 的收敛带宽） */
-static bool     s_dispatch_y_first = false;
-
 /* 遥测缓存 */
 static float    s_last_coord_x = 0.0f;
 static float    s_last_coord_y = 0.0f;
@@ -82,7 +82,6 @@ static void gimbal_reset_runtime(void)
     s_has_coord_seq = false;
     s_last_coord_seq = 0u;
     s_last_fresh_ms = 0u;
-    s_dispatch_y_first = false;
     s_last_coord_x = 0.0f;
     s_last_coord_y = 0.0f;
     s_axis_active[VISION_AIM_AXIS_X] = false;
@@ -174,11 +173,17 @@ static void gimbal_step_arming(uint32_t now_ms)
         case GIMBAL_ARM_STEP_ENABLE_Y:
             sent = GimbalStepbus_TrySendEnable(GIMBAL_STEPBUS_AXIS_Y, true);
             break;
-        case GIMBAL_ARM_STEP_ZERO_X:
-            sent = GimbalStepbus_TrySendSetZero(GIMBAL_STEPBUS_AXIS_X);
+        case GIMBAL_ARM_STEP_PRESET_X:
+            sent = GimbalStepbus_TrySendPreset(GIMBAL_STEPBUS_AXIS_X, s_cfg.step_speed_rpm);
             break;
-        case GIMBAL_ARM_STEP_ZERO_Y:
-            sent = GimbalStepbus_TrySendSetZero(GIMBAL_STEPBUS_AXIS_Y);
+        case GIMBAL_ARM_STEP_PRESET_Y:
+            sent = GimbalStepbus_TrySendPreset(GIMBAL_STEPBUS_AXIS_Y, s_cfg.step_speed_rpm);
+            break;
+        case GIMBAL_ARM_STEP_CLEAR_X:
+            sent = GimbalStepbus_TrySendClearZero(GIMBAL_STEPBUS_AXIS_X);
+            break;
+        case GIMBAL_ARM_STEP_CLEAR_Y:
+            sent = GimbalStepbus_TrySendClearZero(GIMBAL_STEPBUS_AXIS_Y);
             break;
         default:
             break;
@@ -195,13 +200,13 @@ static void gimbal_step_arming(uint32_t now_ms)
     }
 }
 
-/* AIMING 一拍：把一帧新坐标映射为脉冲增量并下发（双轴交替，仅成功下发才累加 cur_pulse）。 */
+/* AIMING 一拍：把一帧新坐标映射为脉冲增量，累加进双轴绝对目标，并一帧（0xAA）发出双轴绝对目标。
+ * 绝对方案：累加无条件（忙帧目标仍推进，下一拍发最新绝对目标自愈，不重放中间增量）；
+ * 轴程限幅由 vision_aim 依传入的 cur_pulse 施加，本服务不复算。 */
 static void gimbal_aim_dispatch(void)
 {
     UartVision_Coord_T coord;
     VisionAim_Result_T res;
-    VisionAim_Axis order[VISION_AIM_AXIS_COUNT];
-    uint32_t i = 0u;
 
     if (UartVision_GetLatestCoord(&coord) == false) {
         return;
@@ -233,26 +238,13 @@ static void gimbal_aim_dispatch(void)
     s_axis_active[VISION_AIM_AXIS_X] = res.active[VISION_AIM_AXIS_X];
     s_axis_active[VISION_AIM_AXIS_Y] = res.active[VISION_AIM_AXIS_Y];
 
-    if (s_dispatch_y_first == true) {
-        order[0] = VISION_AIM_AXIS_Y;
-        order[1] = VISION_AIM_AXIS_X;
-    } else {
-        order[0] = VISION_AIM_AXIS_X;
-        order[1] = VISION_AIM_AXIS_Y;
-    }
-    s_dispatch_y_first = (s_dispatch_y_first == false);
+    /* 唯一累加点：无条件推进双轴绝对目标（delta 已含轴程限幅；死区拍 delta=0 即目标不变）。 */
+    s_cur_pulse[VISION_AIM_AXIS_X] += res.delta_pulse[VISION_AIM_AXIS_X];
+    s_cur_pulse[VISION_AIM_AXIS_Y] += res.delta_pulse[VISION_AIM_AXIS_Y];
 
-    for (i = 0u; i < (uint32_t)VISION_AIM_AXIS_COUNT; i++) {
-        VisionAim_Axis axis = order[i];
-        int32_t delta = res.delta_pulse[axis];
-
-        if (delta == 0) {
-            continue;
-        }
-        if (GimbalStepbus_TrySendRelative((GimbalStepbus_Axis)axis, delta, s_cfg.step_speed_rpm) == true) {
-            s_cur_pulse[axis] += delta;   /* 唯一累加点：仅成功下发才推进位置 */
-        }
-    }
+    /* 总线空 → 一帧发双轴绝对目标（忙则本拍不发，下一拍发最新目标自愈）。 */
+    (void)GimbalStepbus_TrySendDualAbsolute(s_cur_pulse[VISION_AIM_AXIS_X],
+                                            s_cur_pulse[VISION_AIM_AXIS_Y]);
 }
 
 static void gimbal_step_aiming(uint32_t now_ms)

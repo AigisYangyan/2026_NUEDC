@@ -1,11 +1,10 @@
 /**
  * @file    test_gimbal_stepbus.c
- * @brief   Host tests for gimbal_stepbus (S05c, 契约 §21.3).
+ * @brief   Host tests for gimbal_stepbus 双轴绝对协同派发 (T-GQ2, 契约 plan_gimbal_qpos_codrive).
  *
- * 覆盖：脉冲→dir+magnitude 拆分 + emm42 相对位置组包 + 轴 id 映射 + speed 透传 emm42 限幅、
- * enable/set-zero 帧、pulses==0 不发、TX 忙阻塞、完成后重开、Service drain RX。
- * 交叉校验方式：用真实 Emm42_Build*Frame 组「期望帧」与被测捕获的 TX 逐字节比对——
- * 既证 gimbal_stepbus 的轴/方向/幅值映射，又不重复硬编码字节布局。
+ * 覆盖：双轴绝对目标一帧封装（0xAA 裹 FC_Y∥FC_X，Y=addr1 在前）+ F1 预设 + 0x0A 清零 + enable、
+ * TX 忙拒发 / 完成重开、Service drain RX。交叉校验：用真实 Emm42_Build*Frame 组「期望帧」与被测
+ * 捕获的 TX 逐字节比对——既证 gimbal_stepbus 的轴映射/拼装/封装，又不重复硬编码字节布局。
  */
 #include "app/service/gimbal/gimbal_stepbus.h"
 
@@ -51,77 +50,110 @@ static int expect_last_tx(const uint8_t *expect, uint8_t expect_len)
     return 0;
 }
 
-/* ---- 相对移动帧：轴 id / 方向 / 幅值 / 速度 --------------------------------- */
-
-static int test_relative_x_positive(void)
+/* 用真实 emm42 builder 组「双轴绝对协同」期望帧：0xAA 裹 FC_Y(y)∥FC_X(x)，Y(addr1) 在前。 */
+static uint8_t build_expected_dual(int32_t x_pulse, int32_t y_pulse, uint8_t *exp)
 {
-    uint8_t exp[32];
+    uint8_t fy[8];
+    uint8_t fx[8];
+    uint8_t ly = 0u;
+    uint8_t lx = 0u;
+    uint8_t subs[16];
     uint8_t exp_len = 0u;
-    setup();
 
-    /* 期望：X 轴(id=2)、正脉冲→CW、magnitude=12、speed=30、相对模式 */
-    Emm42_BuildPositionFrame((uint8_t)EMM42_AXIS_X, EMM42_DIR_CW, 30u,
-                             EMM42_POSITION_ACCEL_FIXED, 12u,
-                             EMM42_POSITION_MODE_RELATIVE, exp, &exp_len);
-
-    TEST_ASSERT(GimbalStepbus_TrySendRelative(GIMBAL_STEPBUS_AXIS_X, 12, 30u) == true);
-    return expect_last_tx(exp, exp_len);
+    Emm42_BuildQPosFrame((uint8_t)EMM42_AXIS_Y, y_pulse, fy, &ly);
+    Emm42_BuildQPosFrame((uint8_t)EMM42_AXIS_X, x_pulse, fx, &lx);
+    memcpy(subs, fy, ly);
+    memcpy(subs + ly, fx, lx);
+    Emm42_BuildMultiCmdFrame(subs, (uint8_t)(ly + lx), exp, &exp_len);
+    return exp_len;
 }
 
-static int test_relative_x_negative_dir(void)
+/* ---- 双轴绝对协同帧 -------------------------------------------------------- */
+
+static int test_dual_absolute_positive(void)
 {
     uint8_t exp[32];
-    uint8_t exp_len = 0u;
+    uint8_t el;
     setup();
 
-    /* 负脉冲 → CCW、magnitude=|−12|=12 */
-    Emm42_BuildPositionFrame((uint8_t)EMM42_AXIS_X, EMM42_DIR_CCW, 30u,
-                             EMM42_POSITION_ACCEL_FIXED, 12u,
-                             EMM42_POSITION_MODE_RELATIVE, exp, &exp_len);
-
-    TEST_ASSERT(GimbalStepbus_TrySendRelative(GIMBAL_STEPBUS_AXIS_X, -12, 30u) == true);
-    return expect_last_tx(exp, exp_len);
+    el = build_expected_dual(100, 50, exp);   /* X=100(id2), Y=50(id1) */
+    TEST_ASSERT(GimbalStepbus_TrySendDualAbsolute(100, 50) == true);
+    return expect_last_tx(exp, el);
 }
 
-static int test_relative_y_axis_id(void)
+static int test_dual_absolute_negative_targets(void)
 {
     uint8_t exp[32];
-    uint8_t exp_len = 0u;
+    uint8_t el;
     setup();
 
-    Emm42_BuildPositionFrame((uint8_t)EMM42_AXIS_Y, EMM42_DIR_CW, 30u,
-                             EMM42_POSITION_ACCEL_FIXED, 5u,
-                             EMM42_POSITION_MODE_RELATIVE, exp, &exp_len);
-
-    TEST_ASSERT(GimbalStepbus_TrySendRelative(GIMBAL_STEPBUS_AXIS_Y, 5, 30u) == true);
-    return expect_last_tx(exp, exp_len);
+    /* 负绝对目标：符号由 int32 承载（无 dir 字节、无幅值拆分）。 */
+    el = build_expected_dual(-50, -2048, exp);
+    TEST_ASSERT(GimbalStepbus_TrySendDualAbsolute(-50, -2048) == true);
+    return expect_last_tx(exp, el);
 }
 
-static int test_relative_speed_clamped_by_emm42(void)
+static int test_dual_absolute_zero_still_sends(void)
 {
     uint8_t exp[32];
-    uint8_t exp_len = 0u;
+    uint8_t el;
     setup();
 
-    /* speed=250 传下去，emm42 是唯一限幅所有者（夹到 100 再 ×10）；期望帧同样用 250 组，
-     * 两侧都经 emm42 夹紧 → 相等，证 gimbal_stepbus 未自夹、原样透传。 */
-    Emm42_BuildPositionFrame((uint8_t)EMM42_AXIS_X, EMM42_DIR_CW, 250u,
-                             EMM42_POSITION_ACCEL_FIXED, 3u,
-                             EMM42_POSITION_MODE_RELATIVE, exp, &exp_len);
-
-    TEST_ASSERT(GimbalStepbus_TrySendRelative(GIMBAL_STEPBUS_AXIS_X, 3, 250u) == true);
-    return expect_last_tx(exp, exp_len);
+    /* 绝对方案：目标未变（0,0）仍恒发一帧（幂等，保帧长与心跳节奏）。 */
+    el = build_expected_dual(0, 0, exp);
+    TEST_ASSERT(GimbalStepbus_TrySendDualAbsolute(0, 0) == true);
+    return expect_last_tx(exp, el);
 }
 
-static int test_relative_zero_pulses_no_send(void)
+/* ---- F1 预设 / 0x0A 清零 / enable ------------------------------------------ */
+
+static int test_preset_frame(void)
 {
-    uint8_t got[32];
+    uint8_t exp[32];
+    uint8_t el = 0u;
     setup();
 
-    TEST_ASSERT(GimbalStepbus_TrySendRelative(GIMBAL_STEPBUS_AXIS_X, 0, 30u) == false);
-    /* 未发任何帧：last_tx 长度 0 */
-    TEST_ASSERT(FakeUartPort_CopyStepmotorTx(got, sizeof(got)) == 0u);
-    return 0;
+    /* 预设内部固定 mode=ABSOLUTE、accel=0；仅速度可配，交 emm42 唯一限幅。 */
+    Emm42_BuildQPosPresetFrame((uint8_t)EMM42_AXIS_X, 30u, EMM42_POSITION_ACCEL_FIXED,
+                               EMM42_POSITION_MODE_ABSOLUTE, exp, &el);
+    TEST_ASSERT(GimbalStepbus_TrySendPreset(GIMBAL_STEPBUS_AXIS_X, 30u) == true);
+    return expect_last_tx(exp, el);
+}
+
+static int test_preset_speed_passthrough_to_emm42_clamp(void)
+{
+    uint8_t exp[32];
+    uint8_t el = 0u;
+    setup();
+
+    /* speed=250 原样透传 emm42（唯一限幅所有者夹到 100 ×10）；两侧同经 emm42 → 相等。 */
+    Emm42_BuildQPosPresetFrame((uint8_t)EMM42_AXIS_Y, 250u, EMM42_POSITION_ACCEL_FIXED,
+                               EMM42_POSITION_MODE_ABSOLUTE, exp, &el);
+    TEST_ASSERT(GimbalStepbus_TrySendPreset(GIMBAL_STEPBUS_AXIS_Y, 250u) == true);
+    return expect_last_tx(exp, el);
+}
+
+static int test_clearzero_frame(void)
+{
+    uint8_t exp[32];
+    uint8_t el = 0u;
+    setup();
+
+    /* 绝对坐标零点用 0x0A（清当前位置），非 0x93 单圈回零。 */
+    Emm42_BuildClearPositionFrame((uint8_t)EMM42_AXIS_Y, exp, &el);
+    TEST_ASSERT(GimbalStepbus_TrySendClearZero(GIMBAL_STEPBUS_AXIS_Y) == true);
+    return expect_last_tx(exp, el);
+}
+
+static int test_enable_frame(void)
+{
+    uint8_t exp[32];
+    uint8_t el = 0u;
+    setup();
+
+    Emm42_BuildEnableFrame((uint8_t)EMM42_AXIS_X, EMM42_ENABLE_ON, exp, &el);
+    TEST_ASSERT(GimbalStepbus_TrySendEnable(GIMBAL_STEPBUS_AXIS_X, true) == true);
+    return expect_last_tx(exp, el);
 }
 
 /* ---- TX 忙阻塞 / 完成重开 -------------------------------------------------- */
@@ -129,54 +161,27 @@ static int test_relative_zero_pulses_no_send(void)
 static int test_tx_busy_blocks_second(void)
 {
     uint8_t exp[32];
-    uint8_t exp_len = 0u;
+    uint8_t el;
     setup();
 
-    Emm42_BuildPositionFrame((uint8_t)EMM42_AXIS_X, EMM42_DIR_CW, 30u,
-                             EMM42_POSITION_ACCEL_FIXED, 7u,
-                             EMM42_POSITION_MODE_RELATIVE, exp, &exp_len);
-
-    TEST_ASSERT(GimbalStepbus_TrySendRelative(GIMBAL_STEPBUS_AXIS_X, 7, 30u) == true);
+    el = build_expected_dual(7, 9, exp);
+    TEST_ASSERT(GimbalStepbus_TrySendDualAbsolute(7, 9) == true);
     TEST_ASSERT(GimbalStepbus_IsIdle() == false);
     /* 总线忙：第二帧被拒且不覆盖首帧 */
-    TEST_ASSERT(GimbalStepbus_TrySendRelative(GIMBAL_STEPBUS_AXIS_Y, 9, 30u) == false);
-    return expect_last_tx(exp, exp_len);
+    TEST_ASSERT(GimbalStepbus_TrySendDualAbsolute(11, 13) == false);
+    return expect_last_tx(exp, el);
 }
 
 static int test_complete_tx_reenables(void)
 {
     setup();
 
-    TEST_ASSERT(GimbalStepbus_TrySendRelative(GIMBAL_STEPBUS_AXIS_X, 7, 30u) == true);
+    TEST_ASSERT(GimbalStepbus_TrySendDualAbsolute(7, 9) == true);
     TEST_ASSERT(GimbalStepbus_IsIdle() == false);
     FakeUartPort_CompleteStepmotorTx();
     TEST_ASSERT(GimbalStepbus_IsIdle() == true);
-    TEST_ASSERT(GimbalStepbus_TrySendRelative(GIMBAL_STEPBUS_AXIS_Y, 9, 30u) == true);
+    TEST_ASSERT(GimbalStepbus_TrySendDualAbsolute(11, 13) == true);
     return 0;
-}
-
-/* ---- enable / set-zero 帧 -------------------------------------------------- */
-
-static int test_enable_frame(void)
-{
-    uint8_t exp[32];
-    uint8_t exp_len = 0u;
-    setup();
-
-    Emm42_BuildEnableFrame((uint8_t)EMM42_AXIS_X, EMM42_ENABLE_ON, exp, &exp_len);
-    TEST_ASSERT(GimbalStepbus_TrySendEnable(GIMBAL_STEPBUS_AXIS_X, true) == true);
-    return expect_last_tx(exp, exp_len);
-}
-
-static int test_setzero_frame(void)
-{
-    uint8_t exp[32];
-    uint8_t exp_len = 0u;
-    setup();
-
-    Emm42_BuildSetZeroFrame((uint8_t)EMM42_AXIS_Y, exp, &exp_len);
-    TEST_ASSERT(GimbalStepbus_TrySendSetZero(GIMBAL_STEPBUS_AXIS_Y) == true);
-    return expect_last_tx(exp, exp_len);
 }
 
 /* ---- Service drain RX ------------------------------------------------------ */
@@ -200,15 +205,15 @@ int main(void)
 {
     int fails = 0;
 
-    RUN(test_relative_x_positive);
-    RUN(test_relative_x_negative_dir);
-    RUN(test_relative_y_axis_id);
-    RUN(test_relative_speed_clamped_by_emm42);
-    RUN(test_relative_zero_pulses_no_send);
+    RUN(test_dual_absolute_positive);
+    RUN(test_dual_absolute_negative_targets);
+    RUN(test_dual_absolute_zero_still_sends);
+    RUN(test_preset_frame);
+    RUN(test_preset_speed_passthrough_to_emm42_clamp);
+    RUN(test_clearzero_frame);
+    RUN(test_enable_frame);
     RUN(test_tx_busy_blocks_second);
     RUN(test_complete_tx_reenables);
-    RUN(test_enable_frame);
-    RUN(test_setzero_frame);
     RUN(test_service_drains_rx);
 
     if (fails == 0) {
