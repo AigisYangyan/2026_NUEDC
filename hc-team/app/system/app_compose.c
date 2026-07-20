@@ -211,11 +211,14 @@ static void profiledstraight_exit(void)
 
 /* ---- 运行条目表（scheduler 全局条目索引 = 本数组下标）----------------------- */
 
+/* GrayTest 的条目下标（self-draw 登记与 s_entries[] 同源对齐；插入条目时同步改此值）。 */
+#define APP_ENTRY_IDX_GRAYTEST 3u
+
 static const Scheduler_Entry_T s_entries[] = {
     { "SpeedTune",   speedtune_enter, speedtune_step, speedtune_exit },  /* idx 0 */
     { "EncoderTest", enctest_enter,   enctest_step,   enctest_exit },    /* idx 1 */
     { "MotorDir",    motordir_enter,  motordir_step,  motordir_exit },   /* idx 2 */
-    { "GrayTest",    graytest_enter,  graytest_step,  graytest_exit },   /* idx 3 */
+    { "GrayTest",    graytest_enter,  graytest_step,  graytest_exit },   /* idx 3 = APP_ENTRY_IDX_GRAYTEST */
     { "LineFollow",  linefollow_enter, linefollow_step, linefollow_exit }, /* idx 4 */
     { "ProfiledStraight", profiledstraight_enter, profiledstraight_step, profiledstraight_exit }, /* idx 5 */
 };
@@ -267,8 +270,8 @@ void AppCompose_Install(void)
                    Menu_Tick);
     Menu_Setup(s_groups,
                (uint8_t)(sizeof(s_groups) / sizeof(s_groups[0])));
-    /* GrayTest（s_entries idx3）自绘整屏：标定面板取代 RUNNING 横幅（W7 §29 opt-in）。 */
-    Menu_SetEntrySelfDraw(3u);
+    /* GrayTest 自绘整屏：标定面板取代 RUNNING 横幅（W7 §29 opt-in）。 */
+    Menu_SetEntrySelfDraw(APP_ENTRY_IDX_GRAYTEST);
     /* 开机把持久化循迹增益（或默认）载入并应用到 line_follow 外环 PID。
      * LineFollow 运行条目 on_enter 亦按此序（LineFollow_Init 归零后重调 ParamTune_Init 重推）。 */
     ParamTune_Init();

@@ -3423,3 +3423,8 @@ void Menu_SetEntrySelfDraw(uint8_t entry_index); /* 标记 scheduler 条目 RUN_
   （502 基线 + 6 gray 面板用例 + 1 menu self-draw 用例），36 套件全绿。E05 固件 exit 0、
   0 diagnostics、`gray_check.o`+`menu.o`+`app_compose.o` 重编，linkInfo.xml 时间戳=构建时刻，
   `Menu_SetEntrySelfDraw`/`GrayCheck_Update`/`Hmi_PrintLine` 进链 6 符号命中。
+- arch-auditor（c97c94d 后）：六核查点全过、无阻断/无重要；3 建议级全部采纳修复——
+  ① app_compose 硬编码 3u → `APP_ENTRY_IDX_GRAYTEST` 命名索引（防条目插入静默漂移）；
+  ② menu.c 位宽字面量 32 两处 → `MENU_SELF_DRAW_MASK_BITS` 共用常量；
+  ③ PrintLine 失败重试路径补用例 `test_panel_retry_after_not_ready`（激活 FakeHmi_SetReady
+  死代码，§8.3 条件③闭合）。修复后主机 **510 PASS 0 FAIL**、固件 exit 0 / 0 diagnostics 复跑通过。

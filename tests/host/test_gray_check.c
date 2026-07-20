@@ -19,6 +19,7 @@
 #include "driver/uart_vofa/uart_vofa.h"
 
 #include <math.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -30,6 +31,7 @@ extern void FakeUartPort_ResetAll(void);
 extern void FakeUartPort_CompleteVofaTx(void);
 extern uint32_t FakeUartPort_CopyVofaTx(uint8_t *out, uint32_t capacity);
 extern void FakeHmi_Reset(void);
+extern void FakeHmi_SetReady(bool ready);
 extern const char *FakeHmi_GetRow(uint8_t row);
 extern uint32_t FakeHmi_GetRowPrintCount(uint8_t row);
 
@@ -276,6 +278,25 @@ static int test_panel_hundred_ms_gating(void)
     return 0;
 }
 
+/* PrintLine 失败（显示未就绪/总线错）→ 行缓存不更新 → 下个面板周期重试整行成功。 */
+static int test_panel_retry_after_not_ready(void)
+{
+    setup();
+    FakeGrayPort_SetDarkChannels(0x001u);
+    FakeHmi_SetReady(false);
+    GrayCheck_Update(1000u);                    /* 面板到期但 PrintLine 全拒 → 零绘制、缓存不更新 */
+    FakeUartPort_CompleteVofaTx();
+    TEST_ASSERT_TRUE(FakeHmi_GetRowPrintCount(0u) == 0u);
+
+    FakeHmi_SetReady(true);
+    GrayCheck_Update(1100u);                    /* 下周期缓存仍空 → 整行重试成功 */
+    TEST_ASSERT_ROW(0u, "L:#...........");
+    TEST_ASSERT_ROW(3u, "X:001 N:01");
+    TEST_ASSERT_TRUE(FakeHmi_GetRowPrintCount(0u) == 1u);
+    printf("PASS: test_panel_retry_after_not_ready\n");
+    return 0;
+}
+
 /* 重进条目 = 统计清零 + 缓存失效全重绘（现场清零手势：BACK→ENTER）。 */
 static int test_panel_restart_clears_stats(void)
 {
@@ -311,6 +332,7 @@ int main(void)
     failures += test_panel_toggle_count_saturates();
     failures += test_panel_row_diff_no_redraw();
     failures += test_panel_hundred_ms_gating();
+    failures += test_panel_retry_after_not_ready();
     failures += test_panel_restart_clears_stats();
 
     if (failures != 0) {

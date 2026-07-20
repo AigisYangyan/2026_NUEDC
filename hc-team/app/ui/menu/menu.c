@@ -28,6 +28,9 @@
 /* 标题行 + 3 个可视项行（64px / 16px 字模 = 4 行）。 */
 #define MENU_VISIBLE_ITEMS 3u
 
+/* self-draw 标记集位宽（= s_self_draw_mask 的位数）；登记面与消费面共用防失一致。 */
+#define MENU_SELF_DRAW_MASK_BITS 32u
+
 static Menu_Screen         s_screen;
 static const Menu_Group_T *s_groups;
 static uint8_t             s_group_count;
@@ -128,7 +131,7 @@ static void render_run_active(void)
     int16_t active = Scheduler_GetActiveEntry();
     uint8_t i;
 
-    if ((active >= 0) && (active < 32) &&
+    if ((active >= 0) && ((uint8_t)active < MENU_SELF_DRAW_MASK_BITS) &&
         (((s_self_draw_mask >> (uint8_t)active) & 1u) != 0u)) {
         return; /* self-draw 条目：显示权已让渡，menu 不画横幅、不清行 */
     }
@@ -284,7 +287,7 @@ void Menu_Setup(const Menu_Group_T *groups, uint8_t group_count)
 
 void Menu_SetEntrySelfDraw(uint8_t entry_index)
 {
-    if (entry_index < 32u) { /* 标记集位宽上限；越界登记视为装配错误，静默忽略防 UB 移位 */
+    if (entry_index < MENU_SELF_DRAW_MASK_BITS) { /* 越界登记视为装配错误，静默忽略防 UB 移位 */
         s_self_draw_mask |= (uint32_t)1u << entry_index;
     }
 }
