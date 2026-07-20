@@ -239,11 +239,15 @@ QEI2.ccp1PinConfig.$name                = "ti_driverlib_gpio_GPIOPinGeneric17";
 SYSCTL.forceDefaultClkConfig = true;
 SYSCTL.clockTreeEn           = true;
 
+/* 步进总线（ZDT X42S 二代双电机共总线）：2026-07-20 由 230400 改 256000。
+ * X42S 手册 §1.10 UartBaud 菜单只有 9600/19200/25000/38400/57600/115200/
+ * 256000/512000/921600 —— **没有 230400**，旧值与电机可选项相差 11%，无法通信。
+ * 两台电机须由用户用厂商上位机同步改成 256000（见云台上位机配置清单）。 */
 UART1.enableFIFO                        = true;
 UART1.enabledInterrupts                 = ["DMA_DONE_RX"];
 UART1.enabledDMARXTriggers              = "DL_UART_DMA_INTERRUPT_RX";
 UART1.enabledDMATXTriggers              = "DL_UART_DMA_INTERRUPT_TX";
-UART1.targetBaudRate                    = 230400;
+UART1.targetBaudRate                    = 256000;
 UART1.$name                             = "UART_STEPPER_BUS";
 UART1.peripheral.$assign                = "UART7";
 UART1.peripheral.rxPin.$assign          = "PB16";
