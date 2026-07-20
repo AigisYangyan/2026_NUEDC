@@ -168,6 +168,10 @@ class Emm42_API {
   +Emm42_BuildStartHomingFrame()
   +Emm42_BuildExitHomingFrame()
   +Emm42_BuildPidConfigFrame()
+  +Emm42_BuildQPosPresetFrame()
+  +Emm42_BuildQPosFrame()
+  +Emm42_BuildMultiCmdFrame()
+  +Emm42_BuildClearPositionFrame()
 }
 
 class BslEntry_API {
