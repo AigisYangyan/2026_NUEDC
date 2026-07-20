@@ -3428,3 +3428,109 @@ void Menu_SetEntrySelfDraw(uint8_t entry_index); /* 标记 scheduler 条目 RUN_
   ② menu.c 位宽字面量 32 两处 → `MENU_SELF_DRAW_MASK_BITS` 共用常量；
   ③ PrintLine 失败重试路径补用例 `test_panel_retry_after_not_ready`（激活 FakeHmi_SetReady
   死代码，§8.3 条件③闭合）。修复后主机 **510 PASS 0 FAIL**、固件 exit 0 / 0 diagnostics 复跑通过。
+
+## 30. W8 契约（GimbalTune 云台位置环静态调参条目——VOFA 命令模式）——冻结
+
+- **task_id**: W8-gimbaltune
+- **goal**: DEBUG 组新增第 7 运行条目 `GimbalTune`：云台（二维平台）位置环 PD 静态调参链路，
+  照 SpeedTune（S03/W1）模板走 **VOFA 命令模式**——进页零出力、上位机命令改 kp/kd/死区/步长、
+  JustFloat 波形看误差/增量/绝对目标/状态、退页确定性安全停。补齐拓扑 V26 附注与记忆登记的
+  两个能力缺口：`vision_aim` 无运行时 setter、无云台 VOFA profile。
+- **通道裁定（为何走 VOFA 而非 TUNE 参数组）**：位置环调参的验收对象是**波形形态**
+  （阶跃收敛速度/超调/振荡/死区抖动），OLED 按钮无波形不可用；TUNE/param_tune 面向比赛日
+  现场快调「已定型参数」并持久化。静态调参＝板凳期定型，**终值回填 `app_compose` `s_gt_cfg`
+  编译期默认**，不入 flash blob——不新增 param_tune 字段，无双所有者。与「动态调参走 TUNE 组」
+  裁定不冲突：分工是 板凳定型=VOFA（要波形）、赛日微调=TUNE（要按钮+掉电保存），云台 PD
+  今后若需赛日微调再以契约修订入 TUNE（届时唯一写者从 VOFA 切换为 param_tune，不并存）。
+- **接口辩护（能力解释）**：
+  - `Gimbal_SetAimTuning`——「云台能在运行时更新瞄准 PD 调参子集（kp/kd/deadband/max_step，
+    逐轴）」；调参需求已真实存在，非预支。center/sign/travel_limit **不在其内**（几何/极性/行程
+    是装配事实，运行中改=事故面）。
+  - `Gimbal_ReselectTopic`——「云台能在安全停后重发最近一次选题重新握手」；调参会话中坐标
+    超时→STOPPED 后不丢 VOFA 会话恢复（否则须退页重进，cmd 组被安全复位、调参值全丢）。
+  - `Gimbal_Telemetry_T` 扩 `last_error_px[2]`/`last_delta_pulse[2]`——「云台能报告最近一拍
+    瞄准误差与输出增量」；调参波形两条主通道；gimbal 已算值（`res.error_px`/`res.delta_pulse`）
+    的只读缓存，**零第二次计算**（同 axis_active 先例）。
+- **安全机制核心事实（冻结依据，源码 vision_aim.c:94-102 实读）**：floor-1 语义（越死区最小走
+  1 脉冲）⇒ **kp=0 不是零出力**——|error|>deadband 时 raw=0 也 floor 到 ±1 脉冲/帧恒向爬行。
+  进页安全初值靠 **DB=10000px**（整幅图像在死区内 → delta 恒 0），零增益只是辅助。
+  cmd 清洗（§7 外部输入边界，唯一清洗点=tuning_gimbal Apply）：kp/kd/DB 负值→0、MS<1→1（对齐
+  vision_aim 前置条件 max_step>=1）、MS float→int32 截断。
+- **数据链（§8.2 逐值确认）**：既有链全不动——像素坐标→(gimbal seq 时效)→`VisionAim_Map`
+  （PD 数学/死区/floor/步长/极性/轴程唯一所有者）→delta→`cur_pulse` 唯一累加点→stepbus 0xAA。
+  新增链：`VOFA cmd → TuningGimbal_Apply（清洗唯一点）→ Gimbal_SetAimTuning（拷入 s_cfg.aim
+  四调参字段）→ VisionAim_Init（应用唯一点）`。tx 组：增益/DB/MS=cmd 单向回显，
+  err/delta/cur/state=`Gimbal_GetTelemetry` 快照单向副本；无反向路径。
+- **motor-safety（§8.1，逐项）**：进页 DB=10000 确定性零出力；退页 `Tuning_ExitProfile` →
+  `Gimbal_Stop`（STOPPED 停止下发，步进保持使能力矩=云台安全态）；坐标/握手超时既有 STOPPED
+  兜底不动；MS floor 1 + `travel_limit_pulse` 轴程软限位仍唯一在 vision_aim；emm42 RPM≤100
+  不复夹；**sign 极性不进 VOFA cmd**（防运行中误反转制造正反馈跑飞）——极性首验 SOP（低 kp、
+  小 MS、看 err 收敛方向，发散立即 BACK 退页，错则改 `s_gt_cfg.aim.sign`）随 docs 交付。
+- **cmd 组（7）**：`XP`/`XD`/`YP`/`YD`（逐轴 kp/kd）、`DB`（双轴共享死区 px）、`MS`（双轴共享
+  步长脉冲）、`GO`（≥0.5 边沿一次性消费 → `Gimbal_ReselectTopic`，应用后本模块清 0，属 cmd
+  所有者内部消费非反向写）。安全初值：增益全 0、DB=10000、MS=1、GO=0。逐轴死区/步长的
+  非对称终值可直接改 `s_gt_cfg` 编译期字段（API 保持逐轴数组，cmd 层共享是会话便利）。
+- **tx 组（13，通道序）**：[0]err_x [1]err_y [2]delta_x [3]delta_y [4]cur_x [5]cur_y
+  [6]state [7]XP [8]XD [9]YP [10]YD [11]DB [12]MS。
+- **生命周期（app_compose，顺序约束是契约的一部分）**：
+  enter = `Gimbal_Init(&s_gt_cfg)` → `Tuning_EnterProfile(TUNING_PROFILE_GIMBAL_AIM)`
+  （vofa 清表/排空积压 RX → 安全 cmd → 注册 → `Gimbal_Stop` + 立即应用安全 cmd）→
+  `Gimbal_SelectTopic(GIMBALTUNE_TOPIC_MAIN/SUB 装配层占位常量)`；**SelectTopic 必须在
+  EnterProfile 之后**（Enter 内 Gimbal_Stop 会杀握手）。step = `Tuning_Update()`（10ms 门控
+  vofa_run→Apply→RefreshTx，末尾恒 `Gimbal_Update` 自门控泵）。exit = `Tuning_ExitProfile()`。
+  `s_gt_cfg` 全字段 UNCALIBRATED 占位注释（center 按视觉分辨率、sign 待极性首验、travel_limit
+  按机械行程、step_speed_rpm 保守 30、coord_timeout 500ms、ack_timeout 1000ms）。
+
+### 30.1 allowed_files（无 glob）
+
+| 文件 | 动作 |
+|---|---|
+| `hc-team/app/service/gimbal/gimbal.h` / `.c` | 修改（SetAimTuning/ReselectTopic/遥测扩两字段——S05c §21.3 契约修订 1） |
+| `hc-team/app/service/tuning/tuning.h` / `.c` | 修改（enum 增 `TUNING_PROFILE_GIMBAL_AIM` + profile 分派——S03 §9 契约修订 3） |
+| `hc-team/app/service/tuning/tuning_gimbal.h` / `.c` | 新建（服务内私有子模块，五函数模式同 tuning_chassis） |
+| `hc-team/app/system/app_compose.c` | 修改（条目 idx6 GimbalTune + `s_gt_cfg` + 占位题号常量 + 头注释） |
+| `tests/host/test_gimbal.c` | 追加用例（setter 生效/清洗/ReselectTopic/遥测新字段） |
+| `tests/host/test_tuning_gimbal.c` | 新建 |
+| `tests/host/Makefile` | 追加 test_tuning_gimbal 目标/run/clean + SRC 变量 |
+| `.gitignore` | 追加 test_tuning_gimbal 产物 |
+| `Debug/makefile` | 登记 `tuning_gimbal.o`（ORDERED_OBJS；tuning 目录 -include 已有） |
+| `docs/云台位置环调参指南.md` | 新建（VOFA 配置 + 调参 SOP + 通道/命令表） |
+| `agent/phase4_app_rewrite/plan_app_first_order.md` | 状态回写 |
+
+forbidden_files：`hc-team/middleware/vision_aim/**`（PD 数学不动，V26）、`hc-team/driver/**`
+（emm42/stepmotor_uart/uart_vision/uart_vofa/clock 只调用）、`hc-team/app/service/param_tune/**`
+与 `hc-team/driver/param_store/**`（通道裁定明确不动）、`hc-team/app/service/gimbal/gimbal_stepbus.*`
+（无需改）、`hc-team/app/tasks/**`（冻结存量）、`hc-team/app/{scheduler,ui}/**`、`board.syscfg`、
+tests/host 既有其余 `test_*.c` 与全部 `fake_*.c`（fake_uart_port 已有 Vision RX 注入 + VOFA
+RX/TX 钩子，够用）。
+
+### 30.2 preserved_behavior
+
+- 既有 6 条目（SpeedTune/EncoderTest/MotorDir/GrayTest/LineFollow/ProfiledStraight）行为不变；
+  `APP_ENTRY_IDX_GRAYTEST=3` 不变（新条目追加在尾部 idx6）。
+- CHASSIS_SPEED profile 行为逐位不变（tuning.c 分派重构不得改其 Enter/Update/Exit 时序）。
+- gimbal 既有状态机/超时/累加点/首帧播种逐位不变；`Gimbal_SetAimTuning` 不触碰运行状态
+  （不清 prev_error/不改 state——调参换挡不打断收敛环）。
+- vision_aim 源码零改动。
+
+### 30.3 证据行（≤6，恰 1 条固件构建行）
+
+| 行 | 名称 | 命令 | 预期 |
+|---|---|---|---|
+| E01 | 依赖纯净 | Grep `#include` 行（path=`hc-team/app/service/tuning` + `hc-team/app/service/gimbal`） | tuning_gimbal.c 只见 `tuning_gimbal.h`/`gimbal.h`/`uart_vofa.h`；gimbal.c 无新增 include；两目录 `app/tasks/\|app/scheduler/\|app/ui/\|ti_msp_dl_config\|ti/driverlib\|param_tune\|param_store` 0 命中 |
+| E02 | 装配层闸门 | PowerShell：`& .claude/hooks/arch-scan.ps1 -Mode check` | 空输出 |
+| E03 | 范围审计 | `git status` + `git diff --stat` 对照 §30.1 | 无 allowed_files 之外改动（`.ccsproject`/`tests/host/test_emm42.exe` 会话前既存不计） |
+| E04 | 主机测试 | PowerShell：`rtk proxy make -C tests/host all` | **510 基线（W7 §29.7）+ ≥10 新用例，0 FAIL**。必含：Enter 后大误差坐标零步进 TX（DB=10000 零出力）；负增益/负 DB 清洗为 0；MS<1 floor 1；setter 生效（kp 改变 → delta 按新值）；setter 不清 prev_error（换挡不断环）；ReselectTopic 未选过题→false、选过→重握手；GO 单次消费（一次 Apply 只触发一次）；Exit 后 STOPPED 无 TX；帧=13 通道；遥测 last_error_px/last_delta_pulse 死区拍 error 有值 delta=0 |
+| E05 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 diagnostics、`tuning_gimbal.o` 新进链 + `gimbal.o`/`tuning.o`/`app_compose.o` 重编经 linkInfo.xml 确证；`Gimbal_SetAimTuning`/`Gimbal_ReselectTopic`/`TuningGimbal_Apply` 可达 |
+
+### 30.4 Stop conditions
+
+- 若调参需要第二处 PD 计算、误差重算或 vision_aim 修改 → 停止（V26 单一所有者）；
+- 若需要 param_tune/flash 持久化 → 停止（通道裁定重议）；
+- 若 GO 需要队列/重试/多次重发机制 → 停止（单次边沿够用，失败下拍再按）；
+- 若 tuning.c 分派需要函数指针表/注册框架 → 停止（两个 profile，switch 够用，§8.3）；
+- baseline drift：BUILD 起测 host ≠ 510 PASS → 停止，先改契约。
+
+### 30.5 契约修订记录
+
+- 冻结（本提交）：范围/接口/安全机制（DB=10000 进页零出力，floor-1 爬行事实）/5 证据行确定。
