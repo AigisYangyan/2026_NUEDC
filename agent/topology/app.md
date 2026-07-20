@@ -265,13 +265,15 @@ class Gimbal_API {
 }
 
 class GimbalStepbus_API {
-  <<app:service, NEW S05c, private to gimbal>>
+  <<app:service, NEW S05c, T-GQ2 2026-07-20 relative to absolute rework, private to gimbal>>
   +GimbalStepbus_Init()
   +GimbalStepbus_Service()
   +GimbalStepbus_IsIdle() bool
-  +GimbalStepbus_TrySendRelative(axis, pulses, speed_rpm) bool
+  +GimbalStepbus_TrySendDualAbsolute(x_pulse, y_pulse) bool
   +GimbalStepbus_TrySendEnable(axis, on) bool
-  +GimbalStepbus_TrySendSetZero(axis) bool
+  +GimbalStepbus_TrySendPreset(axis, speed_rpm) bool
+  +GimbalStepbus_TrySendClearZero(axis) bool
+  note: T-GQ2 removed TrySendRelative (0xFD relative, pulse to dir/magnitude split) and TrySendSetZero (0x93 single-turn zero); dual-axis absolute one-frame dispatch (0xAA wrapping FC_Y||FC_X), F1 preset (mode=ABSOLUTE), 0x0A clear-position zero
 }
 
 class EncoderTest_API {
