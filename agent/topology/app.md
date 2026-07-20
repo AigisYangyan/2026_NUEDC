@@ -75,8 +75,9 @@ class Menu_API {
 }
 
 class MenuUI_API {
-  <<app:ui, NEW UI01, revision 2 two-level>>
+  <<app:ui, NEW UI01, revision 2 two-level, W7 §29 self-draw opt-in revision 2>>
   +Menu_Setup(groups, group_count)
+  +Menu_SetEntrySelfDraw(entry_index)
   +Menu_Tick(now_ms)
   +Menu_GetScreen() Menu_Screen
 }
@@ -291,7 +292,7 @@ class MotorCheck_API {
 }
 
 class GrayCheck_API {
-  <<app:service, NEW W4, DEBUG entry idx3>>
+  <<app:service, NEW W4, W7 §29 field calibration panel + menu self-draw opt-in, DEBUG entry idx3>>
   +GrayCheck_Start()
   +GrayCheck_Update(now_ms)
   +GrayCheck_Stop()
@@ -449,6 +450,7 @@ System_API --> AppCompose_API : AppCompose_Install, W2, sole caller
 
 AppCompose_API --> SchedulerEntry_API : Scheduler_Init(s_entries, count, background_step=Menu_Tick), first real caller W2
 AppCompose_API --> MenuUI_API : Menu_Setup(s_groups, count), first real caller W2
+AppCompose_API --> MenuUI_API : Menu_SetEntrySelfDraw(APP_ENTRY_IDX_GRAYTEST), W7 §29 self-draw opt-in registration
 AppCompose_API ..> Tuning_API : entry hooks call Tuning_EnterProfile/Update/ExitProfile (Scheduler_Entry_T fn ptrs owned by AppCompose, invoked later by SchedulerEntry_API)
 SchedulerEntry_API ..> AppCompose_API : Scheduler_Run invokes active entry's on_enter/on_step/on_exit fn ptrs each tick (opaque, registered by AppCompose)
 SchedulerEntry_API ..> MenuUI_API : Scheduler_Run invokes background_step = Menu_Tick each idle tick (fn ptr, registered by AppCompose)
@@ -491,7 +493,14 @@ Menu_API ..> OLED_API : VIOLATION UI calls Driver
 %% leaving the whole screen to the active entry's on_step. No entry opt-in flag exists yet (future
 %% extension point), so today there is no dual-writer conflict — this is still the same
 %% MenuUI_API --> Hmi_API : Hmi_PrintLine edge below, not a new dependency.
-MenuUI_API --> SchedulerEntry_API : GetEntryCount/GetEntryName/EnterEntry/LeaveEntry, same-layer controlled
+%% W7 (2026-07-20, contract §29 amendment 2): the opt-in flag predicted above lands —
+%% Menu_SetEntrySelfDraw(entry_index) sets a bit in s_self_draw_mask (Menu_Setup resets it);
+%% render_run_active() early-returns (zero draw, no banner, no row clear) when
+%% Scheduler_GetActiveEntry() is a marked entry, ceding the full screen to that entry's Service
+%% (first user: GrayTest -> gray_check, index §6 V29). Single-writer invariant holds via the
+%% existing single-active-entry invariant + fixed same-tick order (Menu_Tick's background_step
+%% runs, then the active entry's on_step) — never two writers on the same tick.
+MenuUI_API --> SchedulerEntry_API : GetEntryCount/GetEntryName/EnterEntry/LeaveEntry/GetActiveEntry (W7 self-draw mask check), same-layer controlled
 MenuUI_API --> Hmi_API : Update/PollInput/IsDisplayReady/PrintLine (W3: PrintLine also renders RUN_ACTIVE banner)
 MenuUI_API --> MenuParam_API : delegates PARAM_LIST/PARAM_EDIT screens, private submodule
 MenuParam_API --> Hmi_API : PrintLine render
@@ -672,8 +681,18 @@ MotorCheck_API --> Motor_API : Motor_SetOutput both wheels +/-200 + Motor_Update
 %% GrayCheck_API (W4, landed 2026-07-19) — third new DEBUG-group scheduler entry (idx3),
 %% diagnostic-only, mutually exclusive with SpeedTune/EncoderTest/MotorDir under the
 %% single-active-entry invariant (index V21 note). Read-only tx mirror, no cmd, no motor.
+%% W7 revision (§29, landed 2026-07-20): GrayCheck_API upgrades from tx-only diagnostic to a
+%% field calibration helper — the same Gray_ReadDarkBitmap() read that feeds the tx mirror also
+%% feeds internal calibration stats (sticky-OR + per-channel toggle count, accumulate-only, never
+%% written back into the bitmap, not a second bitmap owner) and a 4-row OLED panel rendered via
+%% Hmi_PrintLine (Service->Service, same-layer controlled; only the display face is used, never
+%% Hmi_PollInput — the sole semantic-input consumer stays menu). Public signature unchanged
+%% (Start/Update/Stop only, zero new getters). Full-screen display ownership during RUN_ACTIVE is
+%% ceded to this entry via Menu_SetEntrySelfDraw(APP_ENTRY_IDX_GRAYTEST) — see MenuUI_API note
+%% below and index §6 V29.
 GrayCheck_API --> Gray_API : Gray_ReadDarkBitmap() atomic 12-bit read, second call point after line_follow.c (no accumulator, no double-count hazard, see index V21 W4 note)
 GrayCheck_API --> VofaDriver_API : vofa_clear_profile/vofa_register_int x12/vofa_run, tx-only (no bind_cmd)
+GrayCheck_API --> Hmi_API : Hmi_PrintLine x4 rows, 100ms-gated row-diff calibration panel (W7 §29), same-layer controlled, self-draw during RUN_ACTIVE (index §6 V29)
 
 %% ParamTune_API / ParamStore_API (W5, landed 2026-07-19) — dynamic tuning framework: new
 %% TUNE menu group (app_compose.c s_groups[], sibling of DEBUG) button-adjusts the line_follow
@@ -735,13 +754,14 @@ flowchart TD
   SysInit --> BoardIRQ[Board_EnableInterrupts]
   AppCompose --> SchedulerInit[Scheduler_Init s_entries=SpeedTune,EncoderTest,MotorDir,GrayTest,LineFollow,ProfiledStraight x6, background_step=Menu_Tick]
   AppCompose --> MenuSetupCall[Menu_Setup s_groups=DEBUG+TUNE+DRIVE x3, DEBUG entries idx0..5, TUNE params=LFKp,LFKi,LFKd,SAVE x4, DRIVE params=Dist,Cruise,Start,Accel,Decel,SAVE x6]
+  AppCompose --> MenuSelfDrawCall[Menu_SetEntrySelfDraw APP_ENTRY_IDX_GRAYTEST=3, W7 GrayTest opt-in, menu zero-draws while active]
   AppCompose --> ParamTuneInitCall[ParamTune_Init, W5: read param_store schema_ver 2 or default -> LineFollow_SetGains + Motion_SetProfileParams; also re-invoked by LineFollow on_enter W6 and ProfiledStraight on_enter MS02, three call sites]
   Main --> MainLoop[while 1: Scheduler_Run Clock_NowMs]
   MainLoop -->|idle, no entry active| MenuTickPump[background_step -> Menu_Tick, HMI only]
   MainLoop -->|SpeedTune entered| SpeedTuneStep[on_step -> Tuning_Update -> cascaded Chassis_Update]
   MainLoop -->|EncoderTest entered, W3| EncTestStep[on_step -> EncoderTest_Update -> Encoder_Update 2nd sampling call + vofa_run]
   MainLoop -->|MotorDir entered, W3| MotorDirStep[on_step -> MotorCheck_Update -> Motor_SetOutput +/-200 both wheels + Motor_Update]
-  MainLoop -->|GrayTest entered, W4| GrayTestStep[on_step -> GrayCheck_Update -> Gray_ReadDarkBitmap 2nd read point + vofa_run, tx-only]
+  MainLoop -->|GrayTest entered, W4/W7| GrayTestStep[on_step -> GrayCheck_Update -> Gray_ReadDarkBitmap 2nd read point + vofa_run tx-only + 100ms-gated OLED calibration panel, self-draw menu yields row0..3]
   MainLoop -->|LineFollow entered, W6| LineFollowStep[on_enter LineFollow_Init then ParamTune_Init then Start; on_step -> LineFollow_Update -> cascaded Chassis_Update in TRACKING/RECOVERING; on_exit LineFollow_Stop]
   MainLoop -->|ProfiledStraight entered, MS02| ProfiledStraightStep[on_enter Motion_Init then ParamTune_Init reapply profile params+dist then StartProfiledStraight dist,false; on_step -> Motion_Update -> profile watchdog check -> cascaded Chassis_Update; on_exit Motion_Stop]
   MainLoop -->|TUNE group, K3 on Kp/Ki/Kd row, W5| TuneEditStep[MenuParam_Handle -> ParamTune_Get/Set*_milli -> LineFollow_Get/SetGains, no menu-side scale/copy]
