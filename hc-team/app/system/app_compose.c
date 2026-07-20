@@ -185,7 +185,8 @@ static const Motion_Config_T s_ms_cfg = {
     .turn_kp             = 0.0f,    /* 未用 */
     .straight_tol_mm     = 5.0f,    /* 到位容差（mm） */
     .turn_tol_deg        = 2.0f,    /* 未用 */
-    .profile_timeout_ticks = 1500u, /* §8.1 防跑飞：~15s(10ms/拍)运行上限，编码器脱线也确定性停 */
+    .profile_timeout_ticks = 1500u, /* §8.1 防过冲：~15s(10ms/拍)运行上限（移动但永不达标兜底） */
+    .profile_stall_ticks   = 80u,   /* §8.1 防堵转：~0.8s 命令在动但无进展即切停，保护 TB6612（起步卡住/脱线） */
 };
 
 static void profiledstraight_enter(void)

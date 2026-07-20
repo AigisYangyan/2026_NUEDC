@@ -77,6 +77,7 @@ static Motion_Config_T default_cfg(void)
     cfg.profile_accel_mps2 = 0.5f;
     cfg.profile_decel_mps2 = 0.5f;
     cfg.profile_timeout_ticks = 0u;   /* 默认禁用看门狗：既有 profiled 用例不受影响 */
+    cfg.profile_stall_ticks = 0u;     /* 默认禁用堵转看门狗 */
     cfg.turn_speed_mps = 0.30f;
     cfg.arc_speed_mps = 0.30f;
     cfg.track_width_mm = 100.0f;   /* R=200 → half=50：inner=0.225、outer=0.375（断言直观） */
@@ -659,6 +660,71 @@ static int test_profiled_watchdog_disabled_by_default(void)
     return 0;
 }
 
+/* §8.1 堵转看门狗（TB6612 保护）：命令在动但编码器无进展（起步卡住/脱线）→ 快速停。 */
+static int test_profiled_stall_stops_fast(void)
+{
+    Motion_Config_T cfg = default_cfg();
+    Chassis_Telemetry_T ct;
+    bool drove = false;
+    int i;
+    int done_at = 99;
+
+    setup();
+    cfg.profile_stall_ticks = 15u;    /* 堵转 15 拍上限（快） */
+    cfg.profile_timeout_ticks = 0u;   /* 只测堵转看门狗 */
+    Motion_Init(&cfg);
+    TEST_ASSERT_TRUE(Motion_StartProfiledStraight(5000.0f, false));
+
+    /* 不注入编码器增量 → 无进展（模拟起步卡住/编码器脱线，PWM 会灌堵转电流）。 */
+    for (i = 0; i < 30; i++) {
+        tick();
+        if (i < 5) {
+            Chassis_GetTelemetry(&ct);
+            if (ct.target_mps[CHASSIS_SIDE_LEFT] > 0.0f) {
+                drove = true;   /* 停之前确有驱动命令（堵转真实存在） */
+            }
+        }
+        if (Motion_IsDone()) {
+            done_at = i;
+            break;
+        }
+    }
+    TEST_ASSERT_TRUE(drove);
+    TEST_ASSERT_TRUE(Motion_IsDone());
+    TEST_ASSERT_TRUE(FakeMotorHw_IsBrakeActive(MOTOR_LEFT));
+    TEST_ASSERT_TRUE(FakeMotorHw_IsBrakeActive(MOTOR_RIGHT));
+    TEST_ASSERT_TRUE(done_at < 20);   /* ~15 拍触发，远快于 max-runtime */
+    printf("PASS: test_profiled_stall_stops_fast\n");
+    return 0;
+}
+
+/* 堵转看门狗不误触发：编码器正常推进 → 有进展 → 计数复位 → 正常到位（非早停）。 */
+static int test_profiled_stall_no_false_trigger_when_moving(void)
+{
+    Motion_Config_T cfg = default_cfg();
+    Motion_Telemetry_T t;
+    int i;
+
+    setup();
+    cfg.profile_stall_ticks = 10u;    /* 堵转看门狗启用（严格 10 拍） */
+    cfg.profile_timeout_ticks = 0u;
+    Motion_Init(&cfg);
+    TEST_ASSERT_TRUE(Motion_StartProfiledStraight(2000.0f, false));
+
+    for (i = 0; i < 60; i++) {
+        drive_forward(100);   /* 每拍正常推进 → 有进展 → 堵转计数复位 */
+        tick();
+        if (Motion_IsDone()) {
+            break;
+        }
+    }
+    TEST_ASSERT_TRUE(Motion_IsDone());
+    Motion_GetTelemetry(&t);
+    TEST_ASSERT_TRUE(t.x_mm >= 2000.0f - 1e-3f);   /* 走满 2000mm 到位（证非堵转早停） */
+    printf("PASS: test_profiled_stall_no_false_trigger_when_moving\n");
+    return 0;
+}
+
 /* GetProfileParams NULL 安全。 */
 static int test_get_profile_params_null_safe(void)
 {
@@ -921,6 +987,8 @@ int main(void)
     failures += test_profile_params_apply_to_run();
     failures += test_profiled_watchdog_stops_runaway();
     failures += test_profiled_watchdog_disabled_by_default();
+    failures += test_profiled_stall_stops_fast();
+    failures += test_profiled_stall_no_false_trigger_when_moving();
     failures += test_get_profile_params_null_safe();
     failures += test_start_arc_rejects_invalid();
     failures += test_arc_feedforward_ratio_ccw();

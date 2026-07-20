@@ -59,9 +59,12 @@ typedef struct {
     float profile_start_mps;   /* 剖面加速段起步速（脱静摩擦，0<=start<=cruise） */
     float profile_accel_mps2;  /* 剖面加速度（m/s^2，>0） */
     float profile_decel_mps2;  /* 剖面减速度（m/s^2，>0） */
-    /* §8.1 防跑飞看门狗：PROFILED_STRAIGHT 运行拍数（Motion_Update 次数）上限，超时→Chassis_Stop+DONE。
-       防编码器脱线（dist≈0 时 base=start 非零会一直冲）。0=禁用。所有者=motion（安全，非收敛完成超时）。 */
+    /* §8.1 双看门狗（PROFILED_STRAIGHT，所有者=motion，超时→Chassis_Stop+DONE，0=禁用）：
+       profile_timeout_ticks：运行拍数上限——防「移动但永不达标」（mm_per_pulse 严重失标致物理过冲），设长（~15s）。
+       profile_stall_ticks：命令在动(base>0)但里程无进展的连续拍数上限——快速防堵转（起步速偏低卡住/编码器脱线/
+         撞障时，增量式速度环积分顶满 PWM 灌堵转电流进 TB6612），设短（~0.8s）保护驱动芯片。 */
     uint32_t profile_timeout_ticks;
+    uint32_t profile_stall_ticks;
     float turn_speed_mps;      /* 原地转单轮速度幅值上限（>0） */
     float arc_speed_mps;       /* 圆弧圆心线速度基速（前进为正，>0；仅圆弧原语用） */
     /* 圆弧几何：轮距是本服务新增的单一所有者（§19.0），仅用于圆弧前馈内外轮速比，
