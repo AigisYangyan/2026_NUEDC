@@ -57,9 +57,22 @@ typedef struct {
     float    last_coord_y;
     uint32_t last_coord_seq;                     /* 最近消费的坐标 seq */
     bool     axis_active[VISION_AIM_AXIS_COUNT]; /* 最近一拍该轴是否越死区（vision_aim active 透传） */
+    float    last_error_px[VISION_AIM_AXIS_COUNT];   /* 最近一拍瞄准误差（vision_aim error_px 透传；死区拍亦有值） */
+    int32_t  last_delta_pulse[VISION_AIM_AXIS_COUNT];/* 最近一拍输出增量（vision_aim delta 透传；死区拍为 0） */
     uint8_t  ack_main;                           /* 已确认主任务号 */
     uint8_t  ack_sub;                            /* 已确认子任务号 */
 } Gimbal_Telemetry_T;
+
+/**
+ * 瞄准 PD 运行时调参子集（W8 契约 §30）：仅 kp/kd/死区/步长四组，逐轴。
+ * center/sign/travel_limit 不在其内——几何/极性/行程是装配事实，运行中改动属事故面。
+ */
+typedef struct {
+    float   kp[VISION_AIM_AXIS_COUNT];
+    float   kd[VISION_AIM_AXIS_COUNT];
+    float   deadband_px[VISION_AIM_AXIS_COUNT];
+    int32_t max_step_pulse[VISION_AIM_AXIS_COUNT];
+} Gimbal_AimTuning_T;
 
 /**
  * 拷贝配置 + VisionAim_Init(&cfg.aim) + GimbalStepbus_Init；清状态 + cur_pulse=0 → IDLE。
@@ -92,6 +105,21 @@ void Gimbal_Update(void);
  * cur_pulse 位置保留，不清零。
  */
 void Gimbal_Stop(void);
+
+/**
+ * 运行时更新瞄准 PD 调参子集（能力：云台能在运行时换挡瞄准参数）。
+ * 只改 cfg.aim 的 kp/kd/deadband/max_step 四组字段，经唯一应用点 VisionAim_Init 生效；
+ * 不触碰运行状态（不清 prev_error、不改 state——换挡不打断收敛环）。
+ * 调用方须保证值域（kp/kd/deadband>=0、max_step>=1）——外部输入的清洗归系统边界（tuning 层）。
+ * @param tuning NULL 或从未成功 Init → 不写。
+ */
+void Gimbal_SetAimTuning(const Gimbal_AimTuning_T *tuning);
+
+/**
+ * 重发最近一次成功 SelectTopic 的题号（能力：云台能在安全停后重新发起上次握手）。
+ * @return true=已重新提交（→HANDSHAKING）；false=从未选过题 / 未 Init / 底层 TX 忙。
+ */
+bool Gimbal_ReselectTopic(void);
 
 Gimbal_State Gimbal_GetState(void);
 

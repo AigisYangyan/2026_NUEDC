@@ -36,6 +36,7 @@ extern "C" {
 typedef enum {
     TUNING_PROFILE_NONE = 0,
     TUNING_PROFILE_CHASSIS_SPEED,   /* 底盘速度环脱线悬挂调参 */
+    TUNING_PROFILE_GIMBAL_AIM,      /* 云台位置环（vision_aim PD）静态调参（W8 契约 §30） */
 } Tuning_Profile;
 
 /** 初始化/重置服务：回到 NONE。静默：不碰 VOFA 驱动、不碰底盘。 */

@@ -30,6 +30,7 @@ ORDERED_OBJS += \
 "./hc-team/app/service/route/route.o" \
 "./hc-team/app/service/tuning/tuning.o" \
 "./hc-team/app/service/tuning/tuning_chassis.o" \
+"./hc-team/app/service/tuning/tuning_gimbal.o" \
 "./hc-team/app/system/main.o" \
 "./hc-team/app/system/sys_init.o" \
 "./hc-team/app/system/app_compose.o" \

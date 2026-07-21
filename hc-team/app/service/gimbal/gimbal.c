@@ -44,6 +44,7 @@ static bool     s_has_gate_base = false;
 /* 握手 */
 static uint8_t  s_pending_main = 0u;
 static uint8_t  s_pending_sub = 0u;
+static bool     s_has_topic = false;   /* 至少成功 SelectTopic 过一次（ReselectTopic 的前提） */
 static uint32_t s_ack_seq_base = 0u;
 static uint32_t s_handshake_start_ms = 0u;
 
@@ -60,6 +61,8 @@ static uint32_t s_last_fresh_ms = 0u;
 static float    s_last_coord_x = 0.0f;
 static float    s_last_coord_y = 0.0f;
 static bool     s_axis_active[VISION_AIM_AXIS_COUNT];
+static float    s_last_error_px[VISION_AIM_AXIS_COUNT];    /* 最近一拍 Map 误差（只读缓存，零第二次计算） */
+static int32_t  s_last_delta_pulse[VISION_AIM_AXIS_COUNT]; /* 最近一拍 Map 增量（同上） */
 static uint8_t  s_ack_main = 0u;
 static uint8_t  s_ack_sub = 0u;
 
@@ -75,6 +78,7 @@ static void gimbal_reset_runtime(void)
     s_gate_base_ms = 0u;
     s_pending_main = 0u;
     s_pending_sub = 0u;
+    s_has_topic = false;
     s_ack_seq_base = 0u;
     s_handshake_start_ms = 0u;
     s_arm_step = GIMBAL_ARM_STEP_DONE;
@@ -86,6 +90,10 @@ static void gimbal_reset_runtime(void)
     s_last_coord_y = 0.0f;
     s_axis_active[VISION_AIM_AXIS_X] = false;
     s_axis_active[VISION_AIM_AXIS_Y] = false;
+    s_last_error_px[VISION_AIM_AXIS_X] = 0.0f;
+    s_last_error_px[VISION_AIM_AXIS_Y] = 0.0f;
+    s_last_delta_pulse[VISION_AIM_AXIS_X] = 0;
+    s_last_delta_pulse[VISION_AIM_AXIS_Y] = 0;
     s_ack_main = 0u;
     s_ack_sub = 0u;
 }
@@ -116,6 +124,7 @@ bool Gimbal_SelectTopic(uint8_t main_task, uint8_t sub_task)
 
     s_pending_main = main_task;
     s_pending_sub = sub_task;
+    s_has_topic = true;
     s_ack_seq_base = UartVision_GetTopicAckSeq();
     s_handshake_start_ms = Clock_NowMs();
     s_has_gate_base = false;   /* 立即让下一拍进状态机（不被上一次门控挡住） */
@@ -237,6 +246,10 @@ static void gimbal_aim_dispatch(void)
 
     s_axis_active[VISION_AIM_AXIS_X] = res.active[VISION_AIM_AXIS_X];
     s_axis_active[VISION_AIM_AXIS_Y] = res.active[VISION_AIM_AXIS_Y];
+    s_last_error_px[VISION_AIM_AXIS_X] = res.error_px[VISION_AIM_AXIS_X];
+    s_last_error_px[VISION_AIM_AXIS_Y] = res.error_px[VISION_AIM_AXIS_Y];
+    s_last_delta_pulse[VISION_AIM_AXIS_X] = res.delta_pulse[VISION_AIM_AXIS_X];
+    s_last_delta_pulse[VISION_AIM_AXIS_Y] = res.delta_pulse[VISION_AIM_AXIS_Y];
 
     /* 唯一累加点：无条件推进双轴绝对目标（delta 已含轴程限幅；死区拍 delta=0 即目标不变）。 */
     s_cur_pulse[VISION_AIM_AXIS_X] += res.delta_pulse[VISION_AIM_AXIS_X];
@@ -316,6 +329,34 @@ void Gimbal_Stop(void)
     s_state = GIMBAL_STATE_STOPPED;
 }
 
+void Gimbal_SetAimTuning(const Gimbal_AimTuning_T *tuning)
+{
+    if ((tuning == NULL) || (s_has_cfg == false)) {
+        return;
+    }
+
+    /* 只换四组调参字段；center/sign/travel_limit 保持 Init 配置。
+     * 经唯一应用点 VisionAim_Init 生效（V26：不在此处复算任何 PD 数学）。
+     * 不触碰 prev_error / seeded / state——换挡不打断收敛环。 */
+    s_cfg.aim.kp[VISION_AIM_AXIS_X] = tuning->kp[VISION_AIM_AXIS_X];
+    s_cfg.aim.kp[VISION_AIM_AXIS_Y] = tuning->kp[VISION_AIM_AXIS_Y];
+    s_cfg.aim.kd[VISION_AIM_AXIS_X] = tuning->kd[VISION_AIM_AXIS_X];
+    s_cfg.aim.kd[VISION_AIM_AXIS_Y] = tuning->kd[VISION_AIM_AXIS_Y];
+    s_cfg.aim.deadband_px[VISION_AIM_AXIS_X] = tuning->deadband_px[VISION_AIM_AXIS_X];
+    s_cfg.aim.deadband_px[VISION_AIM_AXIS_Y] = tuning->deadband_px[VISION_AIM_AXIS_Y];
+    s_cfg.aim.max_step_pulse[VISION_AIM_AXIS_X] = tuning->max_step_pulse[VISION_AIM_AXIS_X];
+    s_cfg.aim.max_step_pulse[VISION_AIM_AXIS_Y] = tuning->max_step_pulse[VISION_AIM_AXIS_Y];
+    VisionAim_Init(&s_cfg.aim);
+}
+
+bool Gimbal_ReselectTopic(void)
+{
+    if (s_has_topic == false) {
+        return false;   /* 从未选过题（含未 Init：reset 后 s_has_topic=false） */
+    }
+    return Gimbal_SelectTopic(s_pending_main, s_pending_sub);
+}
+
 Gimbal_State Gimbal_GetState(void)
 {
     return s_state;
@@ -335,6 +376,10 @@ void Gimbal_GetTelemetry(Gimbal_Telemetry_T *out)
     out->last_coord_seq = s_last_coord_seq;
     out->axis_active[VISION_AIM_AXIS_X] = s_axis_active[VISION_AIM_AXIS_X];
     out->axis_active[VISION_AIM_AXIS_Y] = s_axis_active[VISION_AIM_AXIS_Y];
+    out->last_error_px[VISION_AIM_AXIS_X] = s_last_error_px[VISION_AIM_AXIS_X];
+    out->last_error_px[VISION_AIM_AXIS_Y] = s_last_error_px[VISION_AIM_AXIS_Y];
+    out->last_delta_pulse[VISION_AIM_AXIS_X] = s_last_delta_pulse[VISION_AIM_AXIS_X];
+    out->last_delta_pulse[VISION_AIM_AXIS_Y] = s_last_delta_pulse[VISION_AIM_AXIS_Y];
     out->ack_main = s_ack_main;
     out->ack_sub = s_ack_sub;
 }

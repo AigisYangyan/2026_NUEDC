@@ -86,7 +86,7 @@
 | M03 | speed_plan 速度规划（Middleware 纯算法：`\|error_mm\|` → 有状态斜坡基速，直道加速/入弯减速，自持输出限幅） | `middleware/speed_plan/` | — | — | `DONE`（契约 §17 冻结 61f4149；代码 8d84657；契约修订 1/审计处置 8975b2a；代码 fix 6ace23b；拓扑同步 3b92258。E01 0 命中 / E02 无越界 / E03 285 PASS 0 FAIL＝269 基线+16 / E04 exit 0、0 诊断、speed_plan.o 经 linkInfo.xml 确证进链。arch-auditor 无阻断/无重要级，2 建议级已处置（F1 删排序夹紧、F2 白名单更正）；基速调制单一所有者落定 speed_plan，V25 登记） |
 | S02b | line_follow 深化：M02 元素事件面接入 + M03 速度调制接入（base_speed 合成点仍唯一在 line_follow_apply） | `app/service/line_follow/` | — | — | `DONE`（契约 §18 冻结 b3b2d38；代码 f278894；拓扑同步见 §10。E01 0 命中 / E02 4 文件在范围 / E03 300 PASS 0 FAIL＝285 基线+15（速度调制 5 + 元素事件面 10）/ E04 exit 0、0 诊断、line_follow.o 重编并经 linkInfo.xml 确证进链（speed_plan.o/track_elements.o 已在链）。arch-auditor 三维无发现；base_speed 合成点未搬家、位图并列消费不新开采样点、V21 不新增第四推进点） |
 | S07 | route 分段路线执行服务（段表驱动：FOLLOW_UNTIL(元素)/STRAIGHT/TURN/ARC——新题=换段表） | `app/service/route/` | task1 分段状态机 | — | `DONE`（契约 §20 冻结 5eaa41f；代码 6cb338c；审计无发现；拓扑同步见 §10。E01 0 命中 / E02 无越界 / E03 334 PASS 0 FAIL＝310 基线+24 / E04 exit 0、0 诊断、route.o 经 linkInfo.xml 确证进链 3 引用。arch-auditor 六轴全过、亲验 motion.c IDLE/DONE drive-free；route 每拍≤1 子服务、不构成第四 Chassis_Update 推进点/第二 Imu_Update 排空点，V21 扩条/V23 登记；catch-up 防幻纠偏落定 §20.3） |
-| SYS01 | 装配入口更新 | `app/system/` | sys_init.c 增量改造 | — | 随各阶段（**W2 §22.2 World-2 点亮 DONE**：main→Scheduler_Run，SpeedTune 条目接 tuning，旧 SysRun 停用，418 PASS。**W3 §23.3 app_compose 接入 EncoderTest/MotorDir 两 DEBUG 诊断条目 DONE（2026-07-19）：DEBUG 组三条目，429 PASS，本提交**。**W4 §24 app_compose 接入 GrayTest 12 路灰度数字量遥测条目 DONE（2026-07-19）：DEBUG 组四条目，434 PASS，本提交**。**W5 §25 动态调参框架 DONE（2026-07-19）：TUNE 参数组 + 片内 flash 持久化 + 循迹外环增益首参数集。PT1 param_store Driver（18fc9b4，442 PASS）+ PT2 param_tune Service+LineFollow_GetGains（bd9a67b，448 PASS）+ PT3 menu action 钩子+app_compose TUNE 接线（451 PASS，本提交）。板载 TUNE 组按钮调循迹外环增益、K3 SAVE 掉电 flash 保存；真实 flash 擦/写硬件边界待用户上板验证。**W6 §26 app_compose 接入 LineFollow 循迹运行条目 DONE（2026-07-19）：DEBUG 组第 5 条（idx4）——on_enter `LineFollow_Init` 归零→`ParamTune_Init` 重推持久增益（关闭 V28）→`Start`、on_step `Update` 级联 Chassis 沿线跑、on_exit `Stop` 安全停车；`s_lf_cfg` 保守 UNCALIBRATED 占位（低速起步/超时有界/element_mask=0），几何用建议式 recovery≈2.7×pitch；契约 §26 冻结 4aab90b，代码 b907003。E01 仅 app_compose.c 在范围 / E02 arch-scan 空输出 / E03 接线序 Init→ParamTune_Init→Start / E04 exit=Stop+保守配置 / E05 451 PASS 0 FAIL 无回归 / E06 exit 0、0 诊断、app_compose.o 进链 5 符号 .text 可达。arch-auditor 六红线全过、无发现放行。现场调参闭环成立：选它跑→TUNE 改增益 SAVE→再跑→看效果。标定量上板实测替换待用户自理**） |
+| SYS01 | 装配入口更新 | `app/system/` | sys_init.c 增量改造 | — | 随各阶段（**W2 §22.2 World-2 点亮 DONE**：main→Scheduler_Run，SpeedTune 条目接 tuning，旧 SysRun 停用，418 PASS。**W3 §23.3 app_compose 接入 EncoderTest/MotorDir 两 DEBUG 诊断条目 DONE（2026-07-19）：DEBUG 组三条目，429 PASS，本提交**。**W4 §24 app_compose 接入 GrayTest 12 路灰度数字量遥测条目 DONE（2026-07-19）：DEBUG 组四条目，434 PASS，本提交**。**W5 §25 动态调参框架 DONE（2026-07-19）：TUNE 参数组 + 片内 flash 持久化 + 循迹外环增益首参数集。PT1 param_store Driver（18fc9b4，442 PASS）+ PT2 param_tune Service+LineFollow_GetGains（bd9a67b，448 PASS）+ PT3 menu action 钩子+app_compose TUNE 接线（451 PASS，本提交）。板载 TUNE 组按钮调循迹外环增益、K3 SAVE 掉电 flash 保存；真实 flash 擦/写硬件边界待用户上板验证。**W6 §26 app_compose 接入 LineFollow 循迹运行条目 DONE（2026-07-19）：DEBUG 组第 5 条（idx4）——on_enter `LineFollow_Init` 归零→`ParamTune_Init` 重推持久增益（关闭 V28）→`Start`、on_step `Update` 级联 Chassis 沿线跑、on_exit `Stop` 安全停车；`s_lf_cfg` 保守 UNCALIBRATED 占位（低速起步/超时有界/element_mask=0），几何用建议式 recovery≈2.7×pitch；契约 §26 冻结 4aab90b，代码 b907003。E01 仅 app_compose.c 在范围 / E02 arch-scan 空输出 / E03 接线序 Init→ParamTune_Init→Start / E04 exit=Stop+保守配置 / E05 451 PASS 0 FAIL 无回归 / E06 exit 0、0 诊断、app_compose.o 进链 5 符号 .text 可达。arch-auditor 六红线全过、无发现放行。现场调参闭环成立：选它跑→TUNE 改增益 SAVE→再跑→看效果。标定量上板实测替换待用户自理。**W8 §30 GimbalTune 云台位置环静态调参条目 DONE（2026-07-21）：DEBUG 组第 7 条（idx6）——VOFA 命令模式（cmd×7 XP/XD/YP/YD/DB/MS/GO、tx×13 波形），gimbal 增 SetAimTuning/ReselectTopic/遥测扩两字段，tuning 增 GIMBAL_AIM profile+tuning_gimbal 子模块；进页 DB=10000 确定性零出力（floor-1 爬行事实下零增益不安全），退页确定性停；520 PASS，契约 2399390+修订 0a8c463，代码本提交；docs/云台位置环调参指南.md 交付**） |
 | M04 | move_profile 距离参数化梯形速度剖面（Middleware 纯函数：已行进距离+目标+加减速→前馈基速，加速-匀速-减速自带位置反馈） | `middleware/move_profile/` | — | — | `DONE`（契约 §27 冻结 b98cf18，修订1 64fe6d5；代码 536883f；arch-auditor 契约逐条成立、无阻断/无重要、1 建议级文档处置；拓扑同步见 §10。E01 8 文件在范围 / E02 依赖纯净仅 `<math.h>`/`<stddef.h>` / E03 无关 / E04 467 PASS 0 FAIL＝451 基线+10（move_profile 单测）/ E05 exit 0、0 诊断、move_profile.o 经 linkInfo.xml `<input_file>` 进链、新符号零调用者 DCE 可达性待 T01。距离剖面纯函数，与 speed_plan（横向误差→基速）输入域不同非复刻；「定长运动速度剖面」新单一所有者落定，mm→m 仅量纲对齐非第二距离所有者） |
 | S06c | motion 定长直行原语（`Motion_StartProfiledStraight`：move_profile 前馈 + 既有航向保持 PID，旧恒速 STRAIGHT 不改） | `app/service/motion/`（S06 契约修订流程扩面） | — | — | `DONE`（契约 §27 冻结 b98cf18；代码 536883f；arch-auditor 六项通过、1 建议级（base∓corr 终段 nuance）文档处置入 §27.4；拓扑同步见 §10。E01 8 文件在范围 / E02 无关 / E03 唯一新增 include=move_profile.h（Service→Middleware）/ E04 467 PASS 0 FAIL＝含 motion profiled 6 / E05 exit 0、0 诊断、motion.o 经 linkInfo.xml 进链、新符号零调用者 DCE 可达性待 T01。纵向按距离剖面无纵向 PID（用户 2026-07-19 裁定）；V21 推进点 3→4；旧 STRAIGHT/TURN/ARC 一字未改；过零换向所有者仍 motor.c 非新安全缺口） |
 | MS02 | ProfiledStraight 运行条目 + DRIVE 参数组按钮调参持久化（motion 剖面 setter/getter + param_tune 扩 blob schema2 + app_compose 接 DEBUG 条目/DRIVE 组 + §8.1 防跑飞看门狗） | `app/service/motion/`+`app/service/param_tune/`+`app/system/` | — | — | `DONE`（契约 §28 冻结 4990b09，修订1 7c94c03；代码 7c891cb + 看门狗 f333333；arch-auditor 6 声明 5 成立/1 建议级已加 §8.1 看门狗处置；拓扑同步见 §10。E01 8 文件在范围 / E02 param_tune+app_compose 仅 +motion.h、arch-scan exit0 / E03 host 479 PASS 0 FAIL＝467+motion 7+param_tune 5 / E04 接线序 Init→ParamTune_Init→Start / E05 schema2 往返+旧blob退默认 / E06 exit0、0诊断、四.o进链、新符号进.map 可达零调用者解除。距离按钮可调默认1000mm、DRIVE 独立组、heading_hold=false、schema升2旧blob一次性失效。**§8.1 双看门狗归 motion**：profile_timeout_ticks 防物理过冲(修订1 f333333)、profile_stall_ticks 防堵转保护 TB6612(修订2 f73a8ea，用户关切)。mm_per_pulse 占位上板须标定；底盘速度环默认增益0需先调 SpeedTune 否则不动） |
@@ -3534,6 +3534,29 @@ RX/TX 钩子，够用）。
 ### 30.5 契约修订记录
 
 - 冻结（2399390）：范围/接口/安全机制（DB=10000 进页零出力，floor-1 爬行事实）/5 证据行确定。
-- 修订 1（本提交，施工前）：E04「零出力」断言更正——gimbal AIMING 拍对每帧新坐标**无条件重发
+- 修订 1（0a8c463，施工前）：E04「零出力」断言更正——gimbal AIMING 拍对每帧新坐标**无条件重发
   双轴绝对目标帧**（幂等自愈，gimbal.c:246 实读），故零出力的可观察定义是「cur_pulse 恒 0、
   绝对目标恒 (0,0)」，不是「零步进 TX」。原措辞「零步进 TX」与既有代码事实冲突。
+
+### 30.6 完成记录（代码本提交）
+
+- TDD 红→绿：test_gimbal 4 新用例在旧头编译期红（`Gimbal_AimTuning_T`/`last_delta_pulse`
+  缺类型/字段，exit 2 实录）；实现后全绿零警告。
+- 施工：gimbal（`Gimbal_SetAimTuning` 只换 aim 四调参字段经 VisionAim_Init 唯一应用点、
+  不触碰 prev_error/seeded/state；`Gimbal_ReselectTopic` 依 `s_has_topic`+既有 pending 题号；
+  遥测扩 `last_error_px/last_delta_pulse` 只读缓存）；tuning.c switch 二 profile 分派（无函数
+  指针框架）；tuning_gimbal（cmd×7 XP/XD/YP/YD/DB/MS/GO、tx×13、安全初值 DB=10000/MS=1、
+  清洗唯一点 Apply + `s_applied` 回显、GO 先清后触发单次消费）；app_compose GimbalTune idx6
+  （Init→EnterProfile→SelectTopic 契约顺序、`s_gt_cfg` UNCALIBRATED 占位、占位题号 1/0）。
+- E01 依赖纯净：tuning 目录 include 面=自身两头+chassis.h/gimbal.h（同层受控）+clock/uart_vofa
+  （Service→Driver 合法）；tuning_gimbal.c 恰 tuning_gimbal.h/gimbal.h/uart_vofa.h 三条；
+  gimbal.c include 面零新增；禁止前缀（tasks/scheduler/ui/DL HAL/param_tune/param_store）0 命中。
+- E02 arch-scan check 空输出。E03 范围=§30.1 全集（`.ccsproject`/`tests/host/test_emm42.exe`
+  会话前既存不计）。E04 主机 **520 PASS 0 FAIL**＝510 基线＋10 新用例（gimbal 4：setter 生效/
+  不清 prev/Reselect 重握手/遥测死区拍；tuning_gimbal 6：Enter 零出力+13 通道/cmd 应用/清洗/
+  GO 单次消费可推进 ARMING/Exit 静默/重进重置安全），44 套件全绿。E05 固件 exit 0、0 警告 0
+  诊断、`tuning_gimbal.o` 进链接命令行+linkInfo `<input_file>`，`Gimbal_SetAimTuning`/
+  `Gimbal_ReselectTopic`/`TuningGimbal_Apply` .text 落位，linkInfo 时间戳=构建时刻。
+- 交付含 `docs/云台位置环调参指南.md`（通道/命令表 + 6 步 SOP：噪声→极性首验→MS→kp→kd→DB
+  →回填 `s_gt_cfg`+异常速查）。本地生成物 `Debug/.../tuning/subdir_vars.mk` 已补六列表（不入库，
+  P9.T1 口径）。硬件联调（真视觉/真步进）用户自理。

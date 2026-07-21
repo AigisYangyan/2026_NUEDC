@@ -73,3 +73,5 @@ tests/host/test_param_store
 tests/host/test_param_store.exe
 tests/host/test_param_tune
 tests/host/test_param_tune.exe
+tests/host/test_tuning_gimbal
+tests/host/test_tuning_gimbal.exe

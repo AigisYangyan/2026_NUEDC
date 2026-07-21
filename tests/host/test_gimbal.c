@@ -530,6 +530,117 @@ static int test_aiming_pd_boost_and_damp_across_frames(void)
     return 0;
 }
 
+/* ---- W8：运行时调参面（SetAimTuning / ReselectTopic / 遥测扩字段） ---------- */
+
+/* 双轴同值填一份调参子集（会话便利同 cmd 层；API 保持逐轴数组）。 */
+static void make_tuning(Gimbal_AimTuning_T *t, float kp, float kd, float db, int32_t ms)
+{
+    t->kp[VISION_AIM_AXIS_X] = kp;
+    t->kp[VISION_AIM_AXIS_Y] = kp;
+    t->kd[VISION_AIM_AXIS_X] = kd;
+    t->kd[VISION_AIM_AXIS_Y] = kd;
+    t->deadband_px[VISION_AIM_AXIS_X] = db;
+    t->deadband_px[VISION_AIM_AXIS_Y] = db;
+    t->max_step_pulse[VISION_AIM_AXIS_X] = ms;
+    t->max_step_pulse[VISION_AIM_AXIS_Y] = ms;
+}
+
+/* setter 生效：同误差坐标，kp 0.1→0.3 后 delta 10→30（下一帧即按新增益）。 */
+static int test_set_aim_tuning_applies_next_frame(void)
+{
+    Gimbal_Telemetry_T t;
+    Gimbal_AimTuning_T tune;
+
+    fresh_cfg();
+    arm_to_aiming();
+
+    push_coord(420.0f, 240.0f);          /* err=100，kp=0.1 → delta 10 */
+    FakeClock_Advance(10u); Gimbal_Update();
+    FakeUartPort_CompleteStepmotorTx();
+    Gimbal_GetTelemetry(&t);
+    TEST_ASSERT(t.cur_pulse[VISION_AIM_AXIS_X] == 10);
+    TEST_ASSERT(t.last_delta_pulse[VISION_AIM_AXIS_X] == 10);
+
+    make_tuning(&tune, 0.3f, 0.0f, 6.0f, 48);
+    Gimbal_SetAimTuning(&tune);
+
+    push_coord(420.0f, 240.0f);          /* 同 err=100，de=0 → raw=0.3*100=30 */
+    FakeClock_Advance(10u); Gimbal_Update();
+    FakeUartPort_CompleteStepmotorTx();
+    Gimbal_GetTelemetry(&t);
+    TEST_ASSERT(t.last_delta_pulse[VISION_AIM_AXIS_X] == 30);
+    TEST_ASSERT(t.cur_pulse[VISION_AIM_AXIS_X] == 40);
+    return 0;
+}
+
+/* setter 不清 prev_error：换挡为纯 D 后，de 仍以上一拍误差计（换挡不断环、不重播种）。
+ * 若 setter 误清播种态，本拍会走 de=0 → raw=0 → floor +1，而非 -10。 */
+static int test_set_aim_tuning_preserves_prev_error(void)
+{
+    Gimbal_Telemetry_T t;
+    Gimbal_AimTuning_T tune;
+
+    fresh_cfg();
+    arm_to_aiming();
+
+    push_coord(420.0f, 240.0f);          /* err=100 播种 prev=100，delta=10 → cur=10 */
+    FakeClock_Advance(10u); Gimbal_Update();
+    FakeUartPort_CompleteStepmotorTx();
+
+    make_tuning(&tune, 0.0f, 1.0f, 6.0f, 48);   /* 纯 D */
+    Gimbal_SetAimTuning(&tune);
+
+    push_coord(410.0f, 240.0f);          /* err=90，de=90-100=-10 → raw=-10 → delta=-10 */
+    FakeClock_Advance(10u); Gimbal_Update();
+    FakeUartPort_CompleteStepmotorTx();
+    Gimbal_GetTelemetry(&t);
+    TEST_ASSERT(t.last_delta_pulse[VISION_AIM_AXIS_X] == -10);
+    TEST_ASSERT(t.cur_pulse[VISION_AIM_AXIS_X] == 0);    /* 10 + (-10) */
+    return 0;
+}
+
+/* ReselectTopic：从未选过题 → false；选过题后 STOPPED → 重发同题号重新握手。 */
+static int test_reselect_topic_rearms(void)
+{
+    uint8_t b[32];
+    uint32_t n;
+
+    base_init();
+    TEST_ASSERT(Gimbal_ReselectTopic() == false);        /* 从未选过题 */
+
+    TEST_ASSERT(Gimbal_SelectTopic(1u, 2u) == true);
+    FakeUartPort_CompleteVisionTx();
+    Gimbal_Stop();
+    TEST_ASSERT(Gimbal_GetState() == GIMBAL_STATE_STOPPED);
+
+    TEST_ASSERT(Gimbal_ReselectTopic() == true);
+    TEST_ASSERT(Gimbal_GetState() == GIMBAL_STATE_HANDSHAKING);
+    n = FakeUartPort_CopyVisionTx(b, sizeof(b));         /* 最后一帧 = 重发的选题帧 */
+    TEST_ASSERT(n == 4u);
+    TEST_ASSERT((b[0] == 0xFFu) && (b[1] == 1u) && (b[2] == 2u) && (b[3] == 0xFEu));
+    return 0;
+}
+
+/* 遥测扩字段：死区拍 error 有值、delta=0（error 恒写出 / delta 已含死区门控）。 */
+static int test_telemetry_error_delta_snapshot(void)
+{
+    Gimbal_Telemetry_T t;
+
+    fresh_cfg();
+    arm_to_aiming();
+
+    push_coord(323.0f, 238.0f);          /* err_x=3、err_y=-2，均在死区 6 内 */
+    FakeClock_Advance(10u); Gimbal_Update();
+    Gimbal_GetTelemetry(&t);
+    TEST_ASSERT((t.last_error_px[VISION_AIM_AXIS_X] > 2.9f) &&
+                (t.last_error_px[VISION_AIM_AXIS_X] < 3.1f));
+    TEST_ASSERT((t.last_error_px[VISION_AIM_AXIS_Y] > -2.1f) &&
+                (t.last_error_px[VISION_AIM_AXIS_Y] < -1.9f));
+    TEST_ASSERT(t.last_delta_pulse[VISION_AIM_AXIS_X] == 0);
+    TEST_ASSERT(t.last_delta_pulse[VISION_AIM_AXIS_Y] == 0);
+    return 0;
+}
+
 #define RUN(fn) do { if ((fn)() != 0) { fails++; } else { printf("PASS: %s\n", #fn); } } while (0)
 
 int main(void)
@@ -552,6 +663,10 @@ int main(void)
     RUN(test_travel_limit_clamp);
     RUN(test_aiming_pd_first_frame_seeds_no_kick);
     RUN(test_aiming_pd_boost_and_damp_across_frames);
+    RUN(test_set_aim_tuning_applies_next_frame);
+    RUN(test_set_aim_tuning_preserves_prev_error);
+    RUN(test_reselect_topic_rearms);
+    RUN(test_telemetry_error_delta_snapshot);
 
     if (fails == 0) {
         printf("All gimbal tests passed.\n");
