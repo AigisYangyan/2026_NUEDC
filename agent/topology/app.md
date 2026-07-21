@@ -200,7 +200,7 @@ class LostLine_API {
 }
 
 class Tuning_API {
-  <<app:service>>
+  <<app:service, W8 §30 adds TUNING_PROFILE_GIMBAL_AIM>>
   +Tuning_Init()
   +Tuning_EnterProfile(Tuning_Profile) bool
   +Tuning_Update()
@@ -215,6 +215,15 @@ class TuningChassis_API {
   +TuningChassis_RefreshTx()
   +TuningChassis_PumpInner()
   +TuningChassis_Exit()
+}
+
+class TuningGimbal_API {
+  <<app:service, private to tuning, NEW W8 §30>>
+  +TuningGimbal_Enter()
+  +TuningGimbal_Apply()
+  +TuningGimbal_RefreshTx()
+  +TuningGimbal_PumpInner()
+  +TuningGimbal_Exit()
 }
 
 class Hmi_API {
@@ -256,11 +265,13 @@ class Route_API {
 }
 
 class Gimbal_API {
-  <<app:service, NEW S05c>>
+  <<app:service, NEW S05c, W8 §30 adds SetAimTuning + ReselectTopic runtime tuning face>>
   +Gimbal_Init(const Gimbal_Config_T*)
   +Gimbal_SelectTopic(main_task, sub_task) bool
   +Gimbal_Update()
   +Gimbal_Stop()
+  +Gimbal_SetAimTuning(const Gimbal_AimTuning_T*)
+  +Gimbal_ReselectTopic() bool
   +Gimbal_GetState() Gimbal_State
   +Gimbal_GetTelemetry(Gimbal_Telemetry_T*)
 }
@@ -452,6 +463,7 @@ AppCompose_API --> SchedulerEntry_API : Scheduler_Init(s_entries, count, backgro
 AppCompose_API --> MenuUI_API : Menu_Setup(s_groups, count), first real caller W2
 AppCompose_API --> MenuUI_API : Menu_SetEntrySelfDraw(APP_ENTRY_IDX_GRAYTEST), W7 §29 self-draw opt-in registration
 AppCompose_API ..> Tuning_API : entry hooks call Tuning_EnterProfile/Update/ExitProfile (Scheduler_Entry_T fn ptrs owned by AppCompose, invoked later by SchedulerEntry_API)
+AppCompose_API --> Gimbal_API : Gimbal_Init(&s_gt_cfg)/Gimbal_SelectTopic(main,sub), DEBUG entry idx6 "GimbalTune" on_enter hook, W8 §30, resolves Gimbal_API's zero-caller status
 SchedulerEntry_API ..> AppCompose_API : Scheduler_Run invokes active entry's on_enter/on_step/on_exit fn ptrs each tick (opaque, registered by AppCompose)
 SchedulerEntry_API ..> MenuUI_API : Scheduler_Run invokes background_step = Menu_Tick each idle tick (fn ptr, registered by AppCompose)
 
@@ -473,6 +485,15 @@ Scheduler_API --> TaskGroups_API : dispatch active group
 %% {0,1,2,3,4,5}. ProfiledStraight resolves Motion_API's zero-caller status; single-active-entry
 %% invariant keeps it mutually exclusive with SpeedTune/LineFollow (index V21 MS02 note), does not
 %% add a 5th Chassis_Update drive point (motion stays the same single module-level 3rd point).
+%% W8 (2026-07-21, §30): s_entries[] grows to 7 (+GimbalTune idx6); s_debug_entries[]=
+%% {0,1,2,3,4,5,6}. gimbaltune_enter dispatches Gimbal_Init(&s_gt_cfg) -> Tuning_EnterProfile
+%% (TUNING_PROFILE_GIMBAL_AIM) -> Gimbal_SelectTopic(main,sub) in that order (Tuning_EnterProfile's
+%% inner Gimbal_Stop would abort an in-flight handshake if SelectTopic ran first); this resolves
+%% Gimbal_API's zero-caller status (first direct AppCompose_API->Gimbal_API edge, see edge above).
+%% GimbalTune does not drive Chassis_Update (gimbal dispatches EMM42 steppers via gimbal_stepbus,
+%% never touches chassis.h/motor.h), so it does not add a 4th Chassis_Update drive point (still
+%% tuning_chassis/line_follow/motion, index V21); the single-active-entry invariant now holds
+%% across seven entries.
 RunRegistry_API --> SpeedLoop_API : lifecycle
 RunRegistry_API --> GrayTest_API : lifecycle
 RunRegistry_API --> UartTest_API : lifecycle
@@ -628,6 +649,9 @@ Tuning_API --> VofaDriver_API : vofa_clear_profile + vofa_run, Enter-time RX dra
 Tuning_API --> TuningChassis_API : profile lifecycle orchestration, sole caller
 TuningChassis_API --> Chassis_API : same-layer controlled, SetSpeedGains + SetTargetMps + GetTelemetry + Stop + Update, sole apply point
 TuningChassis_API --> VofaDriver_API : vofa_register_float ×10 tx (gains×6 echo + target×2 + feedback×2, no pid_out, W1) + vofa_bind_cmd ×8 cmd
+Tuning_API --> TuningGimbal_API : profile lifecycle orchestration, sole caller, W8 §30
+TuningGimbal_API --> Gimbal_API : same-layer controlled, SetAimTuning + ReselectTopic + GetTelemetry, sole apply point
+TuningGimbal_API --> VofaDriver_API : vofa_register_float ×13 tx (err/delta/cur×2 + state + gains/DB/MS echo×6) + vofa_bind_cmd ×7 cmd (XP/XD/YP/YD/DB/MS/GO)
 
 Hmi_API --> Key_API : Key_Scan pump + Key_PollPressEvent read-clear
 Hmi_API --> OLED_API : OLED_IsReady/OLED_Process/OLED_ShowString/OLED_Clear
@@ -670,6 +694,27 @@ Gimbal_API --> Clock_API : 10ms self-gate, unsigned-subtract elapsed
 Gimbal_API --> GimbalStepbus_API : same-layer controlled, private pulse dispatch submodule
 GimbalStepbus_API --> Emm42_API : Build*Frame packing (absolute pulse passed through, no dir/magnitude split — T-GQ2 removed the split; RPM clamp stays emm42.c; label corrected 2026-07-20, was stale post-T-GQ2 doc drift)
 GimbalStepbus_API --> StepmotorUart_API : TryWrite/IsTxIdle/ConsumeTxDone/Read (drain+discard, vision is the only feedback path)
+
+%% Gimbal_API / Tuning_API / TuningGimbal_API (W8, landed 2026-07-21, contract §30) — runtime
+%% aim-tuning face closes the "no runtime setter" gap noted at V26 landing (index §6 V26 W8
+%% addendum): Gimbal_SetAimTuning(const Gimbal_AimTuning_T*) swaps only s_cfg.aim's kp/kd/
+%% deadband_px/max_step_pulse fields through the sole existing VisionAim_Init apply point
+%% (center_px/sign/travel_limit_pulse stay Init-only, out of tuning's reach — assembly/polarity/
+%% travel facts, not runtime-safe to flip); prev_error_px/seeded/state untouched (gain swap does
+%% not break the convergence loop, gimbal.c never re-derives PD math). Gimbal_ReselectTopic()
+%% re-submits the last successful SelectTopic pair (s_has_topic-gated) to resume handshake after
+%% STOPPED without losing the tuning session. Gimbal_Telemetry_T grows last_error_px[2]/
+%% last_delta_pulse[2] as a read-only cache of gimbal_aim_dispatch's existing VisionAim_Result_T —
+%% zero second computation. New private submodule TuningGimbal_API (tuning_gimbal.c/.h) mirrors
+%% TuningChassis_API's Enter/Apply/RefreshTx/PumpInner/Exit pattern: cmd×7 (XP/XD/YP/YD/DB/MS/GO)
+%% -> single cleaning point in Apply (negative clamp to 0, MS domain [1,10000] per contract
+%% revision 2) -> Gimbal_SetAimTuning; GO>=0.5 edge-consumed (clear then fire) -> Gimbal_
+%% ReselectTopic; tx×13 one-way telemetry+echo copy, no reverse path. Safe-entry values: gains=0,
+%% DB=10000 (vision_aim's floor-1 semantics mean kp=0 alone is NOT zero output — a still-raw=0
+%% pixel error outside deadband still floor-1-crawls ±1 pulse/tick; only an oversized deadband
+%% guarantees deterministic zero output), MS=1, GO=0. New AppCompose_API entry "GimbalTune"
+%% (idx6) wires Gimbal_Init -> Tuning_EnterProfile(GIMBAL_AIM) -> Gimbal_SelectTopic in that
+%% fixed order (see s_entries[] comment block above).
 
 %% EncoderTest_API / MotorCheck_API (W3, landed 2026-07-19) — two new DEBUG-group scheduler
 %% entries (app_compose.c s_entries idx1/idx2), diagnostic-only, mutually exclusive with each
@@ -752,8 +797,8 @@ flowchart TD
   SysInit --> ServiceInit[Hmi_Init + Chassis_Init + Tuning_Init]
   SysInit --> AppCompose[AppCompose_Install, W2 SYS02]
   SysInit --> BoardIRQ[Board_EnableInterrupts]
-  AppCompose --> SchedulerInit[Scheduler_Init s_entries=SpeedTune,EncoderTest,MotorDir,GrayTest,LineFollow,ProfiledStraight x6, background_step=Menu_Tick]
-  AppCompose --> MenuSetupCall[Menu_Setup s_groups=DEBUG+TUNE+DRIVE x3, DEBUG entries idx0..5, TUNE params=LFKp,LFKi,LFKd,SAVE x4, DRIVE params=Dist,Cruise,Start,Accel,Decel,SAVE x6]
+  AppCompose --> SchedulerInit[Scheduler_Init s_entries=SpeedTune,EncoderTest,MotorDir,GrayTest,LineFollow,ProfiledStraight,GimbalTune x7, background_step=Menu_Tick]
+  AppCompose --> MenuSetupCall[Menu_Setup s_groups=DEBUG+TUNE+DRIVE x3, DEBUG entries idx0..6, TUNE params=LFKp,LFKi,LFKd,SAVE x4, DRIVE params=Dist,Cruise,Start,Accel,Decel,SAVE x6]
   AppCompose --> MenuSelfDrawCall[Menu_SetEntrySelfDraw APP_ENTRY_IDX_GRAYTEST=3, W7 GrayTest opt-in, menu zero-draws while active]
   AppCompose --> ParamTuneInitCall[ParamTune_Init, W5: read param_store schema_ver 2 or default -> LineFollow_SetGains + Motion_SetProfileParams; also re-invoked by LineFollow on_enter W6 and ProfiledStraight on_enter MS02, three call sites]
   Main --> MainLoop[while 1: Scheduler_Run Clock_NowMs]
@@ -764,6 +809,7 @@ flowchart TD
   MainLoop -->|GrayTest entered, W4/W7| GrayTestStep[on_step -> GrayCheck_Update -> Gray_ReadDarkBitmap 2nd read point + vofa_run tx-only + 100ms-gated OLED calibration panel, self-draw menu yields row0..3]
   MainLoop -->|LineFollow entered, W6| LineFollowStep[on_enter LineFollow_Init then ParamTune_Init then Start; on_step -> LineFollow_Update -> cascaded Chassis_Update in TRACKING/RECOVERING; on_exit LineFollow_Stop]
   MainLoop -->|ProfiledStraight entered, MS02| ProfiledStraightStep[on_enter Motion_Init then ParamTune_Init reapply profile params+dist then StartProfiledStraight dist,false; on_step -> Motion_Update -> profile watchdog check -> cascaded Chassis_Update; on_exit Motion_Stop]
+  MainLoop -->|GimbalTune entered, W8 §30| GimbalTuneStep[on_enter Gimbal_Init s_gt_cfg then Tuning_EnterProfile GIMBAL_AIM then Gimbal_SelectTopic placeholder topic, order fixed; on_step -> Tuning_Update -> vofa_run cmd/tx + TuningGimbal_Apply clean-and-set + PumpInner Gimbal_Update; on_exit Tuning_ExitProfile -> Gimbal_Stop]
   MainLoop -->|TUNE group, K3 on Kp/Ki/Kd row, W5| TuneEditStep[MenuParam_Handle -> ParamTune_Get/Set*_milli -> LineFollow_Get/SetGains, no menu-side scale/copy]
   MainLoop -->|TUNE group, K3 on SAVE row, W5| TuneSaveStep[MenuParam_Handle action -> ParamTune_Save -> ParamStore_Save, flash write]
   MainLoop -->|DRIVE group, K3 on Dist/Cruise/Start/Accel/Decel row, MS02| DriveEditStep[MenuParam_Handle -> ParamTune_Get/SetDist_mm self-held or ParamTune_Get/SetCruise/Start/Accel/Decel_milli -> Motion_Get/SetProfileParams, no menu-side scale/copy]
