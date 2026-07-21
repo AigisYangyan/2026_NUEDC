@@ -265,6 +265,12 @@ static int test_cmd_sanitize_clamps(void)
     TEST_ASSERT((ch[GT_CH_XP] > -0.001f) && (ch[GT_CH_XP] < 0.001f));   /* -5 → 0 */
     TEST_ASSERT((ch[GT_CH_DB] > -0.001f) && (ch[GT_CH_DB] < 0.001f));   /* -3 → 0 */
     TEST_ASSERT((ch[GT_CH_MS] > 0.999f) && (ch[GT_CH_MS] < 1.001f));    /* 0 → 1 */
+
+    push_cmd("MS=3000000000\n");           /* 上界（修订 2）：越 int32 域的超大值 → 10000 */
+    pump_once();
+    pump_once();
+    TEST_ASSERT(copy_frame_floats(ch, GT_FRAME_CHANNELS) == GT_FRAME_BYTES);
+    TEST_ASSERT((ch[GT_CH_MS] > 9999.0f) && (ch[GT_CH_MS] < 10001.0f));
     return 0;
 }
 

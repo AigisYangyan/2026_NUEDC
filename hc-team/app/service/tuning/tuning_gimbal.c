@@ -18,6 +18,9 @@
 /* 安全初值（契约 §30）：零出力由 DB=10000 保证（floor-1 下 kp=0 不是零出力）。 */
 #define TUNING_GIMBAL_SAFE_DEADBAND_PX 10000.0f
 #define TUNING_GIMBAL_SAFE_MAX_STEP    1.0f
+/* MS 清洗上界（契约 §30 修订 2）：无上界时超大 float→int32 转换在主机侧属未定义行为、
+ * 板上饱和会实质解除 §8.1 每拍步长封顶；10000 覆盖一切合理机构且恒在 int32 定义域。 */
+#define TUNING_GIMBAL_MAX_STEP_LIMIT   10000.0f
 
 /* 本 profile 的 VOFA 变量组：cmd 为接收绑定目标（vofa_bind_cmd 要求 volatile），
  * tx 为发送通道来源。两组都不与运行变量共存储。 */
@@ -127,6 +130,9 @@ void TuningGimbal_Apply(void)
     s_applied.deadband_px[VISION_AIM_AXIS_Y] = s_applied.deadband_px[VISION_AIM_AXIS_X];
     if (ms < 1.0f) {
         ms = 1.0f;      /* vision_aim 前置条件 max_step>=1 */
+    }
+    if (ms > TUNING_GIMBAL_MAX_STEP_LIMIT) {
+        ms = TUNING_GIMBAL_MAX_STEP_LIMIT;   /* 清洗域 [1,10000]（修订 2） */
     }
     s_applied.max_step_pulse[VISION_AIM_AXIS_X] = (int32_t)ms;
     s_applied.max_step_pulse[VISION_AIM_AXIS_Y] = (int32_t)ms;
