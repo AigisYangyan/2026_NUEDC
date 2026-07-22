@@ -3670,3 +3670,71 @@ fake_uart_port（IMU RX 注入 + VOFA TX 抓取，test_imu/test_encoder_test 同
 | E02 | 范围审计 | `git status` + `git diff --stat` 对照 §32.2 | 无 allowed 之外改动 |
 | E03 | 主机测试 | PowerShell：`rtk proxy make -C tests/host all` | ≥530 PASS / 0 FAIL（520 基线 + ≥10 新用例，必含安全项：Start 零电机命令零器件字节、首拍只播种、10ms 门控、漂移数学（注入帧推 yaw）、wrap 归一化、invalid 快照 drift=0、短窗 <2s drift=0、Stop 清表、诊断计数镜像一致、遥测与 VOFA 通道一致） |
 | E04 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 诊断、imu_check.o 进链（linkInfo `<input_file>`） |
+
+## 33. B1 契约（beacon 声光链：driver/beacon + service/alert + BeaconTest 条目）——冻结
+
+- **task_id**: B1-beacon-alert
+- **goal**: 预测缺口 P1（声光提示，全形态通用，得分≈0.9）落地：新建 `driver/beacon`
+  （蜂鸣器 PB18 + 状态 LED PB22 的引脚开关唯一所有者——PB22 在 syscfg 为 GPIO_STATUS_LED
+  但全仓零引用，无主收编）+ `app/service/alert`（声光语义节拍编排）+ app_compose
+  `BeaconTest` 条目（idx7，逐模式 2s 轮播，人耳人眼验收，零 VOFA 依赖）。
+- **电赛四问**：验收动作=赛日「声光确认/到位提示」条款（想定文档各形态均有）；权重≈全形态；
+  基础线；标定入口=无可调参数（节拍常量编译期，现场不调）。
+- **硬件依赖与假设**：`board.syscfg` 新增 `GPIO_BEACON`/`BUZZER`=PB18（输出，初值低）；
+  蜂鸣器**假设有源**（电平开关即响）——无源需 PWM，届时换实现不换接口；PB18「重复占用」
+  与有源/无源二问登记 `docs/硬件对接确认清单.md` H4。
+
+### 33.1 公共接口（最小面）
+
+```c
+/* driver/beacon/beacon.h —— 引脚开关，无节拍逻辑 */
+void Beacon_Init(void);            /* 蜂鸣器/LED 全灭 */
+void Beacon_SetBuzzer(bool on);
+void Beacon_SetLed(bool on);
+
+/* app/service/alert/alert.h —— 语义节拍（能力：装置能发出可听/可见提示） */
+typedef enum {
+    ALERT_PATTERN_NONE = 0,
+    ALERT_PATTERN_BEEP_SHORT,   /* 单响 100ms（一次性，播完自灭） */
+    ALERT_PATTERN_BEEP_DOUBLE,  /* 双响 100on/100off/100on（一次性） */
+    ALERT_PATTERN_BEEP_LONG,    /* 长响 500ms（一次性） */
+    ALERT_PATTERN_LED_ON,       /* LED 常亮（持续，直至 Stop/换模式） */
+    ALERT_PATTERN_BLINK_SLOW,   /* LED 500ms 半周期闪（持续，运行中指示） */
+    ALERT_PATTERN_BLINK_FAST,   /* LED 100ms 半周期闪（持续，告警） */
+    ALERT_PATTERN_BEEP_BLINK,   /* 声光同步 250ms 半周期（持续，赛日确认） */
+} Alert_Pattern_T;
+void Alert_Init(void);              /* Beacon 全灭 + 状态复位；不发其他硬件命令 */
+void Alert_Play(Alert_Pattern_T p); /* 立即从头起播；NONE=等效 Stop */
+void Alert_Update(uint32_t now_ms); /* 节拍推进（调度拍粒度 10ms 足够，相位时刻差驱动） */
+void Alert_Stop(void);              /* 全灭 + 回 NONE */
+bool Alert_IsBusy(void);            /* 一次性模式在播=true；持续模式恒 true 直至 Stop */
+```
+
+- **单一所有者**：引脚电平唯一经 driver/beacon；节拍/相位唯一在 alert；BeaconTest 装配层
+  只做模式轮播计时，零直接引脚操作。
+- Play 换模式即重置相位（无跨模式残留）；Update 首拍以 now_ms 播种相位基准（同仓惯例）。
+
+### 33.2 allowed_files
+
+| 文件 | 动作 |
+|---|---|
+| `board.syscfg` | 修改（仅新增 GPIO_BEACON/BUZZER=PB18 块） |
+| `hc-team/driver/beacon/beacon.h` `.c` | 新建 |
+| `hc-team/app/service/alert/alert.h` `.c` | 新建 |
+| `hc-team/app/system/app_compose.c` | 修改（BeaconTest 条目 idx7 + include + 两表各一行） |
+| `tests/host/test_alert.c`、`tests/host/fake_beacon.c` | 新建（fake 伪装 Driver 硬件边界，fake_motor_hw/fake_board_gpio 先例） |
+| `tests/host/Makefile`、`.gitignore`、`Debug/makefile` | 接线登记 |
+| `docs/硬件对接确认清单.md` | H4 追加有源/无源问 |
+| `agent/phase4_app_rewrite/plan_app_first_order.md` | 状态回写 |
+
+forbidden_files：其余一切（尤其 `hc-team/driver/board_gpio/**` 不动——LED 收编进 beacon
+不经它；`ti_msp_dl_config.*` 由构建自 syscfg 重生成，不手改）。
+
+### 33.3 证据行（4 行，恰 1 条固件构建行）
+
+| 行 | 名称 | 命令 | 预期 |
+|---|---|---|---|
+| E01 | 依赖纯净 | Grep 禁止前缀（path=`hc-team/app/service/alert`，`#include` 行：`app/tasks/\|app/scheduler/\|app/ui/\|app/system/\|middleware/\|ti_msp_dl_config\|ti/driverlib`）；beacon.c include 面恰 = 自身头 + `ti_msp_dl_config.h`（Driver→DL HAL 合法） | alert 0 命中；beacon 如式 |
+| E02 | 范围审计 | `git status` + `git diff --stat` 对照 §33.2 | 无 allowed 之外改动 |
+| E03 | 主机测试 | PowerShell：`rtk proxy make -C tests/host all` | ≥543 PASS / 0 FAIL（533 基线 + ≥10 新用例，必含安全项：Init/Stop 全灭、一次性模式播完自灭且 IsBusy 翻转、双响完整时序、慢闪/快闪半周期、声光同步同相、Play 换模式重置相位、Update 未 Play 零输出、NONE=Stop 等效） |
+| E04 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 诊断、beacon.o+alert.o 进链（linkInfo `<input_file>`）、ti_msp_dl_config 重生成含 GPIO_BEACON 宏 |
