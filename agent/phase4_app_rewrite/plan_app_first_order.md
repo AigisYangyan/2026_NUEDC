@@ -3738,3 +3738,19 @@ forbidden_files：其余一切（尤其 `hc-team/driver/board_gpio/**` 不动—
 | E02 | 范围审计 | `git status` + `git diff --stat` 对照 §33.2 | 无 allowed 之外改动 |
 | E03 | 主机测试 | PowerShell：`rtk proxy make -C tests/host all` | ≥543 PASS / 0 FAIL（533 基线 + ≥10 新用例，必含安全项：Init/Stop 全灭、一次性模式播完自灭且 IsBusy 翻转、双响完整时序、慢闪/快闪半周期、声光同步同相、Play 换模式重置相位、Update 未 Play 零输出、NONE=Stop 等效） |
 | E04 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 诊断、beacon.o+alert.o 进链（linkInfo `<input_file>`）、ti_msp_dl_config 重生成含 GPIO_BEACON 宏 |
+
+### 33.4 完成记录（2026-07-23，代码本提交）
+
+- TDD 红→绿：test_alert 在无 alert.c 链接的旧态下 undefined reference ×N（exit 1 实录）；
+  实现后 12/12 PASS。板级红=syscfg 首跑 `ReferenceError: GPIO5 is not defined`——
+  **教训：syscfg 加引脚组必须两处**（头部 `addInstance()` 声明 + 配置块），已修复。
+- E01 依赖纯净：alert 禁止前缀 0 命中；beacon.c include 面恰=自身头+ti_msp_dl_config+dl_gpio。
+- E02 范围：全部在 §33.2 内（.ccsproject 会话前既存不纳入）。
+- E03 主机 **545 PASS 0 FAIL**＝533 基线+12（alert 12：全灭/单双长响时序/常亮/慢快闪/
+  声光同相/换模式清残留/未播零输出/越界夹域/Stop 静默）。
+- E04 固件 exit 0、0 诊断；GPIO_BEACON_PORT/BUZZER_PIN 宏生成；alert.o+beacon.o 进
+  linkInfo `<input_file>`；生成代码先 clearPins(PB18|PB22) 再 enableOutput=上电静默背书。
+- arch-auditor：六核查点全过、零阻断；1 重要=提交卫生（.ccsproject 排除，遵办）；
+  3 建议级处置：default 分支改显式 NONE case（保 -Wswitch 防线）、beacon.h Init 注释改准确、
+  plan 回写+拓扑同步（本记录+topo-updater 落实）。
+- sys_init 不调 Beacon_Init 裁定成立（syscfg 初值低背书）；BeaconTest enter Alert_Init 兜底。

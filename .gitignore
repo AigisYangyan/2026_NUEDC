@@ -77,3 +77,5 @@ tests/host/test_tuning_gimbal
 tests/host/test_tuning_gimbal.exe
 tests/host/test_imu_check
 tests/host/test_imu_check.exe
+tests/host/test_alert
+tests/host/test_alert.exe

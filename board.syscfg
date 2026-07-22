@@ -15,6 +15,7 @@ const GPIO1  = GPIO.addInstance();
 const GPIO2  = GPIO.addInstance();
 const GPIO3  = GPIO.addInstance();
 const GPIO4  = GPIO.addInstance();
+const GPIO5  = GPIO.addInstance();
 const I2C    = scripting.addModule("/ti/driverlib/I2C", {}, false);
 const I2C1   = I2C.addInstance();
 const PWM    = scripting.addModule("/ti/driverlib/PWM", {}, false);
@@ -154,6 +155,13 @@ GPIO4.$name                              = "GPIO_STATUS_LED";
 GPIO4.associatedPins[0].$name            = "PIN_22";
 GPIO4.associatedPins[0].internalResistor = "PULL_DOWN";
 GPIO4.associatedPins[0].pin.$assign      = "PB22";
+
+/* 蜂鸣器（B1 §33）：硬件组引脚表 2026-07 定案 PB18（标注「重复占用」兼扩展 Pin13，
+ * 冲突确认见 docs/硬件对接确认清单.md H4）。输出、初值低=静音；有源蜂鸣器假设。 */
+GPIO5.port                          = "PORTB";
+GPIO5.$name                         = "GPIO_BEACON";
+GPIO5.associatedPins[0].$name       = "BUZZER";
+GPIO5.associatedPins[0].pin.$assign = "PB18";
 
 I2C1.advAnalogGlitchFilter             = "DISABLED";
 I2C1.basicEnableController             = true;

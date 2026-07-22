@@ -21,6 +21,8 @@
  *                StartProfiledStraight(dist,false)，10ms 泵 Update 级联 Chassis 跑一段停，退页 Motion_Stop）。
  * - ImuTest    = IMU 链路诊断（imu_check：注册 VOFA tx×8（yaw/rate/age/valid/drift/三计数）、
  *                10ms 泵 Imu_Update+发帧、静置漂移 2s 起报，退页清表——不驱动电机、不写器件）。
+ * - BeaconTest = 声光轮播验收（alert：七种模式各 2s 循环，人耳人眼验收，零 VOFA 依赖，
+ *                退页 Alert_Stop 确定性静默——不驱动电机）。
  * RUN_ACTIVE 期 OLED 统一 RUNNING 横幅由 menu 框架负责；例外：GrayTest 经
  * Menu_SetEntrySelfDraw 登记 self-draw（W7 §29 opt-in），活动期整屏归 gray_check 面板。
  * 换/加 debug/test 项：在 s_entries[] 补条目 + 在对应分组的 entries 数组补其下标。
@@ -37,6 +39,7 @@
 #include <stdint.h>
 
 #include "app/scheduler/scheduler.h"
+#include "app/service/alert/alert.h"
 #include "app/service/encoder_test/encoder_test.h"
 #include "app/service/gray_check/gray_check.h"
 #include "app/service/imu_check/imu_check.h"
@@ -232,6 +235,46 @@ static void imutest_exit(void)
     ImuCheck_Stop();        /* 退页：清 VOFA 表 */
 }
 
+/* ---- BeaconTest 运行条目钩子（→ alert 服务，now_ms 透传注入）----------------
+ * 七种声光模式各 2s 轮播（人耳人眼验收，零 VOFA 依赖）；节拍/相位归 alert，
+ * 引脚电平归 driver/beacon，本装配层只做模式轮播计时（零直接引脚操作）。 */
+
+static const Alert_Pattern_T s_bt_patterns[] = {
+    ALERT_PATTERN_BEEP_SHORT, ALERT_PATTERN_BEEP_DOUBLE, ALERT_PATTERN_BEEP_LONG,
+    ALERT_PATTERN_LED_ON, ALERT_PATTERN_BLINK_SLOW, ALERT_PATTERN_BLINK_FAST,
+    ALERT_PATTERN_BEEP_BLINK,
+};
+static uint8_t  s_bt_index;
+static bool     s_bt_seeded;
+static uint32_t s_bt_base_ms;
+
+static void beacontest_enter(void)
+{
+    Alert_Init();           /* 全灭起点 */
+    s_bt_index = 0u;
+    s_bt_seeded = false;
+}
+
+static void beacontest_step(uint32_t now_ms)
+{
+    if (!s_bt_seeded) {
+        s_bt_seeded = true;
+        s_bt_base_ms = now_ms;
+        Alert_Play(s_bt_patterns[0]);
+    } else if ((now_ms - s_bt_base_ms) >= 2000u) {
+        s_bt_base_ms = now_ms;
+        s_bt_index = (uint8_t)((s_bt_index + 1u)
+                               % (sizeof(s_bt_patterns) / sizeof(s_bt_patterns[0])));
+        Alert_Play(s_bt_patterns[s_bt_index]);
+    }
+    Alert_Update(now_ms);
+}
+
+static void beacontest_exit(void)
+{
+    Alert_Stop();           /* 退页：确定性静默 */
+}
+
 /* ---- 运行条目表（scheduler 全局条目索引 = 本数组下标）----------------------- */
 
 /* GrayTest 的条目下标（self-draw 登记与 s_entries[] 同源对齐；插入条目时同步改此值）。 */
@@ -245,11 +288,12 @@ static const Scheduler_Entry_T s_entries[] = {
     { "LineFollow",  linefollow_enter, linefollow_step, linefollow_exit }, /* idx 4 */
     { "ProfiledStraight", profiledstraight_enter, profiledstraight_step, profiledstraight_exit }, /* idx 5 */
     { "ImuTest",     imutest_enter,   imutest_step,   imutest_exit },     /* idx 6 */
+    { "BeaconTest",  beacontest_enter, beacontest_step, beacontest_exit }, /* idx 7 */
 };
 
 /* ---- 菜单分组表（DEBUG 运行分类的条目 = 上表下标）--------------------------- */
 
-static const uint8_t s_debug_entries[] = { 0u, 1u, 2u, 3u, 4u, 5u, 6u };  /* → SpeedTune / EncoderTest / MotorDir / GrayTest / LineFollow / ProfiledStraight / ImuTest */
+static const uint8_t s_debug_entries[] = { 0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u };  /* → SpeedTune / EncoderTest / MotorDir / GrayTest / LineFollow / ProfiledStraight / ImuTest / BeaconTest */
 
 /* TUNE 参数组：循迹外环差速 PID 三增益（milli 口径）+ SAVE 动作项。
  * get/set 委派 param_tune（值/换算/持久化归它）；SAVE 的 action=ParamTune_Save（K3 即存 flash）。

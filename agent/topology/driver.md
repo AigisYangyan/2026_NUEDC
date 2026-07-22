@@ -195,6 +195,15 @@ class VofaDriver_API {
   +vofa_run()
 }
 
+class Beacon_API {
+  <<driver:beacon, NEW B1 2026-07-23>>
+  +Beacon_Init()
+  +Beacon_SetBuzzer(bool on)
+  +Beacon_SetLed(bool on)
+  note: 声光指示引脚电平唯一所有者 — 蜂鸣器 PB18 GPIO_BEACON, 状态 LED PB22 GPIO_STATUS_LED (此前全仓零引用, 本模块是首个真实消费者)
+  note: 只做开关, 无节拍/时序/状态机 (节拍归 app/service/alert 唯一所有); 有源蜂鸣器假设, 无源需换 PWM 实现
+}
+
 class PID_API {
   <<middleware:pid>>
   +Pid_Init(Pid_T*, const Pid_Config_T*)
@@ -238,5 +247,6 @@ IMU_API --> Clock_API : frame freshness timestamp
 IMU_API --> Runtime_API : bounded delay between device commands
 VofaDriver_API --> VofaUart_API : UART transport
 BslEntry_API --> DL_HAL : invokeBSLAsm inline asm, target-only, SRAM erase + RESETLEVEL/RESETCMD
+Beacon_API --> DL_HAL : DL_GPIO_setPins/clearPins via ti_msp_dl_config GPIO_BEACON (PB18) and GPIO_STATUS_LED (PB22)
 ```
 

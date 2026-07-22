@@ -341,6 +341,16 @@ class ImuCheck_API {
   note: read-only diagnostic, no motor/device writes (deliberately never calls Imu_ZeroYaw/Imu_SetOutputRate); sole owner of drift_dps = wrap-normalized (yaw - seeded ref yaw) / elapsed s, min 2s window before reporting
 }
 
+class Alert_API {
+  <<app:service, NEW B1 2026-07-23, DEBUG entry idx7 "BeaconTest">>
+  +Alert_Init()
+  +Alert_Play(Alert_Pattern_T pattern)
+  +Alert_Update(now_ms)
+  +Alert_Stop()
+  +Alert_IsBusy() bool
+  note: sole owner of tempo/phase — 7 patterns (3 one-shot beep short/double/long, self-silence on completion; 4 sustained on/blink-slow/blink-fast/beep-blink, held until Stop or pattern switch); Play resets phase, no cross-pattern residue; zero VOFA dependency
+}
+
 class SpeedLoop_API {
   <<app:task>>
   +SpeedLoop_Init()
@@ -450,6 +460,7 @@ class VofaDriver_API { <<driver>> }
 class ImuUart_API { <<driver>> }
 class IMU_API { <<driver:imu, NEW consumer S06>> }
 class ParamStore_API { <<driver:param_store, NEW W5>> }
+class Beacon_API { <<driver:beacon, NEW B1 2026-07-23>> }
 class DL_HAL { <<external>> }
 
 System_API ..> Scheduler_API : g_eSysFlagManage = SYS_STA_INIT write only (V13 residual); SysRun/TaskStartSchedule loop no longer called since W2 2026-07-19
@@ -479,6 +490,7 @@ AppCompose_API ..> Tuning_API : entry hooks call Tuning_EnterProfile/Update/Exit
 %% runtime — see class tag above and index §6 V10 W9 addendum). Superseded by the
 %% AppCompose_API --> ImuCheck_API edge below (W10, same idx6 slot, different Service).
 AppCompose_API --> ImuCheck_API : ImuCheck_Start()/Update(now_ms)/Stop(), DEBUG entry idx6 "ImuTest" three hooks, W10 2026-07-23, replaces removed GimbalTune slot
+AppCompose_API --> Alert_API : Alert_Init()/Play(pattern)/Update(now_ms)/Stop(), DEBUG entry idx7 "BeaconTest" three hooks, B1 2026-07-23, 2s round-robin across 7 patterns, appends slot (s_entries grows 7->8)
 SchedulerEntry_API ..> AppCompose_API : Scheduler_Run invokes active entry's on_enter/on_step/on_exit fn ptrs each tick (opaque, registered by AppCompose)
 SchedulerEntry_API ..> MenuUI_API : Scheduler_Run invokes background_step = Menu_Tick each idle tick (fn ptr, registered by AppCompose)
 
@@ -528,6 +540,14 @@ Scheduler_API --> TaskGroups_API : dispatch active group
 %% V21 W3/W4 notes; see index §6 V23 W10 addendum for the IMU-specific registration). The
 %% single-active-entry invariant holds across seven entries (same count as W8, different idx6
 %% occupant).
+%% B1 (2026-07-23, §33): s_entries[] grows to 8 — new BeaconTest entry appends idx7
+%% (s_debug_entries[]={0,1,2,3,4,5,6,7}), backed by the new app/service/alert Service (Driver =
+%% new driver/beacon). beacontest_enter/step/exit dispatch Alert_Init()/2s round-robin
+%% Alert_Play(pattern)+Alert_Update(now_ms)/Alert_Stop(). BeaconTest does not drive Chassis_Update
+%% (alert has zero chassis.h/motor.h/Pid/Encoder/Gray/IMU dependency) and does not add a 4th
+%% Chassis_Update drive point nor a new Imu_Update/Gray_ReadDarkBitmap pump point (index V21/V23
+%% unaffected). Zero VOFA dependency (acceptance is by ear/eye, no telemetry table, unlike every
+%% other DEBUG entry). The single-active-entry invariant holds across eight entries.
 RunRegistry_API --> SpeedLoop_API : lifecycle
 RunRegistry_API --> GrayTest_API : lifecycle
 RunRegistry_API --> UartTest_API : lifecycle
@@ -790,6 +810,19 @@ GrayCheck_API --> Hmi_API : Hmi_PrintLine x4 rows, 100ms-gated row-diff calibrat
 ImuCheck_API --> IMU_API : Imu_Update() second pump point + Imu_GetSnapshot (yaw/rate/age/valid mirror) + Imu_GetDiag (frame/checksum/overflow mirror, first real caller)
 ImuCheck_API --> VofaDriver_API : vofa_clear_profile/vofa_register_float x3/vofa_register_int x5/vofa_run, tx-only (no bind_cmd)
 
+%% Alert_API / Beacon_API (B1, landed 2026-07-23, contract §33) — sound/light indicator prediction-gap
+%% P1 lands: alert.c sole-owns pattern tempo/phase (7 patterns, Play resets phase, one-shot self-silences,
+%% sustained modes floor-divide phase for jitter immunity); beacon.c (Driver, new) sole-owns pin level —
+%% buzzer PB18 GPIO_BEACON (active-buzzer assumption, no PWM) + status LED PB22 GPIO_STATUS_LED (this pin
+%% pre-existed in board.syscfg since before B1 but had zero code references anywhere in the repo until
+%% this round — beacon.c is its first real consumer). Zero VOFA dependency (acceptance is by ear/eye, no
+%% telemetry table). AppCompose_API wires eighth DEBUG-group scheduler entry "BeaconTest" (idx7): on_enter
+%% Alert_Init (all-off baseline), on_step 2s round-robin Alert_Play across all 7 patterns + Alert_Update(now_ms)
+%% each tick, on_exit Alert_Stop (deterministic silence). Does not drive Chassis_Update/Encoder_Update/
+%% Gray_ReadDarkBitmap/Imu_Update — no interaction with the single-active-entry invariant's existing
+%% second-pump-point precedents (index V21/V23), purely additive eighth entry.
+Alert_API --> Beacon_API : SetBuzzer/SetLed, Service->Driver, sole pin-level apply point per tick
+
 %% ParamTune_API / ParamStore_API (W5, landed 2026-07-19) — dynamic tuning framework: new
 %% TUNE menu group (app_compose.c s_groups[], sibling of DEBUG) button-adjusts the line_follow
 %% outer PID gains and persists them to on-chip flash. Model A: param_tune holds NO gain copy —
@@ -848,8 +881,8 @@ flowchart TD
   SysInit --> ServiceInit[Hmi_Init + Chassis_Init + Tuning_Init]
   SysInit --> AppCompose[AppCompose_Install, W2 SYS02]
   SysInit --> BoardIRQ[Board_EnableInterrupts]
-  AppCompose --> SchedulerInit[Scheduler_Init s_entries=SpeedTune,EncoderTest,MotorDir,GrayTest,LineFollow,ProfiledStraight,ImuTest x7, background_step=Menu_Tick, W9 dropped GimbalTune/W10 added ImuTest at idx6]
-  AppCompose --> MenuSetupCall[Menu_Setup s_groups=DEBUG+TUNE+DRIVE x3, DEBUG entries idx0..6, TUNE params=LFKp,LFKi,LFKd,SAVE x4, DRIVE params=Dist,Cruise,Start,Accel,Decel,SAVE x6]
+  AppCompose --> SchedulerInit[Scheduler_Init s_entries=SpeedTune,EncoderTest,MotorDir,GrayTest,LineFollow,ProfiledStraight,ImuTest,BeaconTest x8, background_step=Menu_Tick, W9 dropped GimbalTune/W10 added ImuTest at idx6/B1 added BeaconTest at idx7]
+  AppCompose --> MenuSetupCall[Menu_Setup s_groups=DEBUG+TUNE+DRIVE x3, DEBUG entries idx0..7, TUNE params=LFKp,LFKi,LFKd,SAVE x4, DRIVE params=Dist,Cruise,Start,Accel,Decel,SAVE x6]
   AppCompose --> MenuSelfDrawCall[Menu_SetEntrySelfDraw APP_ENTRY_IDX_GRAYTEST=3, W7 GrayTest opt-in, menu zero-draws while active]
   AppCompose --> ParamTuneInitCall[ParamTune_Init, W5: read param_store schema_ver 2 or default -> LineFollow_SetGains + Motion_SetProfileParams; also re-invoked by LineFollow on_enter W6 and ProfiledStraight on_enter MS02, three call sites]
   Main --> MainLoop[while 1: Scheduler_Run Clock_NowMs]
@@ -861,6 +894,7 @@ flowchart TD
   MainLoop -->|LineFollow entered, W6| LineFollowStep[on_enter LineFollow_Init then ParamTune_Init then Start; on_step -> LineFollow_Update -> cascaded Chassis_Update in TRACKING/RECOVERING; on_exit LineFollow_Stop]
   MainLoop -->|ProfiledStraight entered, MS02| ProfiledStraightStep[on_enter Motion_Init then ParamTune_Init reapply profile params+dist then StartProfiledStraight dist,false; on_step -> Motion_Update -> profile watchdog check -> cascaded Chassis_Update; on_exit Motion_Stop]
   MainLoop -->|ImuTest entered, W10 §32, idx6 slot vacated by W9 GimbalTune removal| ImuTestStep[on_enter ImuCheck_Start register VOFA tx x8; on_step -> ImuCheck_Update now_ms -> Imu_Update 2nd pump point + snapshot/diag mirror + drift stat + vofa_run; on_exit ImuCheck_Stop clear VOFA table]
+  MainLoop -->|BeaconTest entered, B1 §33, idx7 new slot| BeaconTestStep[on_enter Alert_Init all-off; on_step -> 2s round-robin Alert_Play across 7 patterns + Alert_Update now_ms -> Beacon_SetBuzzer/SetLed; on_exit Alert_Stop deterministic silence, zero VOFA]
   MainLoop -->|TUNE group, K3 on Kp/Ki/Kd row, W5| TuneEditStep[MenuParam_Handle -> ParamTune_Get/Set*_milli -> LineFollow_Get/SetGains, no menu-side scale/copy]
   MainLoop -->|TUNE group, K3 on SAVE row, W5| TuneSaveStep[MenuParam_Handle action -> ParamTune_Save -> ParamStore_Save, flash write]
   MainLoop -->|DRIVE group, K3 on Dist/Cruise/Start/Accel/Decel row, MS02| DriveEditStep[MenuParam_Handle -> ParamTune_Get/SetDist_mm self-held or ParamTune_Get/SetCruise/Start/Accel/Decel_milli -> Motion_Get/SetProfileParams, no menu-side scale/copy]
