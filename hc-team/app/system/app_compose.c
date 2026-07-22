@@ -19,6 +19,8 @@
  *                10ms 泵 Update 级联 Chassis 沿线跑，退页 LineFollow_Stop 安全停车；只跑不接遥测）。
  * - ProfiledStraight = 定长梯形剖面直行（motion：进页 Init→ParamTune_Init 重推持久剖面参数+距离→
  *                StartProfiledStraight(dist,false)，10ms 泵 Update 级联 Chassis 跑一段停，退页 Motion_Stop）。
+ * - ImuTest    = IMU 链路诊断（imu_check：注册 VOFA tx×8（yaw/rate/age/valid/drift/三计数）、
+ *                10ms 泵 Imu_Update+发帧、静置漂移 2s 起报，退页清表——不驱动电机、不写器件）。
  * RUN_ACTIVE 期 OLED 统一 RUNNING 横幅由 menu 框架负责；例外：GrayTest 经
  * Menu_SetEntrySelfDraw 登记 self-draw（W7 §29 opt-in），活动期整屏归 gray_check 面板。
  * 换/加 debug/test 项：在 s_entries[] 补条目 + 在对应分组的 entries 数组补其下标。
@@ -37,6 +39,7 @@
 #include "app/scheduler/scheduler.h"
 #include "app/service/encoder_test/encoder_test.h"
 #include "app/service/gray_check/gray_check.h"
+#include "app/service/imu_check/imu_check.h"
 #include "app/service/line_follow/line_follow.h"
 #include "app/service/motion/motion.h"
 #include "app/service/motor_check/motor_check.h"
@@ -209,6 +212,26 @@ static void profiledstraight_exit(void)
     Motion_Stop();  /* 退页：Chassis_Stop 确定性停车 → IDLE */
 }
 
+/* ---- ImuTest 运行条目钩子（→ imu_check 服务，now_ms 透传注入）---------------
+ * 只读诊断：进页注册 VOFA tx×8、10ms 泵 Imu_Update+发帧（V23 补注：第二泵点，
+ * 单活动条目互斥）、退页清表。不驱动电机、不写器件（ZeroYaw/SetOutputRate 禁入周期任务）。
+ * 静置漂移验收：车静置进页 ≥2s 后看 ch4 drift_dps（合格线见杜邦验收清单）。 */
+
+static void imutest_enter(void)
+{
+    ImuCheck_Start();       /* 注册 VOFA tx×8 + 镜像/漂移基准复位，无硬件副作用 */
+}
+
+static void imutest_step(uint32_t now_ms)
+{
+    ImuCheck_Update(now_ms);    /* 10ms 自门控：排空 FIFO → 镜像 → 漂移统计 → 发帧 */
+}
+
+static void imutest_exit(void)
+{
+    ImuCheck_Stop();        /* 退页：清 VOFA 表 */
+}
+
 /* ---- 运行条目表（scheduler 全局条目索引 = 本数组下标）----------------------- */
 
 /* GrayTest 的条目下标（self-draw 登记与 s_entries[] 同源对齐；插入条目时同步改此值）。 */
@@ -221,11 +244,12 @@ static const Scheduler_Entry_T s_entries[] = {
     { "GrayTest",    graytest_enter,  graytest_step,  graytest_exit },   /* idx 3 = APP_ENTRY_IDX_GRAYTEST */
     { "LineFollow",  linefollow_enter, linefollow_step, linefollow_exit }, /* idx 4 */
     { "ProfiledStraight", profiledstraight_enter, profiledstraight_step, profiledstraight_exit }, /* idx 5 */
+    { "ImuTest",     imutest_enter,   imutest_step,   imutest_exit },     /* idx 6 */
 };
 
 /* ---- 菜单分组表（DEBUG 运行分类的条目 = 上表下标）--------------------------- */
 
-static const uint8_t s_debug_entries[] = { 0u, 1u, 2u, 3u, 4u, 5u };  /* → SpeedTune / EncoderTest / MotorDir / GrayTest / LineFollow / ProfiledStraight */
+static const uint8_t s_debug_entries[] = { 0u, 1u, 2u, 3u, 4u, 5u, 6u };  /* → SpeedTune / EncoderTest / MotorDir / GrayTest / LineFollow / ProfiledStraight / ImuTest */
 
 /* TUNE 参数组：循迹外环差速 PID 三增益（milli 口径）+ SAVE 动作项。
  * get/set 委派 param_tune（值/换算/持久化归它）；SAVE 的 action=ParamTune_Save（K3 即存 flash）。

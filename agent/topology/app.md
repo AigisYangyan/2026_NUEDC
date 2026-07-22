@@ -218,7 +218,7 @@ class TuningChassis_API {
 }
 
 class TuningGimbal_API {
-  <<app:service, private to tuning, NEW W8 §30>>
+  <<app:service, private to tuning, NEW W8 §30, sealed/unreachable at runtime since W9 2026-07-23 (Tuning_EnterProfile(GIMBAL_AIM) has zero callers)>>
   +TuningGimbal_Enter()
   +TuningGimbal_Apply()
   +TuningGimbal_RefreshTx()
@@ -265,7 +265,7 @@ class Route_API {
 }
 
 class Gimbal_API {
-  <<app:service, NEW S05c, W8 §30 adds SetAimTuning + ReselectTopic runtime tuning face>>
+  <<app:service, NEW S05c, W8 §30 adds SetAimTuning + ReselectTopic runtime tuning face, sealed/unreachable at runtime since W9 2026-07-23 (GimbalTune entry + gimbal.h include removed from app_compose.c, zero real callers again)>>
   +Gimbal_Init(const Gimbal_Config_T*)
   +Gimbal_SelectTopic(main_task, sub_task) bool
   +Gimbal_Update()
@@ -277,7 +277,7 @@ class Gimbal_API {
 }
 
 class GimbalStepbus_API {
-  <<app:service, NEW S05c, T-GQ2 2026-07-20 relative to absolute rework, private to gimbal>>
+  <<app:service, NEW S05c, T-GQ2 2026-07-20 relative to absolute rework, private to gimbal, sealed/unreachable at runtime since W9 2026-07-23 (reachable only through Gimbal_API, which is now zero-caller)>>
   +GimbalStepbus_Init()
   +GimbalStepbus_Service()
   +GimbalStepbus_IsIdle() bool
@@ -330,6 +330,15 @@ class ParamTune_API {
   +ParamTune_SetDist_mm(v)
   +ParamTune_Save()
   note: sole owner of persistence orchestration + int32 milli<->float x1000 scale (no gain/profile copy, get/set delegate LineFollow_Get/SetGains or Motion_Get/SetProfileParams); MS02: sole self-held owner of test distance s_dist_mm (no Service home for it); blob schema_ver 2 (33B)
+}
+
+class ImuCheck_API {
+  <<app:service, NEW W10 2026-07-23, DEBUG entry idx6 "ImuTest" (replaces removed GimbalTune)>>
+  +ImuCheck_Start()
+  +ImuCheck_Update(now_ms)
+  +ImuCheck_Stop()
+  +ImuCheck_GetTelemetry(ImuCheck_Telemetry_T*)
+  note: read-only diagnostic, no motor/device writes (deliberately never calls Imu_ZeroYaw/Imu_SetOutputRate); sole owner of drift_dps = wrap-normalized (yaw - seeded ref yaw) / elapsed s, min 2s window before reporting
 }
 
 class SpeedLoop_API {
@@ -463,7 +472,13 @@ AppCompose_API --> SchedulerEntry_API : Scheduler_Init(s_entries, count, backgro
 AppCompose_API --> MenuUI_API : Menu_Setup(s_groups, count), first real caller W2
 AppCompose_API --> MenuUI_API : Menu_SetEntrySelfDraw(APP_ENTRY_IDX_GRAYTEST), W7 §29 self-draw opt-in registration
 AppCompose_API ..> Tuning_API : entry hooks call Tuning_EnterProfile/Update/ExitProfile (Scheduler_Entry_T fn ptrs owned by AppCompose, invoked later by SchedulerEntry_API)
-AppCompose_API --> Gimbal_API : Gimbal_Init(&s_gt_cfg)/Gimbal_SelectTopic(main,sub), DEBUG entry idx6 "GimbalTune" on_enter hook, W8 §30, resolves Gimbal_API's zero-caller status
+%% AppCompose_API --> Gimbal_API edge REMOVED W9 2026-07-23: app_compose.c's gimbaltune_*
+%% hooks, s_gt_cfg, GIMBALTUNE_TOPIC_* macros, idx6 entry and #include gimbal.h were deleted
+%% wholesale (Gimbal_Init(&s_gt_cfg)/Gimbal_SelectTopic call sites gone). Gimbal_API reverts
+%% to zero real callers (source in app/service/gimbal untouched, sealed/unreachable at
+%% runtime — see class tag above and index §6 V10 W9 addendum). Superseded by the
+%% AppCompose_API --> ImuCheck_API edge below (W10, same idx6 slot, different Service).
+AppCompose_API --> ImuCheck_API : ImuCheck_Start()/Update(now_ms)/Stop(), DEBUG entry idx6 "ImuTest" three hooks, W10 2026-07-23, replaces removed GimbalTune slot
 SchedulerEntry_API ..> AppCompose_API : Scheduler_Run invokes active entry's on_enter/on_step/on_exit fn ptrs each tick (opaque, registered by AppCompose)
 SchedulerEntry_API ..> MenuUI_API : Scheduler_Run invokes background_step = Menu_Tick each idle tick (fn ptr, registered by AppCompose)
 
@@ -494,6 +509,25 @@ Scheduler_API --> TaskGroups_API : dispatch active group
 %% never touches chassis.h/motor.h), so it does not add a 4th Chassis_Update drive point (still
 %% tuning_chassis/line_follow/motion, index V21); the single-active-entry invariant now holds
 %% across seven entries.
+%% W9 (2026-07-23, §31, gimbal deprecation ruling): s_entries[] shrinks back to 6 — the entire
+%% GimbalTune entry (idx6) is deleted wholesale: gimbaltune_enter/step/exit hooks, s_gt_cfg,
+%% GIMBALTUNE_TOPIC_* macros, the idx6 s_entries[] row, its slot in s_debug_entries[], and
+%% #include "app/service/gimbal/gimbal.h" are all removed from app_compose.c (verified: zero
+%% "gimbal"/"Gimbal" hits in app_compose.c after this commit). s_debug_entries[]={0,1,2,3,4,5}.
+%% gimbal.c/.h, gimbal_stepbus.c/.h, tuning_gimbal.c/.h source is sealed, not deleted — never
+%% called at runtime again (Tuning_EnterProfile(GIMBAL_AIM) and Gimbal_Init/SelectTopic now have
+%% zero real callers; see class tags above and index §6 V10 W9 addendum).
+%% W10 (2026-07-23, §32): s_entries[] grows back to 7 — new ImuTest entry reuses slot idx6
+%% (s_debug_entries[]={0,1,2,3,4,5,6}), backed by the new app/service/imu_check Service, not
+%% gimbal. imutest_enter/step/exit dispatch ImuCheck_Start()/Update(now_ms)/Stop(). ImuTest does
+%% not drive Chassis_Update (imu_check has zero chassis.h/motor.h/Pid dependency) and does not
+%% add a 4th Chassis_Update drive point (still tuning_chassis/line_follow/motion, index V21).
+%% ImuCheck_Update is a second Imu_Update() pump point (first = motion during its active
+%% period) — mitigated by the same single-active-entry invariant precedent as EncoderTest's
+%% second Encoder_Update pump point and GrayTest's second Gray_ReadDarkBitmap read point (index
+%% V21 W3/W4 notes; see index §6 V23 W10 addendum for the IMU-specific registration). The
+%% single-active-entry invariant holds across seven entries (same count as W8, different idx6
+%% occupant).
 RunRegistry_API --> SpeedLoop_API : lifecycle
 RunRegistry_API --> GrayTest_API : lifecycle
 RunRegistry_API --> UartTest_API : lifecycle
@@ -715,6 +749,11 @@ GimbalStepbus_API --> StepmotorUart_API : TryWrite/IsTxIdle/ConsumeTxDone/Read (
 %% guarantees deterministic zero output), MS=1, GO=0. New AppCompose_API entry "GimbalTune"
 %% (idx6) wires Gimbal_Init -> Tuning_EnterProfile(GIMBAL_AIM) -> Gimbal_SelectTopic in that
 %% fixed order (see s_entries[] comment block above).
+%% W9 (2026-07-23, gimbal deprecation ruling, §31): the "GimbalTune" entry described in this
+%% whole W8 block is deleted wholesale from app_compose.c (idx6 slot reused by ImuTest, W10,
+%% §32). Everything above this line remains an accurate historical record of what W8 built and
+%% wired; it is simply no longer reachable at runtime. Gimbal_API/GimbalStepbus_API/
+%% TuningGimbal_API source is sealed, not deleted (see class tags + index §6 V10 W9 addendum).
 
 %% EncoderTest_API / MotorCheck_API (W3, landed 2026-07-19) — two new DEBUG-group scheduler
 %% entries (app_compose.c s_entries idx1/idx2), diagnostic-only, mutually exclusive with each
@@ -738,6 +777,18 @@ MotorCheck_API --> Motor_API : Motor_SetOutput both wheels +/-200 + Motor_Update
 GrayCheck_API --> Gray_API : Gray_ReadDarkBitmap() atomic 12-bit read, second call point after line_follow.c (no accumulator, no double-count hazard, see index V21 W4 note)
 GrayCheck_API --> VofaDriver_API : vofa_clear_profile/vofa_register_int x12/vofa_run, tx-only (no bind_cmd)
 GrayCheck_API --> Hmi_API : Hmi_PrintLine x4 rows, 100ms-gated row-diff calibration panel (W7 §29), same-layer controlled, self-draw during RUN_ACTIVE (index §6 V29)
+
+%% ImuCheck_API (W10, landed 2026-07-23, §32) — sixth new DEBUG-group scheduler entry (idx6
+%% "ImuTest", replaces removed GimbalTune slot), diagnostic-only, mutually exclusive with all
+%% other entries under the single-active-entry invariant (index V21 W10 note). Read-only tx
+%% mirror + a new drift-rate transform, no cmd, no motor, no device writes (deliberately never
+%% calls Imu_ZeroYaw/Imu_SetOutputRate — both write device flash and block ~200ms, unsafe in a
+%% periodic task). Second Imu_Update() pump point (first = motion during its active period),
+%% mitigated by the single-active-entry invariant (index §6 V23 W10 addendum, same precedent as
+%% EncoderTest/GrayTest for V21). Imu_GetDiag() gains its first real caller here (previously
+%% zero external callers, RX-wired-but-unconsumed per driver.md's IMU_API note).
+ImuCheck_API --> IMU_API : Imu_Update() second pump point + Imu_GetSnapshot (yaw/rate/age/valid mirror) + Imu_GetDiag (frame/checksum/overflow mirror, first real caller)
+ImuCheck_API --> VofaDriver_API : vofa_clear_profile/vofa_register_float x3/vofa_register_int x5/vofa_run, tx-only (no bind_cmd)
 
 %% ParamTune_API / ParamStore_API (W5, landed 2026-07-19) — dynamic tuning framework: new
 %% TUNE menu group (app_compose.c s_groups[], sibling of DEBUG) button-adjusts the line_follow
@@ -797,7 +848,7 @@ flowchart TD
   SysInit --> ServiceInit[Hmi_Init + Chassis_Init + Tuning_Init]
   SysInit --> AppCompose[AppCompose_Install, W2 SYS02]
   SysInit --> BoardIRQ[Board_EnableInterrupts]
-  AppCompose --> SchedulerInit[Scheduler_Init s_entries=SpeedTune,EncoderTest,MotorDir,GrayTest,LineFollow,ProfiledStraight,GimbalTune x7, background_step=Menu_Tick]
+  AppCompose --> SchedulerInit[Scheduler_Init s_entries=SpeedTune,EncoderTest,MotorDir,GrayTest,LineFollow,ProfiledStraight,ImuTest x7, background_step=Menu_Tick, W9 dropped GimbalTune/W10 added ImuTest at idx6]
   AppCompose --> MenuSetupCall[Menu_Setup s_groups=DEBUG+TUNE+DRIVE x3, DEBUG entries idx0..6, TUNE params=LFKp,LFKi,LFKd,SAVE x4, DRIVE params=Dist,Cruise,Start,Accel,Decel,SAVE x6]
   AppCompose --> MenuSelfDrawCall[Menu_SetEntrySelfDraw APP_ENTRY_IDX_GRAYTEST=3, W7 GrayTest opt-in, menu zero-draws while active]
   AppCompose --> ParamTuneInitCall[ParamTune_Init, W5: read param_store schema_ver 2 or default -> LineFollow_SetGains + Motion_SetProfileParams; also re-invoked by LineFollow on_enter W6 and ProfiledStraight on_enter MS02, three call sites]
@@ -809,7 +860,7 @@ flowchart TD
   MainLoop -->|GrayTest entered, W4/W7| GrayTestStep[on_step -> GrayCheck_Update -> Gray_ReadDarkBitmap 2nd read point + vofa_run tx-only + 100ms-gated OLED calibration panel, self-draw menu yields row0..3]
   MainLoop -->|LineFollow entered, W6| LineFollowStep[on_enter LineFollow_Init then ParamTune_Init then Start; on_step -> LineFollow_Update -> cascaded Chassis_Update in TRACKING/RECOVERING; on_exit LineFollow_Stop]
   MainLoop -->|ProfiledStraight entered, MS02| ProfiledStraightStep[on_enter Motion_Init then ParamTune_Init reapply profile params+dist then StartProfiledStraight dist,false; on_step -> Motion_Update -> profile watchdog check -> cascaded Chassis_Update; on_exit Motion_Stop]
-  MainLoop -->|GimbalTune entered, W8 §30| GimbalTuneStep[on_enter Gimbal_Init s_gt_cfg then Tuning_EnterProfile GIMBAL_AIM then Gimbal_SelectTopic placeholder topic, order fixed; on_step -> Tuning_Update -> vofa_run cmd/tx + TuningGimbal_Apply clean-and-set + PumpInner Gimbal_Update; on_exit Tuning_ExitProfile -> Gimbal_Stop]
+  MainLoop -->|ImuTest entered, W10 §32, idx6 slot vacated by W9 GimbalTune removal| ImuTestStep[on_enter ImuCheck_Start register VOFA tx x8; on_step -> ImuCheck_Update now_ms -> Imu_Update 2nd pump point + snapshot/diag mirror + drift stat + vofa_run; on_exit ImuCheck_Stop clear VOFA table]
   MainLoop -->|TUNE group, K3 on Kp/Ki/Kd row, W5| TuneEditStep[MenuParam_Handle -> ParamTune_Get/Set*_milli -> LineFollow_Get/SetGains, no menu-side scale/copy]
   MainLoop -->|TUNE group, K3 on SAVE row, W5| TuneSaveStep[MenuParam_Handle action -> ParamTune_Save -> ParamStore_Save, flash write]
   MainLoop -->|DRIVE group, K3 on Dist/Cruise/Start/Accel/Decel row, MS02| DriveEditStep[MenuParam_Handle -> ParamTune_Get/SetDist_mm self-held or ParamTune_Get/SetCruise/Start/Accel/Decel_milli -> Motion_Get/SetProfileParams, no menu-side scale/copy]
