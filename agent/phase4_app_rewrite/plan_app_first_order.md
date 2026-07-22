@@ -3569,3 +3569,104 @@ RX/TX 钩子，够用）。
   契约一致性）、无阻断/无重要；1 建议级已采纳修复——MS 清洗补上界 [1,10000]
   （契约修订 2 e69fc2f + 代码/用例本提交：`MS=3e9` → 回显 10000，防主机侧 float→int32 越界
   UB / 板上饱和解除步长封顶）。修复后 tuning_gimbal 6 PASS、固件 exit 0 零警告复跑通过。
+
+## 31. W9 契约（GimbalTune 条目出清——云台废弃善后）——冻结
+
+- **task_id**: W9-gimbaltune-decommission
+- **背景裁定（2026-07-23 用户）**: 云台确认废弃；处置=「出清条目 + 源码封存」（AskUserQuestion
+  裁定实录）。gimbal/gimbal_stepbus/tuning_gimbal/vision_aim/emm42 源码与测试**一律不动**
+  （装置题步进可能复用，启用剧本已存档于 §30/`docs/云台位置环调参指南.md`）；tuning 的
+  `TUNING_PROFILE_GIMBAL_AIM` 枚举与分派保留，仅失去唯一激活入口（app_compose）。
+- **goal**: 从 World-2 装配层移除 GimbalTune 运行条目：删 `gimbaltune_enter/step/exit` 三钩子、
+  `s_gt_cfg`、`GIMBALTUNE_TOPIC_*` 两宏、`s_entries[]` idx6 行、`s_debug_entries[]` 末位 `6u`、
+  头部 `#include "app/service/gimbal/gimbal.h"`、文件头注释中 GimbalTune 段。DEBUG 组 7→6 条目。
+- **同轮文档交付**: `docs/硬件对接确认清单.md`（新建，H1~H8 硬件组确认项——G3519主控板.xlsx
+  对照 board.syscfg 的 5 处冲突 + ESP32-C3/舵机三问；纯文档，不改固件配置）。
+
+### 31.1 allowed_files
+
+| 文件 | 动作 |
+|---|---|
+| `hc-team/app/system/app_compose.c` | 修改（仅删除 GimbalTune 相关段） |
+| `docs/硬件对接确认清单.md` | 新建 |
+| `agent/phase4_app_rewrite/plan_app_first_order.md` | 状态回写 |
+
+forbidden_files：gimbal 服务群全部源码/测试（`hc-team/app/service/gimbal/**`、
+`hc-team/app/service/tuning/tuning_gimbal.*`、`hc-team/middleware/vision_aim/**`、
+`hc-team/driver/step_motor/**`）、`board.syscfg`、其余一切。
+
+### 31.2 证据行（4 行，恰 1 条固件构建行）
+
+| 行 | 名称 | 命令 | 预期 |
+|---|---|---|---|
+| E01 | 出清彻底 | Grep `-i` `gimbal`（path=`hc-team/app/system/app_compose.c`） | 0 命中 |
+| E02 | 范围审计 | `git status` + `git diff --stat` 对照 §31.1 | 无 allowed 之外改动 |
+| E03 | 主机无回归 | PowerShell：`rtk proxy make -C tests/host all` | 520 PASS / 0 FAIL（本任务零新用例；gimbal 群用例保留继续跑——源码封存仍须绿） |
+| E04 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 诊断、app_compose.o 重编进链 |
+
+## 32. W10 契约（imu_check 服务 + ImuTest 调试条目）——冻结
+
+- **task_id**: W10-imu-check
+- **goal**: 新建 `app/service/imu_check/` 薄诊断服务 + app_compose DEBUG 组 `ImuTest` 条目
+  （补位 idx6）。能力辩护：IMU 器件能报航向/角速度/数据新鲜度与链路健康计数，能测静置漂移
+  ——仅此成为公共面。压视觉行驶形态（0.25）「4 圈误差不累计」的航向可信度验收，
+  也是杜邦单外设验收清单的 IMU 项载体。
+- **电赛四问**（diansai-skills §2）：验收动作=杜邦接 IMU 上电看航向/漂移/帧率；评分条款=
+  视觉行驶/所有用 IMU 转弯的形态；基础线；标定入口=VOFA 8 通道遥测（无可调参数，纯观测）。
+
+### 32.1 公共接口（最小面，范式=encoder_test）
+
+```c
+typedef struct {
+    float    yaw_deg;          /* 镜像 Imu_Snapshot_t，零第二处理（§8.2） */
+    float    yaw_rate_dps;
+    uint32_t age_ms;
+    bool     valid;
+    float    drift_dps;        /* 静置漂移：wrap 归一化的 (yaw−yaw_ref)/经过秒；首个 valid 拍播种基准 */
+    uint32_t frame_count;      /* 镜像 Imu_Diag_t（关闭 Imu_GetDiag 零调用者状态） */
+    uint32_t checksum_errors;
+    uint32_t rx_overflows;
+} ImuCheck_Telemetry_T;
+
+void ImuCheck_Start(void);              /* 清 VOFA 表 + 注册 tx×8 + 状态/基准复位；不发电机命令、不碰器件 */
+void ImuCheck_Update(uint32_t now_ms);  /* 10ms 自门控：Imu_Update 排空 → 快照/诊断镜像 → 漂移统计 → vofa_run */
+void ImuCheck_Stop(void);               /* 清 VOFA 表；无硬件副作用 */
+void ImuCheck_GetTelemetry(ImuCheck_Telemetry_T *out); /* NULL 安全，同仓惯例 */
+```
+
+- VOFA 通道序（注册序）：ch0=yaw_deg ch1=yaw_rate_dps ch2=age_ms(int) ch3=valid(int)
+  ch4=drift_dps ch5=frame_count(int) ch6=checksum_errors(int) ch7=rx_overflows(int)。零 bind_cmd。
+- **刻意不做**：不调 `Imu_ZeroYaw()`/`Imu_SetOutputRate()`（二者写器件 flash 且阻塞 ~200ms，
+  禁入周期任务；漂移用软件基准角，进条目即测，零器件磨损）；不做 unwrap/滤波/符号修正
+  （imu.h 明示归属）。漂移窗口=自首个 valid 拍起的全程均斜率，经过时间 <2s 时 drift 显示 0
+  （短窗斜率噪声无意义，量级纪律）。
+- **V23 泵所有权**：本服务是 `Imu_Update()` 第二个泵点（第一=motion 激活期）。缓解=scheduler
+  单活动条目互斥（EncoderTest/GrayTest 对 V21 的同款先例）；由 topo-updater 在 V23 显式追加
+  补注，不静默新增。
+
+### 32.2 allowed_files
+
+| 文件 | 动作 |
+|---|---|
+| `hc-team/app/service/imu_check/imu_check.h` | 新建 |
+| `hc-team/app/service/imu_check/imu_check.c` | 新建 |
+| `hc-team/app/system/app_compose.c` | 修改（ImuTest 条目钩子 + include + s_entries/s_debug_entries 各一行） |
+| `tests/host/test_imu_check.c` | 新建 |
+| `tests/host/Makefile` | 追加 test_imu_check 目标/run/clean/.PHONY |
+| `.gitignore` | 追加 test_imu_check / test_imu_check.exe |
+| `Debug/makefile` | 登记 imu_check.o（ORDERED_OBJS、两处 -include、clean） |
+| `agent/phase4_app_rewrite/plan_app_first_order.md` | 状态回写 |
+
+forbidden_files：`hc-team/driver/**`（imu.c 零改动）、`hc-team/middleware/**`、其余 service、
+旧 `app/tasks|scheduler|ui/**` 本体、既有 `tests/host/test_*.c` 与 `fake_*.c`。
+主机链接组合（不改既有 fake）：真 imu_check.c + 真 imu.c + 真 uart_vofa + board_uart×4 +
+fake_uart_port（IMU RX 注入 + VOFA TX 抓取，test_imu/test_encoder_test 同款）。
+
+### 32.3 证据行（4 行，恰 1 条固件构建行）
+
+| 行 | 名称 | 命令 | 预期 |
+|---|---|---|---|
+| E01 | 依赖纯净 | Grep `app/tasks/\|app/scheduler/\|app/ui/\|app/system/\|middleware/\|ti_msp_dl_config\|ti/driverlib`（path=`hc-team/app/service/imu_check`，`#include` 行） | 0 命中 |
+| E02 | 范围审计 | `git status` + `git diff --stat` 对照 §32.2 | 无 allowed 之外改动 |
+| E03 | 主机测试 | PowerShell：`rtk proxy make -C tests/host all` | ≥530 PASS / 0 FAIL（520 基线 + ≥10 新用例，必含安全项：Start 零电机命令零器件字节、首拍只播种、10ms 门控、漂移数学（注入帧推 yaw）、wrap 归一化、invalid 快照 drift=0、短窗 <2s drift=0、Stop 清表、诊断计数镜像一致、遥测与 VOFA 通道一致） |
+| E04 | 固件构建 | PowerShell：`rtk make -C Debug all` | exit 0、0 诊断、imu_check.o 进链（linkInfo `<input_file>`） |
