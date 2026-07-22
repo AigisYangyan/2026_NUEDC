@@ -23,6 +23,8 @@
 
 #define UART_VISION_CMD_COORD        0x01u   /* payload[0]：目标坐标 */
 #define UART_VISION_COORD_PAYLOAD_LEN 9u     /* cmd(1) + x(4) + y(4) */
+#define UART_VISION_CMD_STATUS       0x02u   /* payload[0]：目标状态（V1 §36） */
+#define UART_VISION_STATUS_PAYLOAD_LEN 3u    /* cmd(1) + 状态位域(2) */
 
 #define UART_VISION_MAX_PAYLOAD_LEN  16u     /* len 白名单上界，超界即噪声→重扫 */
 /* 最长帧 = 2(hdr) + 1(len) + MAX_PAYLOAD + 2(crc) = 21；缓冲留裕量。 */
@@ -39,6 +41,9 @@ typedef struct {
     uint8_t ack_main;
     uint8_t ack_sub;
     uint32_t ack_seq;
+
+    uint8_t status[2];
+    uint32_t status_seq;
 } UartVision_State_t;
 
 static UartVision_State_t s_uart_vision;
@@ -128,10 +133,15 @@ static bool uart_vision_try_consume_frame(void)
                 continue;
             }
 
-            /* 校验通过：仅坐标帧刷新坐标；未知 cmd 静默丢弃。 */
+            /* 校验通过：坐标/状态帧各刷新各的缓存；未知 cmd 静默丢弃。 */
             if ((s_uart_vision.data[3] == UART_VISION_CMD_COORD) &&
                 (len == UART_VISION_COORD_PAYLOAD_LEN)) {
                 uart_vision_store_coord(&s_uart_vision.data[3]);
+            } else if ((s_uart_vision.data[3] == UART_VISION_CMD_STATUS) &&
+                       (len == UART_VISION_STATUS_PAYLOAD_LEN)) {
+                s_uart_vision.status[0] = s_uart_vision.data[4];
+                s_uart_vision.status[1] = s_uart_vision.data[5];
+                s_uart_vision.status_seq++;
             }
             uart_vision_drop_prefix(frame_len);
             return true;
@@ -202,6 +212,21 @@ bool UartVision_GetLatestCoord(UartVision_Coord_T *out)
 uint32_t UartVision_GetCoordSeq(void)
 {
     return s_uart_vision.coord_seq;
+}
+
+bool UartVision_GetLatestStatus(uint8_t out[2])
+{
+    if ((out == NULL) || (s_uart_vision.status_seq == 0u)) {
+        return false;
+    }
+    out[0] = s_uart_vision.status[0];
+    out[1] = s_uart_vision.status[1];
+    return true;
+}
+
+uint32_t UartVision_GetStatusSeq(void)
+{
+    return s_uart_vision.status_seq;
 }
 
 bool UartVision_SendTopic(uint8_t main_task, uint8_t sub_task)

@@ -28,6 +28,9 @@
  * - LinkTest   = 无线链路诊断（link：VOFA tx×6（alive/rx/crc/hb/ovf/port_absent）、
  *                10ms 泵 + 200ms 心跳；端口占位期 port_absent=1 如实显示；引脚定案后
  *                TX-RX 杜邦自环回 → alive=1 即字节层验收）。
+ * - VisionLink = 视觉链路诊断（vision：进页发占位选题握手（500ms 自动重发直至回显
+ *                一致）、VOFA tx×8（x/y/coord_seq/st0/st1/st_seq/confirmed/retries）；
+ *                PC 串口工具杜邦打流即可验收，兼帧率/CRC 压力测试）。
  * RUN_ACTIVE 期 OLED 统一 RUNNING 横幅由 menu 框架负责；例外：GrayTest 经
  * Menu_SetEntrySelfDraw 登记 self-draw（W7 §29 opt-in），活动期整屏归 gray_check 面板。
  * 换/加 debug/test 项：在 s_entries[] 补条目 + 在对应分组的 entries 数组补其下标。
@@ -55,6 +58,7 @@
 #include "app/service/param_tune/param_tune.h"
 #include "app/service/servo_check/servo_check.h"
 #include "app/service/tuning/tuning.h"
+#include "app/service/vision/vision.h"
 #include "app/ui/menu/menu.h"
 
 /* ---- SpeedTune 运行条目钩子（适配 Scheduler_Entry_T 签名 → tuning 服务）------ */
@@ -321,6 +325,31 @@ static void linktest_exit(void)
     Link_StopTelemetry();
 }
 
+/* ---- VisionLink 运行条目钩子（→ vision 服务，now_ms 透传注入）---------------
+ * 进页发占位选题握手（视觉组「静态目标持续出坐标」任务号，现场可改此处），
+ * 未确认期 500ms 自动重发；10ms 泵（Poll+确认跟踪+遥测发帧）；退页清表。
+ * PC 串口工具经杜邦打协议流即可验收（不需要整套视觉硬件）。 */
+
+#define VISIONLINK_TOPIC_MAIN 1u
+#define VISIONLINK_TOPIC_SUB  0u
+
+static void visionlink_enter(void)
+{
+    Vision_Init();
+    Vision_StartTelemetry();
+    (void)Vision_SelectTopic(VISIONLINK_TOPIC_MAIN, VISIONLINK_TOPIC_SUB);
+}
+
+static void visionlink_step(uint32_t now_ms)
+{
+    Vision_Update(now_ms);
+}
+
+static void visionlink_exit(void)
+{
+    Vision_StopTelemetry();
+}
+
 /* ---- 运行条目表（scheduler 全局条目索引 = 本数组下标）----------------------- */
 
 /* GrayTest 的条目下标（self-draw 登记与 s_entries[] 同源对齐；插入条目时同步改此值）。 */
@@ -337,11 +366,12 @@ static const Scheduler_Entry_T s_entries[] = {
     { "BeaconTest",  beacontest_enter, beacontest_step, beacontest_exit }, /* idx 7 */
     { "ServoTest",   servotest_enter,  servotest_step,  servotest_exit },  /* idx 8 */
     { "LinkTest",    linktest_enter,   linktest_step,   linktest_exit },   /* idx 9 */
+    { "VisionLink",  visionlink_enter, visionlink_step, visionlink_exit }, /* idx 10 */
 };
 
 /* ---- 菜单分组表（DEBUG 运行分类的条目 = 上表下标）--------------------------- */
 
-static const uint8_t s_debug_entries[] = { 0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 9u };  /* → SpeedTune / EncoderTest / MotorDir / GrayTest / LineFollow / ProfiledStraight / ImuTest / BeaconTest / ServoTest / LinkTest */
+static const uint8_t s_debug_entries[] = { 0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 9u, 10u };  /* → SpeedTune / EncoderTest / MotorDir / GrayTest / LineFollow / ProfiledStraight / ImuTest / BeaconTest / ServoTest / LinkTest / VisionLink */
 
 /* TUNE 参数组：循迹外环差速 PID 三增益（milli 口径）+ SAVE 动作项。
  * get/set 委派 param_tune（值/换算/持久化归它）；SAVE 的 action=ParamTune_Save（K3 即存 flash）。

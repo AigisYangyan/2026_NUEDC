@@ -213,13 +213,71 @@ static void test_unknown_cmd_ignored(void)
     uint8_t ext[2] = {0xABu, 0xCDu};
 
     reset_all();
-    /* 合法 CRC 但 cmd=0x02（目标状态，本层未处理）→ 静默丢弃。 */
-    len = build_frame(frame, 0x02u, ext, 2u, false);
+    /* 合法 CRC 但 cmd=0x03（未定义）→ 静默丢弃（0x02 已在 V1 §36 解冻为状态帧）。 */
+    len = build_frame(frame, 0x03u, ext, 2u, false);
     FakeUartPort_PushVisionBytes(frame, len);
     UartVision_Poll();
 
-    expect_true(UartVision_GetCoordSeq() == 0u,
-                "coord: valid-CRC unknown cmd updates no coordinate");
+    expect_true((UartVision_GetCoordSeq() == 0u) && (UartVision_GetStatusSeq() == 0u),
+                "coord: valid-CRC unknown cmd updates nothing");
+}
+
+static void test_status_frame_parsed(void)
+{
+    uint8_t frame[16];
+    uint32_t len;
+    uint8_t ext[2] = {0x0Au, 0x0Bu};
+    uint8_t st[2] = {0u, 0u};
+
+    reset_all();
+    expect_true(UartVision_GetLatestStatus(st) == false,
+                "status: none before any frame");
+    len = build_frame(frame, 0x02u, ext, 2u, false);
+    FakeUartPort_PushVisionBytes(frame, len);
+    UartVision_Poll();
+    expect_true((UartVision_GetStatusSeq() == 1u) &&
+                    (UartVision_GetLatestStatus(st) == true) &&
+                    (st[0] == 0x0Au) && (st[1] == 0x0Bu),
+                "status: 0x02 frame parsed verbatim with seq 1");
+}
+
+static void test_status_bad_len_dropped(void)
+{
+    uint8_t frame[16];
+    uint32_t len;
+    uint8_t ext[3] = {0x01u, 0x02u, 0x03u};
+
+    reset_all();
+    /* 合法 CRC 但 cmd=0x02 len=4（≠3）→ 丢弃不更新。 */
+    len = build_frame(frame, 0x02u, ext, 3u, false);
+    FakeUartPort_PushVisionBytes(frame, len);
+    UartVision_Poll();
+    expect_true(UartVision_GetStatusSeq() == 0u,
+                "status: wrong-length 0x02 frame dropped");
+}
+
+static void test_status_latest_wins_and_independent(void)
+{
+    uint8_t frame[16];
+    uint32_t len;
+    uint8_t ext1[2] = {0x11u, 0x22u};
+    uint8_t ext2[2] = {0x33u, 0x44u};
+    uint8_t st[2] = {0u, 0u};
+
+    reset_all();
+    len = build_frame(frame, 0x02u, ext1, 2u, false);
+    FakeUartPort_PushVisionBytes(frame, len);
+    len = build_frame(frame, 0x02u, ext2, 2u, false);
+    FakeUartPort_PushVisionBytes(frame, len);
+    len = build_coord_frame(frame, 9.0f, 8.0f, false);
+    FakeUartPort_PushVisionBytes(frame, len);
+    UartVision_Poll();
+    expect_true((UartVision_GetStatusSeq() == 2u) &&
+                    (UartVision_GetLatestStatus(st) == true) &&
+                    (st[0] == 0x33u) && (st[1] == 0x44u),
+                "status: latest wins with seq 2");
+    expect_true(UartVision_GetCoordSeq() == 1u,
+                "status: coord/status seq independent");
 }
 
 static void test_two_frames_latest_wins(void)
@@ -314,6 +372,9 @@ int main(void)
     test_split_feed_reassembles();
     test_leading_garbage_resync();
     test_unknown_cmd_ignored();
+    test_status_frame_parsed();
+    test_status_bad_len_dropped();
+    test_status_latest_wins_and_independent();
     test_two_frames_latest_wins();
     test_send_topic_frame_bytes();
     test_send_topic_busy_rejected();

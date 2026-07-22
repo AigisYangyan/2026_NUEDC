@@ -17,7 +17,8 @@
  * - 自同步分帧（长度前缀 + CRC16 + len 白名单）→ 确定性自恢复，不设逐字节超时、不依赖 Clock。
  * - 坐标原样透传（float32，视觉坐标系）；坐标→轴映射不在本层（归 Middleware）。
  * - 时效判定归上层：本层只给单调递增 seq，上层消费 seq 变化判「是否有新帧」。
- * - 运行期只解析坐标帧；校验通过但未知 cmd 的帧静默丢弃（不预建 0x02 目标状态处理）。
+ * - 解析 cmd={0x01 坐标, 0x02 目标状态}（V1 契约 §36 解冻 0x02：2×状态位域字节，
+ *   位域语义归 T01 消费者，本层原样透传）；校验通过但未知 cmd 的帧仍静默丢弃。
  */
 #ifndef UART_VISION_H
 #define UART_VISION_H
@@ -52,6 +53,17 @@ bool UartVision_GetLatestCoord(UartVision_Coord_T *out);
 
 /** 坐标单调递增序号（每成功解析一坐标帧 +1，初值 0）；上层比较增量判时效。 */
 uint32_t UartVision_GetCoordSeq(void);
+
+/* ---- 目标状态帧（RX，cmd=0x02，V1 §36）------------------------------------- */
+
+/**
+ * 读取最近一次目标状态（2×状态位域字节，语义归消费者，本层原样透传）。
+ * @return 收到过状态帧且 out 非空→true 并写出；否则 false。
+ */
+bool UartVision_GetLatestStatus(uint8_t out[2]);
+
+/** 状态帧单调递增序号（每成功解析一状态帧 +1，初值 0）。 */
+uint32_t UartVision_GetStatusSeq(void);
 
 /* ---- 选题/握手帧（setup 期） ----------------------------------------------- */
 

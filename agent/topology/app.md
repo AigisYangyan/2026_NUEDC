@@ -377,6 +377,22 @@ class Link_API {
   note: 双停等安全政策刻意不在本服务——消费者(未来 T01/route)凭 Link_IsAlive 自行决策; VOFA tx x6(alive/rx/crc/hb/ovf/port_absent) 经 StartTelemetry/StopTelemetry 条目作用域开关
 }
 
+class Vision_API {
+  <<app:service, NEW V1 2026-07-23, 契约 §36, DEBUG entry idx10 "VisionLink">>
+  +Vision_Init()
+  +Vision_SelectTopic(main, sub) bool
+  +Vision_IsTopicConfirmed() bool
+  +Vision_Update(now_ms)
+  +Vision_GetLatestCoord(x*, y*) bool
+  +Vision_CoordSeq() uint32_t
+  +Vision_GetLatestStatus(out[2]) bool
+  +Vision_StatusSeq() uint32_t
+  +Vision_StartTelemetry()
+  +Vision_StopTelemetry()
+  note: 握手重发节拍(500ms)与确认状态(topic_pending/confirmed, 换题重置)唯一所有者; 只认发起后 ack_seq 变化(基线防陈旧回显); 坐标/状态零第二处理, 原样透传 UartVision
+  note: 选题握手编排从已封存不可达的 app/service/gimbal 重建(零步进内容, 无双消费, arch-auditor 已核实结构性不可达); VOFA tx x8(x/y/coord_seq/st0/st1/st_seq/confirmed/retries) 经 StartTelemetry/StopTelemetry 条目作用域开关
+}
+
 class SpeedLoop_API {
   <<app:task>>
   +SpeedLoop_Init()
@@ -521,6 +537,7 @@ AppCompose_API --> ImuCheck_API : ImuCheck_Start()/Update(now_ms)/Stop(), DEBUG 
 AppCompose_API --> Alert_API : Alert_Init()/Play(pattern)/Update(now_ms)/Stop(), DEBUG entry idx7 "BeaconTest" three hooks, B1 2026-07-23, 2s round-robin across 7 patterns, appends slot (s_entries grows 7->8)
 AppCompose_API --> ServoCheck_API : ServoCheck_Start()/Update(now_ms)/Stop(), DEBUG entry idx8 "ServoTest" three hooks, SV1 2026-07-23, appends slot (s_entries grows 8->9)
 AppCompose_API --> Link_API : Link_Init()+Link_StartTelemetry()/Link_Update(now_ms)/Link_StopTelemetry(), DEBUG entry idx9 "LinkTest" three hooks, WL1 2026-07-23, appends slot (s_entries grows 9->10)
+AppCompose_API --> Vision_API : Vision_Init()+Vision_StartTelemetry()+Vision_SelectTopic(main,sub)/Vision_Update(now_ms)/Vision_StopTelemetry(), DEBUG entry idx10 "VisionLink" three hooks, V1 2026-07-23, appends slot (s_entries grows 10->11)
 SchedulerEntry_API ..> AppCompose_API : Scheduler_Run invokes active entry's on_enter/on_step/on_exit fn ptrs each tick (opaque, registered by AppCompose)
 SchedulerEntry_API ..> MenuUI_API : Scheduler_Run invokes background_step = Menu_Tick each idle tick (fn ptr, registered by AppCompose)
 
@@ -886,6 +903,29 @@ Link_API --> UartWireless_API : Wireless_Init()/Poll()/SendUser/SendHeartbeat/Ta
 Link_API --> VofaDriver_API : vofa_clear_profile/vofa_register_int x6/vofa_run, tx-only telemetry (alive/rx_frames/crc_errors/hb_sent/rx_overflows/port_absent), scoped by Link_StartTelemetry/StopTelemetry
 UartWireless_API --> WirelessUart_API : task-context drain and Write, Driver-Driver same layer controlled (driver.md detail); WirelessUart_API has no DL_HAL edge yet (placeholder, no syscfg instance)
 
+%% Vision_API / UartVision_API (V1, landed 2026-07-23, contract §36) — vehicle-side vision
+%% service: vision.c sole-owns the topic-select handshake retry cadence (500ms, re-sends while
+%% unconfirmed) and confirmed state (topic_pending/topic_confirmed, reset on re-SelectTopic);
+%% only acks whose ack_seq changed AFTER the handshake was initiated count (baseline snapshot
+%% at SelectTopic time guards against stale echoes from a prior handshake). Coordinate (float32)
+%% and target-status (2 status-bitfield bytes, cmd=0x02) both pass through UartVision unchanged
+%% — zero second transform, bitfield semantics belong to the future T01 consumer. uart_vision.c
+%% (Driver) grew cmd=0x02 parsing this round (len whitelist {9,3}; unknown cmd/len mismatch still
+%% silently dropped) plus UartVision_GetLatestStatus/GetStatusSeq — status frame is a parallel
+%% mailbox to the existing coordinate mailbox, same len-prefix+CRC16-MODBUS self-sync framing,
+%% not a second codec owner. The handshake orchestration pattern (500ms retry, ack_seq baseline)
+%% is rebuilt from the sealed/unreachable app/service/gimbal (index §6 V10 W9 addendum) — gimbal
+%% has zero real callers since W9, so this is NOT dual consumption of uart_vision's handshake
+%% face, confirmed structurally unreachable by arch-auditor. AppCompose_API wires eleventh
+%% DEBUG-group scheduler entry "VisionLink" (idx10): on_enter Vision_Init + Vision_StartTelemetry
+%% (VOFA tx x8 registration) + Vision_SelectTopic(placeholder topic), on_step Vision_Update(now_ms)
+%% (10ms self-gated Poll -> ack tracking -> 500ms retry -> tx if telemetry on), on_exit Vision_
+%% StopTelemetry (clear VOFA table). Does not touch Chassis_Update/Encoder_Update/Gray_ReadDarkBitmap/
+%% Imu_Update — no interaction with the single-active-entry invariant's existing second-pump-point
+%% precedents (index V21/V23), purely additive eleventh entry.
+Vision_API --> UartVision_API : Init/Poll/GetLatestCoord+CoordSeq/GetLatestStatus+StatusSeq/SendTopic/GetTopicAck+TopicAckSeq, Service->Driver, sole owner of 500ms retry cadence + confirmed state, zero second transform on coord/status
+Vision_API --> VofaDriver_API : vofa_clear_profile/vofa_register_float x2 + vofa_register_int x6/vofa_run, tx-only telemetry (x/y/coord_seq/st0/st1/st_seq/confirmed/retries), scoped by Vision_StartTelemetry/StopTelemetry
+
 %% ParamTune_API / ParamStore_API (W5, landed 2026-07-19) — dynamic tuning framework: new
 %% TUNE menu group (app_compose.c s_groups[], sibling of DEBUG) button-adjusts the line_follow
 %% outer PID gains and persists them to on-chip flash. Model A: param_tune holds NO gain copy —
@@ -945,8 +985,8 @@ flowchart TD
   SysInit --> ServiceInit[Hmi_Init + Chassis_Init + Tuning_Init]
   SysInit --> AppCompose[AppCompose_Install, W2 SYS02]
   SysInit --> BoardIRQ[Board_EnableInterrupts]
-  AppCompose --> SchedulerInit[Scheduler_Init s_entries=SpeedTune,EncoderTest,MotorDir,GrayTest,LineFollow,ProfiledStraight,ImuTest,BeaconTest,ServoTest,LinkTest x10, background_step=Menu_Tick, W9 dropped GimbalTune/W10 added ImuTest at idx6/B1 added BeaconTest at idx7/SV1 added ServoTest at idx8/WL1 added LinkTest at idx9]
-  AppCompose --> MenuSetupCall[Menu_Setup s_groups=DEBUG+TUNE+DRIVE+SERVO x4, DEBUG entries idx0..9, TUNE params=LFKp,LFKi,LFKd,SAVE x4, DRIVE params=Dist,Cruise,Start,Accel,Decel,SAVE x6, SERVO params=S1deg,S2deg x2 no SAVE row, LinkTest tx-only diag no param row]
+  AppCompose --> SchedulerInit[Scheduler_Init s_entries=SpeedTune,EncoderTest,MotorDir,GrayTest,LineFollow,ProfiledStraight,ImuTest,BeaconTest,ServoTest,LinkTest,VisionLink x11, background_step=Menu_Tick, W9 dropped GimbalTune/W10 added ImuTest at idx6/B1 added BeaconTest at idx7/SV1 added ServoTest at idx8/WL1 added LinkTest at idx9/V1 added VisionLink at idx10]
+  AppCompose --> MenuSetupCall[Menu_Setup s_groups=DEBUG+TUNE+DRIVE+SERVO x4, DEBUG entries idx0..10, TUNE params=LFKp,LFKi,LFKd,SAVE x4, DRIVE params=Dist,Cruise,Start,Accel,Decel,SAVE x6, SERVO params=S1deg,S2deg x2 no SAVE row, LinkTest/VisionLink tx-only diag no param row]
   AppCompose --> MenuSelfDrawCall[Menu_SetEntrySelfDraw APP_ENTRY_IDX_GRAYTEST=3, W7 GrayTest opt-in, menu zero-draws while active]
   AppCompose --> ParamTuneInitCall[ParamTune_Init, W5: read param_store schema_ver 2 or default -> LineFollow_SetGains + Motion_SetProfileParams; also re-invoked by LineFollow on_enter W6 and ProfiledStraight on_enter MS02, three call sites]
   Main --> MainLoop[while 1: Scheduler_Run Clock_NowMs]
@@ -961,6 +1001,7 @@ flowchart TD
   MainLoop -->|BeaconTest entered, B1 §33, idx7 new slot| BeaconTestStep[on_enter Alert_Init all-off; on_step -> 2s round-robin Alert_Play across 7 patterns + Alert_Update now_ms -> Beacon_SetBuzzer/SetLed; on_exit Alert_Stop deterministic silence, zero VOFA]
   MainLoop -->|ServoTest entered, SV1 §34, idx8 new slot| ServoTestStep[on_enter ServoCheck_Start -> Servo_Init zero-pulse free state, apply staged angle per axis if valid; on_step -> ServoCheck_Update now_ms -> Servo_Update 10ms-gated ramp, sole HW write point; on_exit ServoCheck_Stop -> Servo_Disable x2 deterministic release]
   MainLoop -->|LinkTest entered, WL1 §35, idx9 new slot| LinkTestStep[on_enter Link_Init + Link_StartTelemetry register VOFA tx x6; on_step -> Link_Update now_ms -> 10ms-gated Wireless_Poll + alive window refresh + 200ms heartbeat TX + vofa_run if telemetry on; on_exit Link_StopTelemetry clear VOFA table; port placeholder keeps port_absent=1 honest until pin H6 finalized]
+  MainLoop -->|VisionLink entered, V1 §36, idx10 new slot| VisionLinkStep[on_enter Vision_Init + Vision_StartTelemetry register VOFA tx x8 + Vision_SelectTopic placeholder topic; on_step -> Vision_Update now_ms -> 10ms-gated UartVision_Poll + ack-seq-baseline confirm tracking + 500ms retry + vofa_run if telemetry on; on_exit Vision_StopTelemetry clear VOFA table]
   MainLoop -->|SERVO group, K3 on S1/S2 deg row, SV1| ServoEditStep[MenuParam_Handle -> ServoCheck_Get/SetS1Deg or Get/SetS2Deg -> staged angle only; idle: no driver touch; session active: immediate passthrough to Servo_SetTargetDeg, clamp stays in driver]
   MainLoop -->|TUNE group, K3 on Kp/Ki/Kd row, W5| TuneEditStep[MenuParam_Handle -> ParamTune_Get/Set*_milli -> LineFollow_Get/SetGains, no menu-side scale/copy]
   MainLoop -->|TUNE group, K3 on SAVE row, W5| TuneSaveStep[MenuParam_Handle action -> ParamTune_Save -> ParamStore_Save, flash write]

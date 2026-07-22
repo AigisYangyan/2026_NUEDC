@@ -83,3 +83,5 @@ tests/host/test_servo
 tests/host/test_servo.exe
 tests/host/test_link
 tests/host/test_link.exe
+tests/host/test_vision
+tests/host/test_vision.exe

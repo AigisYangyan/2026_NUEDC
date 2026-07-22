@@ -59,16 +59,18 @@ class VisionUart_API {
 }
 
 class UartVision_API {
-  <<driver:uart_vision>>
+  <<driver:uart_vision, V1 2026-07-23 契约 §36 解冻 0x02>>
   +UartVision_Init()
   +UartVision_Poll()
   +UartVision_GetLatestCoord(out) bool
   +UartVision_GetCoordSeq() uint32_t
+  +UartVision_GetLatestStatus(out[2]) bool
+  +UartVision_GetStatusSeq() uint32_t
   +UartVision_SendTopic(main, sub) bool
   +UartVision_GetTopicAck(main*, sub*) bool
   +UartVision_GetTopicAckSeq() uint32_t
-  note: 唯一编解码所有者——坐标帧 0xAA55+len+payload+CRC16-MODBUS RX，选题帧 0xFF+main+sub+0xFE 双向
-  note: 坐标 float32 原样透传，不做单位/极性变换；时效判定归上层（只给单调 seq，不持墙钟）
+  note: 唯一编解码所有者——坐标帧 cmd=0x01(len=9)/状态帧 cmd=0x02(len=3) 均 0xAA55+len+payload+CRC16-MODBUS RX，len 白名单 {9,3}，选题帧 0xFF+main+sub+0xFE 双向
+  note: 坐标 float32、状态 2×位域字节均原样透传，不做单位/极性/语义变换；时效判定归上层（各给单调 seq，不持墙钟）；未知 cmd 或 len 不匹配仍静默丢弃
 }
 
 class VofaUart_API {
