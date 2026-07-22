@@ -3754,3 +3754,66 @@ forbidden_files：其余一切（尤其 `hc-team/driver/board_gpio/**` 不动—
   3 建议级处置：default 分支改显式 NONE case（保 -Wswitch 防线）、beacon.h Init 注释改准确、
   plan 回写+拓扑同步（本记录+topo-updater 落实）。
 - sys_init 不调 Beacon_Init 裁定成立（syscfg 初值低背书）；BeaconTest enter Alert_Init 兜底。
+
+## 34. SV1 契约（servo 舵机驱动：driver/servo + service/servo_check + ServoTest 条目 + SERVO 参数组）——冻结
+
+- **task_id**: SV1-servo
+- **裁定背景（2026-07-23 用户 AskUserQuestion）**：预测纪律 R6「删舵机」判其趋零，但硬件组
+  已在板上定案两路舵机口（PA27 舵机1 / PB1 舵机2）——用户裁定「建最薄 driver+条目，零编排」。
+  装卸机构等发挥项编排一概不建（抽中日速建）。
+- **电赛四问**：验收动作=赛日装卸/机构动作（发挥分）；权重=形态未定但器件已焊；发挥线；
+  标定入口=SERVO 参数组按钮实时调角（机构限位现场标定，不入 flash——赛题定型后随 schema v3）。
+- **硬件事实与假设**：50Hz 标准舵机 PWM（500~2500µs 脉宽 ↔ 0~180°）；
+  syscfg 新增两路 PWM（PA27/PB1，定时器由 sysconfig 自动分配）：clockDivider=8 +
+  clockPrescale=3 → 80MHz/32=2.5MHz，timerCount=49999 → 50Hz（0.4µs/tick 分辨率）；
+  **生成注释/宏须回读核对 50Hz（§8.1 首次输出前确认频率）**。舵机供电独立轨（H7 已登记）。
+
+### 34.1 公共接口（最小面）
+
+```c
+/* driver/servo/servo.h —— 角度域状态机（限幅/斜率唯一所有者） */
+typedef enum { SERVO_1 = 0, SERVO_2, SERVO_COUNT } Servo_Id;
+void  Servo_Init(void);                    /* 计数器起振、比较=0=无脉冲（自由态）；不出任何角度命令 */
+bool  Servo_SetLimitsDeg(Servo_Id id, float min_deg, float max_deg); /* 软限位，域 [0,180]，min<max；默认 0..180 */
+bool  Servo_SetRateDegPerS(Servo_Id id, float rate);                 /* 斜坡速率，>0；默认 300°/s */
+bool  Servo_SetTargetDeg(Servo_Id id, float deg);  /* 夹软限位；自由态首命令=播种当前角=目标（见下） */
+void  Servo_Update(uint32_t now_ms);       /* 10ms 自门控：斜坡推进当前角→写脉宽（唯一写点） */
+void  Servo_Disable(Servo_Id id);          /* 停脉冲=自由态（可被外力回驱）；确定性释放接口 */
+bool  Servo_IsActive(Servo_Id id);
+float Servo_GetAngleDeg(Servo_Id id);      /* 当前斜坡角；自由态返回最后角（IsActive=false 时仅供显示） */
+
+/* driver/servo/servo_hw.h —— 唯一 TI 头位置（motor_hw 先例） */
+void servo_hw_start(void);                          /* 两路计数器起振（比较=0） */
+void servo_hw_write_pulse_us(Servo_Id id, uint32_t us);
+void servo_hw_stop_pulse(Servo_Id id);              /* 比较=0 */
+
+/* app/service/servo_check —— 测试/标定薄服务（能力：舵机能被手动摆位与释放） */
+void ServoCheck_Start(void);               /* 只 Servo_Init 后置状态复位；不发角度命令（机构位置未知） */
+void ServoCheck_Update(uint32_t now_ms);   /* 泵 Servo_Update */
+void ServoCheck_Stop(void);                /* Servo_Disable ×2（释放；测试语境，不持载荷） */
+int32_t ServoCheck_GetS1Deg(void); void ServoCheck_SetS1Deg(int32_t deg);   /* SERVO 参数组行 */
+int32_t ServoCheck_GetS2Deg(void); void ServoCheck_SetS2Deg(int32_t deg);
+```
+
+- **§8.1 安全项**：Init/复位=零脉冲自由态；限幅唯一在 Servo_SetTargetDeg（menu/服务零复做）；
+  斜坡唯一在 Servo_Update（自由态首命令直达=播种，因当前物理角未知、舵机内环自会全速走——
+  头注明示「首命令请给安全位」）；Disable=确定性释放接口。**刻意无命令超时**：舵机是位置保持
+  器件，保持即安全态，超时释放反而摔载荷——显式偏离登记于头注。
+- servo_check 的 Set 夹域交给 driver（拥有者唯一）；menu step=5°。
+
+### 34.2 allowed_files
+
+`board.syscfg`（+两 PWM 块与实例声明）；`hc-team/driver/servo/{servo.h,servo.c,servo_hw.h,servo_hw.c}`
+`hc-team/app/service/servo_check/{servo_check.h,servo_check.c}`（新建）；
+`hc-team/app/system/app_compose.c`（ServoTest 条目 idx8 + SERVO 参数组）；
+`tests/host/{test_servo.c,fake_servo_hw.c}`、`tests/host/Makefile`、`.gitignore`、`Debug/makefile`；
+本计划状态回写。forbidden：其余一切（motor/emm42 等既有执行器链零改动）。
+
+### 34.3 证据行（4 行，恰 1 条固件构建行）
+
+| 行 | 名称 | 命令 | 预期 |
+|---|---|---|---|
+| E01 | 依赖纯净 | Grep 禁止前缀（servo_check 同 §33 式）；servo.c 零 TI 头（唯一 TI 头在 servo_hw.c） | 0 命中/如式 |
+| E02 | 范围审计 | `git status`+`git diff --stat` 对照 §34.2 | 无越界 |
+| E03 | 主机测试 | `rtk proxy make -C tests/host all` | ≥557 PASS / 0 FAIL（545 基线+≥12：Init 零脉冲、首命令播种直达、斜坡步进与到位、限幅夹域、非法限位/速率拒绝、Disable 停脉冲+IsActive 翻转、Disable 后再命令重播种、角→脉宽端点 500/1500/2500µs、10ms 门控、servo_check 透传） |
+| E04 | 固件构建 | `rtk make -C Debug all` | exit 0、0 诊断、servo.o+servo_hw.o+servo_check.o 进链、生成物核对 50Hz（分频注释/宏） |
