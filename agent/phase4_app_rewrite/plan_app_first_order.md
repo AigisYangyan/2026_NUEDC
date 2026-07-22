@@ -3856,3 +3856,71 @@ int32_t ServoCheck_GetS2Deg(void); void ServoCheck_SetS2Deg(int32_t deg);
 - arch-auditor：§8.1 六项/依赖矩阵/单一所有者/契约对照全过；**1 阻断**=菜单 RUN_ACTIVE
   锁死使原「参数组直通」成死路——按修订 1 处置（暂存角上移 servo_check），重测重建全绿；
   2 建议级随修订消解（注释失真改写、未 Init driver 不再收命令）。
+
+## 35. WL1 契约（无线链路：driver/uart_wireless + service/link + LinkTest 条目）——冻结
+
+- **task_id**: WL1-wireless-link
+- **裁定背景（2026-07-23 用户）**：无线方案定案=**ESP32-C3 跑 ESP-NOW**，主控↔ESP32-C3
+  走 UART 透传（对固件而言 ESP-NOW 组网透明）。**引脚未定案**（H5/H6：与 VOFA 共用
+  UART5 被硬件标冲突，PA15 标绿备选；固件侧 UART2/4/6 空闲）——端口层留占位，
+  协议/心跳逻辑主机测试全覆盖，定引脚后 syscfg+端口各填即通。
+- **电赛四问**：验收动作=空地协同(0.15)/双车(0.10) 的通信与「心跳断→双停」硬安全项
+  （预测文档 P3）；基础线（协同形态的通信是主线）；标定入口=LinkTest 条目 VOFA 计数器。
+- **分层（Q2/Q7 先例）**：帧编解码/最新帧信箱/诊断归 Driver `uart_wireless`（零时间轴）；
+  心跳节拍/活性窗口归 Service `link`；**双停政策不在本任务**——消费者（T01/route）
+  凭 `Link_IsAlive` 自行决策，link 只提供事实。
+
+### 35.1 协议（MCU↔ESP32-C3 UART 帧，对称双向）
+
+`0xA5 0x5A | len(1B=payload长) | type(1B) | payload(≤32B) | CRC16-MODBUS(2B 小端，
+范围=len+type+payload)`。type：`0x01`=用户数据（透传给对端车）、`0x02`=心跳（空 payload）。
+自同步分帧（uart_vision 先例）；CRC 本驱动私有实现（对本流的校验，非第二数据变换）。
+波特率约定 115200 8N1（H6 待硬件确认）。
+
+### 35.2 公共接口（最小面）
+
+```c
+/* driver/uart_wireless —— 编解码+信箱+诊断（无时间轴、无心跳节拍） */
+void Wireless_Init(void);
+void Wireless_Poll(void);            /* RX 排空→解析；任务态 */
+bool Wireless_SendUser(const uint8_t *data, uint8_t len);   /* 组帧发送 type=0x01 */
+bool Wireless_SendHeartbeat(void);                          /* 组帧发送 type=0x02 */
+bool Wireless_TakeLatestUser(uint8_t *buf, uint8_t cap, uint8_t *len_out); /* 一次性消费最新用户帧 */
+uint32_t Wireless_RxFrameCount(void);   /* 任意有效帧计数（用户+心跳，活性依据） */
+void Wireless_GetDiag(Wireless_Diag_T *out);  /* frame/crc_err/overflow/port_absent */
+
+/* board_uart/wireless_uart —— 端口占位（H6 定案后换真实现，接口不变） */
+bool WirelessUart_Init(void);        /* 占位恒 false（端口缺席） */
+uint32_t WirelessUart_Read(uint8_t *buf, uint32_t cap);     /* 占位恒 0 */
+bool WirelessUart_Write(const uint8_t *data, uint32_t len); /* 占位恒 false */
+
+/* app/service/link —— 心跳节拍与活性（能力：链路活着吗、能发/收一包） */
+void Link_Init(void);
+void Link_Update(uint32_t now_ms);   /* 10ms 门控：Wireless_Poll + 200ms 周期心跳 TX + 活性刷新 */
+bool Link_IsAlive(void);             /* 600ms 窗口内收到过任意有效帧 */
+bool Link_Send(const uint8_t *data, uint8_t len);
+bool Link_TakeLatest(uint8_t *buf, uint8_t cap, uint8_t *len_out);
+void Link_GetTelemetry(Link_Telemetry_T *out);  /* alive/rx_frames/crc_err/hb_sent/port_absent */
+```
+
+- LinkTest 条目（idx9）：VOFA tx×6（alive/rx_frames/crc_errors/hb_sent/overflow/port_absent）；
+  端口占位期 port_absent=1、alive=0 如实显示；引脚定案后**自环回杜邦**（TX-RX 短接）
+  即可验收：自发心跳自收 → alive=1（字节层 OK 的最快证明）。
+- 主机测试：真 uart_wireless + 真 link + 新 fake_wireless_port.c（伪装端口边界）。
+
+### 35.3 allowed_files
+
+`hc-team/driver/uart_wireless/{uart_wireless.h,uart_wireless.c}`、
+`hc-team/driver/board_uart/{wireless_uart.h,wireless_uart.c}`（占位端口）、
+`hc-team/app/service/link/{link.h,link.c}`、`hc-team/app/system/app_compose.c`（LinkTest idx9）、
+`tests/host/{test_link.c,fake_wireless_port.c}`、`tests/host/Makefile`、`.gitignore`、
+`Debug/makefile`、本计划状态回写。forbidden：`board.syscfg`（无引脚不动）、其余一切。
+
+### 35.4 证据行（4 行，恰 1 条固件构建行）
+
+| 行 | 名称 | 命令 | 预期 |
+|---|---|---|---|
+| E01 | 依赖纯净 | link 服务禁止前缀 Grep 0 命中；uart_wireless include 面=自身头+wireless_uart.h（Driver 同层受控）+std 头 | 如式 |
+| E02 | 范围审计 | git status/diff 对照 §35.3 | 无越界 |
+| E03 | 主机测试 | `rtk proxy make -C tests/host all` | ≥570 PASS / 0 FAIL（558 基线+≥12：组帧字节序+CRC、自同步分帧（脏前缀/分片到达）、CRC 错帧拒收+计数、最新帧信箱一次性消费+覆盖旧帧、超长 payload 拒发、心跳 200ms 节拍、活性 600ms 窗口翻转（收帧→alive、静默→dead）、端口缺席如实上报（Send false/port_absent=1/alive 恒 0）、LinkTest 遥测一致） |
+| E04 | 固件构建 | `rtk make -C Debug all` | exit 0、0 诊断、uart_wireless.o+wireless_uart.o+link.o 进链 |
