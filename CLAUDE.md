@@ -58,7 +58,9 @@
   不要把拓扑文件整读进主上下文——那是子 agent 存在的理由。
 - **编码中**：涉及电机/舵机/步进/TB6612/H 桥/PWM → 先加载 skill `motor-safety`（§8.1 全文）；
   改采样/传感器/编码器/PID/滤波/限幅/单位换算链 → 先加载 skill `data-chain`（§8.2 全文）；
-  有界任务的决策→施工→验收全流程遵循 skill `embedded-closed-loop`（契约先于代码提交冻结）。
+  有界任务的决策→施工→验收全流程遵循 skill `embedded-closed-loop`（契约先于代码提交冻结）；
+  备赛决策/引用赛题预测/调参与测试方案/验收设计/面向赛题的立项 → 先加载 skill
+  `diansai-skills`（验收倒推四问+预测纪律+测量纪律+调参决策树+轮次压缩守则）。
 - **编码后**：`arch-auditor` 子 agent 做分层与链路评审（§9.8）；
   `topo-updater` 子 agent 同步拓扑并在索引 §10 追加日志（§14.3/4——即使无变化也要记「已复核，无拓扑变化」）。
 - **机械闸门**（hook，不依赖记忆）：`arch-guard.ps1`（PostToolUse）对新增跨层 `#include` 当轮报警；
