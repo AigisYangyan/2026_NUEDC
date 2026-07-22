@@ -23,6 +23,8 @@
  *                10ms 泵 Imu_Update+发帧、静置漂移 2s 起报，退页清表——不驱动电机、不写器件）。
  * - BeaconTest = 声光轮播验收（alert：七种模式各 2s 循环，人耳人眼验收，零 VOFA 依赖，
  *                退页 Alert_Stop 确定性静默——不驱动电机）。
+ * - ServoTest  = 舵机手动摆位（servo_check：进页自由态零脉冲，SERVO 参数组按钮给角，
+ *                10ms 泵斜坡，退页 Servo_Disable×2 释放；限幅/斜坡归 driver/servo）。
  * RUN_ACTIVE 期 OLED 统一 RUNNING 横幅由 menu 框架负责；例外：GrayTest 经
  * Menu_SetEntrySelfDraw 登记 self-draw（W7 §29 opt-in），活动期整屏归 gray_check 面板。
  * 换/加 debug/test 项：在 s_entries[] 补条目 + 在对应分组的 entries 数组补其下标。
@@ -47,6 +49,7 @@
 #include "app/service/motion/motion.h"
 #include "app/service/motor_check/motor_check.h"
 #include "app/service/param_tune/param_tune.h"
+#include "app/service/servo_check/servo_check.h"
 #include "app/service/tuning/tuning.h"
 #include "app/ui/menu/menu.h"
 
@@ -275,6 +278,25 @@ static void beacontest_exit(void)
     Alert_Stop();           /* 退页：确定性静默 */
 }
 
+/* ---- ServoTest 运行条目钩子（→ servo_check 服务，now_ms 透传注入）-----------
+ * 进页自由态（零脉冲，机构位置未知不乱动）；角度经 SERVO 参数组按钮给出（首命令
+ * 请给安全位——见 servo.h §8.1 播种语义）；退页双路释放。 */
+
+static void servotest_enter(void)
+{
+    ServoCheck_Start();     /* Servo_Init：计数器起振、零脉冲自由态 */
+}
+
+static void servotest_step(uint32_t now_ms)
+{
+    ServoCheck_Update(now_ms);  /* 泵斜坡（10ms 门控在 driver） */
+}
+
+static void servotest_exit(void)
+{
+    ServoCheck_Stop();      /* 退页：Servo_Disable×2 确定性释放 */
+}
+
 /* ---- 运行条目表（scheduler 全局条目索引 = 本数组下标）----------------------- */
 
 /* GrayTest 的条目下标（self-draw 登记与 s_entries[] 同源对齐；插入条目时同步改此值）。 */
@@ -289,11 +311,12 @@ static const Scheduler_Entry_T s_entries[] = {
     { "ProfiledStraight", profiledstraight_enter, profiledstraight_step, profiledstraight_exit }, /* idx 5 */
     { "ImuTest",     imutest_enter,   imutest_step,   imutest_exit },     /* idx 6 */
     { "BeaconTest",  beacontest_enter, beacontest_step, beacontest_exit }, /* idx 7 */
+    { "ServoTest",   servotest_enter,  servotest_step,  servotest_exit },  /* idx 8 */
 };
 
 /* ---- 菜单分组表（DEBUG 运行分类的条目 = 上表下标）--------------------------- */
 
-static const uint8_t s_debug_entries[] = { 0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u };  /* → SpeedTune / EncoderTest / MotorDir / GrayTest / LineFollow / ProfiledStraight / ImuTest / BeaconTest */
+static const uint8_t s_debug_entries[] = { 0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u };  /* → SpeedTune / EncoderTest / MotorDir / GrayTest / LineFollow / ProfiledStraight / ImuTest / BeaconTest / ServoTest */
 
 /* TUNE 参数组：循迹外环差速 PID 三增益（milli 口径）+ SAVE 动作项。
  * get/set 委派 param_tune（值/换算/持久化归它）；SAVE 的 action=ParamTune_Save（K3 即存 flash）。
@@ -317,6 +340,14 @@ static const Menu_Param_T s_drive_params[] = {
     { "SAVE",    NULL,                      NULL,                      0,                      ParamTune_Save },
 };
 
+/* SERVO 参数组：两路舵机操作员暂存角（度，step=5，默认显示 90）。暂存值归
+ * servo_check 唯一所有；空转期改值不触 driver（无输出），进 ServoTest 条目时施加。
+ * 标定环：改角→进页看→BACK 释放→再改再进。夹域/斜坡归 driver/servo，不入 flash。 */
+static const Menu_Param_T s_servo_params[] = {
+    { "S1 deg", ServoCheck_GetS1Deg, ServoCheck_SetS1Deg, 5, NULL },
+    { "S2 deg", ServoCheck_GetS2Deg, ServoCheck_SetS2Deg, 5, NULL },
+};
+
 static const Menu_Group_T s_groups[] = {
     { "DEBUG", MENU_GROUP_RUN, s_debug_entries,
       (uint8_t)(sizeof(s_debug_entries) / sizeof(s_debug_entries[0])),
@@ -327,6 +358,9 @@ static const Menu_Group_T s_groups[] = {
     { "DRIVE", MENU_GROUP_PARAM, NULL, 0u,
       s_drive_params,
       (uint8_t)(sizeof(s_drive_params) / sizeof(s_drive_params[0])) },
+    { "SERVO", MENU_GROUP_PARAM, NULL, 0u,
+      s_servo_params,
+      (uint8_t)(sizeof(s_servo_params) / sizeof(s_servo_params[0])) },
 };
 
 /* ---- 装配入口 ----------------------------------------------------------- */

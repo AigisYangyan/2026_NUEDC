@@ -21,6 +21,8 @@ const I2C1   = I2C.addInstance();
 const PWM    = scripting.addModule("/ti/driverlib/PWM", {}, false);
 const PWM1   = PWM.addInstance();
 const PWM2   = PWM.addInstance();
+const PWM3   = PWM.addInstance();
+const PWM4   = PWM.addInstance();
 const QEI    = scripting.addModule("/ti/driverlib/QEI", {}, false);
 const QEI1   = QEI.addInstance();
 const QEI2   = QEI.addInstance();
@@ -204,6 +206,29 @@ PWM2.ccp0PinConfig.passedPeripheralType = scripting.forceWrite("Digital");
 PWM2.ccp0PinConfig.$name                = "ti_driverlib_gpio_GPIOPinGeneric8";
 PWM2.peripheral.$assign                 = "TIMA1";
 PWM2.peripheral.ccp0Pin.$assign         = "PB2";
+
+/* 舵机 PWM（SV1 §34）：硬件组引脚表 2026-07 定案 PA27=舵机1 / PB1=舵机2。
+ * 50 Hz 标准舵机：80MHz / (divider 8 × prescale(3)+1=4) = 2.5MHz，count 49999 → 50Hz，
+ * 0.4µs/tick（500~2500µs ↔ 1250~6250 tick）。定时器由 sysconfig 自动分配（勿与
+ * TIMA0/TIMA1 驱动轮、TIMG8/TIMG9 编码器冲突——生成后核对）。 */
+PWM3.$name                              = "PWM_SERVO_1";
+PWM3.ccIndex                            = [1];
+PWM3.pwmMode                            = "EDGE_ALIGN_UP";
+PWM3.clockDivider                       = 8;
+PWM3.clockPrescale                      = 4;
+PWM3.timerCount                         = 49999;
+PWM3.ccp1PinConfig.$name                = "ti_driverlib_gpio_GPIOPinGeneric20";
+PWM3.peripheral.ccp1Pin.$assign         = "PA27";
+
+PWM4.$name                              = "PWM_SERVO_2";
+PWM4.ccIndex                            = [1];
+PWM4.pwmMode                            = "EDGE_ALIGN_UP";
+PWM4.clockDivider                       = 8;
+/* TIMG0 在 40MHz 低功耗域（TIMG7 在 80MHz 域）：40/8/2=2.5MHz 与舵机1 对齐 50Hz。 */
+PWM4.clockPrescale                      = 2;
+PWM4.timerCount                         = 49999;
+PWM4.ccp1PinConfig.$name                = "ti_driverlib_gpio_GPIOPinGeneric21";
+PWM4.peripheral.ccp1Pin.$assign         = "PB1";
 
 /* QEI_RIGHT = 右轮编码器（驾驶员视角，沿车头前进方向看）。
  * 引脚史：2026-07-16 迁出核心板晶振脚（原 PA7/PA6，PA6=SYSCTL.HFXOUT 实焊晶振），

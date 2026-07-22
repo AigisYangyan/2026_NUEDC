@@ -3838,3 +3838,21 @@ int32_t ServoCheck_GetS2Deg(void); void ServoCheck_SetS2Deg(int32_t deg);
      （非冻结文本的 4）——两路同为 2.5MHz→50Hz，生成代码注释坐实。
 - E03 用例相应改写：空转 Set 只暂存不触 driver、Start 施加暂存、未暂存 Start 零命令、
   Get 回暂存、重进重施加。其余证据行不变。
+
+### 34.5 完成记录（2026-07-23，代码本提交）
+
+- TDD 红→绿：test_servo 无 servo.c 旧态 make「No rule to make target」级红（同款结构红）；
+  实现后 13/13 PASS（driver 11 + servo_check 暂存语义 2）。
+- 板级探针史（syscfg 三坑，写入 B1 教训延长线）：① PA27/PB1 均**不在任何定时器 CCP0
+  候选集**——是 CCP1 脚（ccIndex=[1]+ccp1Pin）；② 新 PWM 实例的 ccp1PinConfig.$name
+  会与既有 GPIOPinGeneric 撞名，须显式给唯一名；③ **TIMG0 在 40MHz 低功耗域**（TIMG7
+  在 80MHz 域）——同一 prescale 两路频率差一倍，PWM4 用 prescale=2 对齐 2.5MHz。
+  终态生成代码坐实：两路 CLK_FREQ=2500000、period 49999→50Hz、CC 初值 0、
+  startTimer=STOP、OCTL_INIT_VAL_LOW=上电零脉冲。
+- E01 依赖纯净：servo_check 禁止前缀 0 命中；servo.c 零 TI 头（唯一 TI 头 servo_hw.c）。
+- E02 范围：全部在 §34.2 内（.ccsproject 会话前既存不纳入）。
+- E03 主机 **558 PASS 0 FAIL**＝545 基线+13。
+- E04 固件 exit 0、0 诊断；servo.o+servo_hw.o+servo_check.o 进 linkInfo `<input_file>`。
+- arch-auditor：§8.1 六项/依赖矩阵/单一所有者/契约对照全过；**1 阻断**=菜单 RUN_ACTIVE
+  锁死使原「参数组直通」成死路——按修订 1 处置（暂存角上移 servo_check），重测重建全绿；
+  2 建议级随修订消解（注释失真改写、未 Init driver 不再收命令）。

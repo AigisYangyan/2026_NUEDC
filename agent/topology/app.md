@@ -351,6 +351,18 @@ class Alert_API {
   note: sole owner of tempo/phase — 7 patterns (3 one-shot beep short/double/long, self-silence on completion; 4 sustained on/blink-slow/blink-fast/beep-blink, held until Stop or pattern switch); Play resets phase, no cross-pattern residue; zero VOFA dependency
 }
 
+class ServoCheck_API {
+  <<app:service, NEW SV1 2026-07-23, §34 修订1, DEBUG entry idx8 "ServoTest">>
+  +ServoCheck_Start()
+  +ServoCheck_Update(now_ms)
+  +ServoCheck_Stop()
+  +ServoCheck_GetS1Deg() int32_t
+  +ServoCheck_SetS1Deg(deg)
+  +ServoCheck_GetS2Deg() int32_t
+  +ServoCheck_SetS2Deg(deg)
+  note: 操作员暂存角(staged_deg[2], 默认90, valid+session_active)唯一所有者; 空转期改值不触driver, 进ServoTest施加已设路, 会话中立即透传; 限幅/斜坡/角->脉宽换算全归driver/servo, 不入flash
+}
+
 class SpeedLoop_API {
   <<app:task>>
   +SpeedLoop_Init()
@@ -491,6 +503,7 @@ AppCompose_API ..> Tuning_API : entry hooks call Tuning_EnterProfile/Update/Exit
 %% AppCompose_API --> ImuCheck_API edge below (W10, same idx6 slot, different Service).
 AppCompose_API --> ImuCheck_API : ImuCheck_Start()/Update(now_ms)/Stop(), DEBUG entry idx6 "ImuTest" three hooks, W10 2026-07-23, replaces removed GimbalTune slot
 AppCompose_API --> Alert_API : Alert_Init()/Play(pattern)/Update(now_ms)/Stop(), DEBUG entry idx7 "BeaconTest" three hooks, B1 2026-07-23, 2s round-robin across 7 patterns, appends slot (s_entries grows 7->8)
+AppCompose_API --> ServoCheck_API : ServoCheck_Start()/Update(now_ms)/Stop(), DEBUG entry idx8 "ServoTest" three hooks, SV1 2026-07-23, appends slot (s_entries grows 8->9)
 SchedulerEntry_API ..> AppCompose_API : Scheduler_Run invokes active entry's on_enter/on_step/on_exit fn ptrs each tick (opaque, registered by AppCompose)
 SchedulerEntry_API ..> MenuUI_API : Scheduler_Run invokes background_step = Menu_Tick each idle tick (fn ptr, registered by AppCompose)
 
@@ -822,6 +835,7 @@ ImuCheck_API --> VofaDriver_API : vofa_clear_profile/vofa_register_float x3/vofa
 %% Gray_ReadDarkBitmap/Imu_Update — no interaction with the single-active-entry invariant's existing
 %% second-pump-point precedents (index V21/V23), purely additive eighth entry.
 Alert_API --> Beacon_API : SetBuzzer/SetLed, Service->Driver, sole pin-level apply point per tick
+ServoCheck_API --> Servo_API : Servo_Init()/SetTargetDeg(id,deg)/Update(now_ms)/Disable(id)x2, Service->Driver, sole owner of staged operator angle (default 90, valid flag); limits/ramp/pulse conversion stay in driver
 
 %% ParamTune_API / ParamStore_API (W5, landed 2026-07-19) — dynamic tuning framework: new
 %% TUNE menu group (app_compose.c s_groups[], sibling of DEBUG) button-adjusts the line_follow
@@ -841,6 +855,7 @@ ParamTune_API --> ParamStore_API : ParamStore_Read (boot load) / ParamStore_Save
 ParamStore_API --> DL_HAL : DL_FlashCTL erase/program/read via param_store_hw.c, last 1KB sector 0x0007FC00
 AppCompose_API --> ParamTune_API : ParamTune_Init(), three call sites (AppCompose_Install boot load, W5; LineFollow entry idx4 on_enter re-push after Init zeroes gains, W6; ProfiledStraight entry idx5 on_enter re-push after Motion_Init resets profile params to s_ms_cfg placeholder, MS02), loads persisted gains/profile-params/dist or defaults and applies to line_follow + motion
 AppCompose_API ..> ParamTune_API : TUNE + DRIVE group Menu_Param_T get/set/action fn ptrs (opaque, invoked later by MenuParam_API)
+AppCompose_API ..> ServoCheck_API : SERVO group Menu_Param_T get/set fn ptrs (S1/S2 deg, opaque, invoked later by MenuParam_API), no action row (not persisted)
 MenuParam_API ..> AppCompose_API : PARAM_LIST/PARAM_EDIT invokes registered TUNE/DRIVE get/set/action fn ptrs each op (fn ptr, registered by AppCompose)
 
 %% AppCompose_API / Motion_API / ParamTune_API (MS02, landed 2026-07-20, §28) — Motion_API's
@@ -881,8 +896,8 @@ flowchart TD
   SysInit --> ServiceInit[Hmi_Init + Chassis_Init + Tuning_Init]
   SysInit --> AppCompose[AppCompose_Install, W2 SYS02]
   SysInit --> BoardIRQ[Board_EnableInterrupts]
-  AppCompose --> SchedulerInit[Scheduler_Init s_entries=SpeedTune,EncoderTest,MotorDir,GrayTest,LineFollow,ProfiledStraight,ImuTest,BeaconTest x8, background_step=Menu_Tick, W9 dropped GimbalTune/W10 added ImuTest at idx6/B1 added BeaconTest at idx7]
-  AppCompose --> MenuSetupCall[Menu_Setup s_groups=DEBUG+TUNE+DRIVE x3, DEBUG entries idx0..7, TUNE params=LFKp,LFKi,LFKd,SAVE x4, DRIVE params=Dist,Cruise,Start,Accel,Decel,SAVE x6]
+  AppCompose --> SchedulerInit[Scheduler_Init s_entries=SpeedTune,EncoderTest,MotorDir,GrayTest,LineFollow,ProfiledStraight,ImuTest,BeaconTest,ServoTest x9, background_step=Menu_Tick, W9 dropped GimbalTune/W10 added ImuTest at idx6/B1 added BeaconTest at idx7/SV1 added ServoTest at idx8]
+  AppCompose --> MenuSetupCall[Menu_Setup s_groups=DEBUG+TUNE+DRIVE+SERVO x4, DEBUG entries idx0..8, TUNE params=LFKp,LFKi,LFKd,SAVE x4, DRIVE params=Dist,Cruise,Start,Accel,Decel,SAVE x6, SERVO params=S1deg,S2deg x2 no SAVE row]
   AppCompose --> MenuSelfDrawCall[Menu_SetEntrySelfDraw APP_ENTRY_IDX_GRAYTEST=3, W7 GrayTest opt-in, menu zero-draws while active]
   AppCompose --> ParamTuneInitCall[ParamTune_Init, W5: read param_store schema_ver 2 or default -> LineFollow_SetGains + Motion_SetProfileParams; also re-invoked by LineFollow on_enter W6 and ProfiledStraight on_enter MS02, three call sites]
   Main --> MainLoop[while 1: Scheduler_Run Clock_NowMs]
@@ -895,6 +910,8 @@ flowchart TD
   MainLoop -->|ProfiledStraight entered, MS02| ProfiledStraightStep[on_enter Motion_Init then ParamTune_Init reapply profile params+dist then StartProfiledStraight dist,false; on_step -> Motion_Update -> profile watchdog check -> cascaded Chassis_Update; on_exit Motion_Stop]
   MainLoop -->|ImuTest entered, W10 §32, idx6 slot vacated by W9 GimbalTune removal| ImuTestStep[on_enter ImuCheck_Start register VOFA tx x8; on_step -> ImuCheck_Update now_ms -> Imu_Update 2nd pump point + snapshot/diag mirror + drift stat + vofa_run; on_exit ImuCheck_Stop clear VOFA table]
   MainLoop -->|BeaconTest entered, B1 §33, idx7 new slot| BeaconTestStep[on_enter Alert_Init all-off; on_step -> 2s round-robin Alert_Play across 7 patterns + Alert_Update now_ms -> Beacon_SetBuzzer/SetLed; on_exit Alert_Stop deterministic silence, zero VOFA]
+  MainLoop -->|ServoTest entered, SV1 §34, idx8 new slot| ServoTestStep[on_enter ServoCheck_Start -> Servo_Init zero-pulse free state, apply staged angle per axis if valid; on_step -> ServoCheck_Update now_ms -> Servo_Update 10ms-gated ramp, sole HW write point; on_exit ServoCheck_Stop -> Servo_Disable x2 deterministic release]
+  MainLoop -->|SERVO group, K3 on S1/S2 deg row, SV1| ServoEditStep[MenuParam_Handle -> ServoCheck_Get/SetS1Deg or Get/SetS2Deg -> staged angle only; idle: no driver touch; session active: immediate passthrough to Servo_SetTargetDeg, clamp stays in driver]
   MainLoop -->|TUNE group, K3 on Kp/Ki/Kd row, W5| TuneEditStep[MenuParam_Handle -> ParamTune_Get/Set*_milli -> LineFollow_Get/SetGains, no menu-side scale/copy]
   MainLoop -->|TUNE group, K3 on SAVE row, W5| TuneSaveStep[MenuParam_Handle action -> ParamTune_Save -> ParamStore_Save, flash write]
   MainLoop -->|DRIVE group, K3 on Dist/Cruise/Start/Accel/Decel row, MS02| DriveEditStep[MenuParam_Handle -> ParamTune_Get/SetDist_mm self-held or ParamTune_Get/SetCruise/Start/Accel/Decel_milli -> Motion_Get/SetProfileParams, no menu-side scale/copy]

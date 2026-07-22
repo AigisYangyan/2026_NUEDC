@@ -204,6 +204,21 @@ class Beacon_API {
   note: 只做开关, 无节拍/时序/状态机 (节拍归 app/service/alert 唯一所有); 有源蜂鸣器假设, 无源需换 PWM 实现
 }
 
+class Servo_API {
+  <<driver:servo, NEW SV1 2026-07-23, 契约 §34>>
+  +Servo_Init()
+  +Servo_SetLimitsDeg(id, min_deg, max_deg) bool
+  +Servo_SetRateDegPerS(id, rate) bool
+  +Servo_SetTargetDeg(id, deg) bool
+  +Servo_Update(now_ms)
+  +Servo_Disable(id)
+  +Servo_IsActive(id) bool
+  +Servo_GetAngleDeg(id) float
+  note: 软限位夹域 + 斜坡推进 + 角->脉宽换算(0~180°线性映射500~2500us)唯一所有者 — servo.c 纯状态机, 无 TI 头
+  note: 内层 servo_hw.c 唯一 TI 头位置(motor_hw 先例), servo_hw_write_pulse_us 是 us->tick 唯一换算点, 不作为独立节点画出
+  note: §8.1 安全模型 — Init/复位=比较值0=无脉冲=自由态; 自由态首命令播种当前角=目标(当前物理角未知, 舵机内环全速走位); Servo_Disable=确定性释放; 刻意无命令超时(位置保持器件, 超时释放反而摔载荷, 显式偏离§8.1超时条款, 契约§34登记)
+}
+
 class PID_API {
   <<middleware:pid>>
   +Pid_Init(Pid_T*, const Pid_Config_T*)
@@ -248,5 +263,6 @@ IMU_API --> Runtime_API : bounded delay between device commands
 VofaDriver_API --> VofaUart_API : UART transport
 BslEntry_API --> DL_HAL : invokeBSLAsm inline asm, target-only, SRAM erase + RESETLEVEL/RESETCMD
 Beacon_API --> DL_HAL : DL_GPIO_setPins/clearPins via ti_msp_dl_config GPIO_BEACON (PB18) and GPIO_STATUS_LED (PB22)
+Servo_API --> DL_HAL : PWM_SERVO_1_INST=TIMG7_CCP1@PA27 + PWM_SERVO_2_INST=TIMG0_CCP1@PB1, 均2.5MHz计数时钟(TIMG7走80MHz域/8/4, TIMG0走40MHz低功耗域/8/2)->50Hz, via servo_hw.c
 ```
 
