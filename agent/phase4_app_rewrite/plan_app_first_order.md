@@ -3817,3 +3817,24 @@ int32_t ServoCheck_GetS2Deg(void); void ServoCheck_SetS2Deg(int32_t deg);
 | E02 | 范围审计 | `git status`+`git diff --stat` 对照 §34.2 | 无越界 |
 | E03 | 主机测试 | `rtk proxy make -C tests/host all` | ≥557 PASS / 0 FAIL（545 基线+≥12：Init 零脉冲、首命令播种直达、斜坡步进与到位、限幅夹域、非法限位/速率拒绝、Disable 停脉冲+IsActive 翻转、Disable 后再命令重播种、角→脉宽端点 500/1500/2500µs、10ms 门控、servo_check 透传） |
 | E04 | 固件构建 | `rtk make -C Debug all` | exit 0、0 诊断、servo.o+servo_hw.o+servo_check.o 进链、生成物核对 50Hz（分频注释/宏） |
+
+### 34.4 契约修订 1（2026-07-23，arch-auditor 阻断项处置——先于修复代码显式提交）
+
+- **阻断事实**（审计亲验菜单状态机）：条目活动 ⇔ 屏幕锁 RUN_ACTIVE（只认 BACK），
+  PARAM 组只能空转期进入；而原契约 servo_check「Start 不发角度命令 + Set 直通 driver」
+  组合下：运行期按不到参数组、空转期 Set 无人泵送、重进页 Servo_Init 又擦状态——
+  **板上不存在能让舵机出力的按键序列**（E03 全绿是因为测试跳过了菜单状态机约束）。
+- **修订（param_tune/DRIVE 先例：操作员值的所有者上移 Service）**：
+  1. `servo_check` 持有**操作员暂存角** `staged_deg[2]`（默认 90，`staged_valid[2]`
+     默认 false）；SERVO 参数组行读写**暂存值**，空转期不再触碰 driver（未 Init 的
+     driver 不再收命令——顺带消解审计建议级第 3 条）。
+  2. `ServoCheck_Start` = `Servo_Init` → **对 staged_valid 的路施加暂存角**
+     （`Servo_SetTargetDeg`）。暂存值是操作员先前的显式命令，播种直达语义不变，
+     「首命令给安全位」责任在操作员（UI 语义=「进页即摆到已设角」）；从未设过则
+     保持自由态零命令。
+  3. `ServoCheck_Set*Deg` = 暂存+置 valid；若会话活动中（未来框架若开放）立即透传。
+     `Get` 返回暂存值（操作员编辑口径）。
+  4. **硬件行更正**：PWM_SERVO_2（TIMG0）处于 40MHz 低功耗域，clockPrescale=2
+     （非冻结文本的 4）——两路同为 2.5MHz→50Hz，生成代码注释坐实。
+- E03 用例相应改写：空转 Set 只暂存不触 driver、Start 施加暂存、未暂存 Start 零命令、
+  Get 回暂存、重进重施加。其余证据行不变。
