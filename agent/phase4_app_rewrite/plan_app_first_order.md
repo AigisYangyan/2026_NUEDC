@@ -3939,3 +3939,56 @@ void Link_GetTelemetry(Link_Telemetry_T *out);  /* alive/rx_frames/crc_err/hb_se
 - ESP32-C3 侧事实登记：ESP-NOW 组网归 ESP32-C3 固件（对 MCU 透明）；MCU 侧协议
   §35.1 即 ESP32-C3 透传固件的对接规格——**ESP32-C3 端固件不在本仓库范围**，
   需要时另立（登记，不预支）。
+
+## 36. V1 契约（视觉链路车用化：uart_vision 0x02 状态帧修订 + service/vision + VisionLink 条目）——冻结
+
+- **task_id**: V1-vision-service
+- **goal**: 预测缺口 P2 落地（压 0.45+0.25+0.30 三形态）：① `driver/uart_vision`
+  契约修订——解冻 `0x02 目标状态帧`（协议 §5.1 登记事实：2×状态位域字节，帧壳
+  0xAA55+len+CRC16 不变，len 白名单 {9,3}），最新值+单调 seq 与坐标帧同款；
+  ② 新建 `app/service/vision`——选题握手编排从已废弃 gimbal 服务**重建**（车用，
+  零步进内容）+ 最新坐标/状态读取面；③ `VisionLink` 条目 idx10（PC 串口工具杜邦
+  打流即可验收，兼视觉链路压力测试——帧率/坐标/状态/握手全遥测）。
+- **识别结果帧格式风险**（唯一外部依赖）：0x02 状态位域语义由视觉组定义；本任务
+  只透传 2 字节+seq，**语义解释归 T01 消费者**——格式若变，改点集中在 uart_vision
+  一处 len 白名单 + 本状态帧解析（表驱动）。与视觉组冻结格式仍是用户 5 分钟事项。
+
+### 36.1 公共接口增量
+
+```c
+/* uart_vision 增（0x02 状态帧，与坐标帧同款「最新值+seq」口径） */
+bool UartVision_GetLatestStatus(uint8_t out[2]);
+uint32_t UartVision_GetStatusSeq(void);
+
+/* app/service/vision —— 能力：视觉能被选题、能报最新坐标/识别状态 */
+void Vision_Init(void);
+bool Vision_SelectTopic(uint8_t main_task, uint8_t sub_task); /* 发起+登记；未确认期 500ms 自动重发 */
+bool Vision_IsTopicConfirmed(void);   /* 视觉回显与所选题号一致后恒 true（换题重置） */
+void Vision_Update(uint32_t now_ms);  /* 10ms 门控：Poll→确认跟踪→重发节拍→(遥测发帧若开) */
+bool Vision_GetLatestCoord(float *x, float *y);
+uint32_t Vision_CoordSeq(void);
+bool Vision_GetLatestStatus(uint8_t out[2]);
+uint32_t Vision_StatusSeq(void);
+void Vision_StartTelemetry(void);     /* VOFA tx×8：x/y/coord_seq/st0/st1/st_seq/confirmed/retries */
+void Vision_StopTelemetry(void);
+```
+
+- 握手重发节拍/确认状态唯一在 vision 服务（uart_vision 无时间轴不变）；坐标/状态
+  透传零第二处理；VisionLink 条目占位题号 `#define`（GimbalTune 先例，现场可改）。
+
+### 36.2 allowed_files
+
+`hc-team/driver/uart_vision/{uart_vision.h,uart_vision.c}`（修订）；
+`hc-team/app/service/vision/{vision.h,vision.c}`（新建）；`hc-team/app/system/app_compose.c`
+（VisionLink idx10）；`tests/host/test_uart_vision.c`（追加 0x02 用例）、`tests/host/test_vision.c`
+（新建）、`tests/host/Makefile`、`.gitignore`、`Debug/makefile`；本计划状态回写。
+forbidden：gimbal 服务群（封存不动）、`middleware/vision_aim/**`、其余一切。
+
+### 36.3 证据行（4 行，恰 1 条固件构建行）
+
+| 行 | 名称 | 命令 | 预期 |
+|---|---|---|---|
+| E01 | 依赖纯净 | vision 服务禁止前缀 Grep 0 命中；uart_vision include 面不变（自身头+vision_uart.h+std） | 如式 |
+| E02 | 范围审计 | git status/diff 对照 §36.2 | 无越界 |
+| E03 | 主机测试 | `rtk proxy make -C tests/host all` | ≥582 PASS / 0 FAIL（570 基线+driver ≥4：0x02 解析/坏 len 拒收/seq 递增/未知 cmd 仍丢弃；service ≥8：Init 零 TX、SelectTopic 发帧字节、500ms 重发、回显一致→confirmed、回显不一致不确认继续重发、坐标/状态透传、遥测 8 通道、10ms 门控） |
+| E04 | 固件构建 | `rtk make -C Debug all` | exit 0、0 诊断、vision.o 进链、uart_vision.o 重编 |
