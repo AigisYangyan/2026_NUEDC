@@ -19,10 +19,6 @@
  *                10ms 泵 Update 级联 Chassis 沿线跑，退页 LineFollow_Stop 安全停车；只跑不接遥测）。
  * - ProfiledStraight = 定长梯形剖面直行（motion：进页 Init→ParamTune_Init 重推持久剖面参数+距离→
  *                StartProfiledStraight(dist,false)，10ms 泵 Update 级联 Chassis 跑一段停，退页 Motion_Stop）。
- * - GimbalTune = 云台位置环静态调参（W8 §30，VOFA 命令模式：进页 Gimbal_Init→进 GIMBAL_AIM
- *                profile（安全 cmd DB=10000 零出力）→发占位选题握手；10ms 泵 Tuning_Update
- *                （XP/XD/YP/YD/DB/MS/GO 命令 + 13 通道波形），退页 Tuning_ExitProfile 安全停；
- *                调好终值回填 s_gt_cfg 编译期默认，不入 flash）。
  * RUN_ACTIVE 期 OLED 统一 RUNNING 横幅由 menu 框架负责；例外：GrayTest 经
  * Menu_SetEntrySelfDraw 登记 self-draw（W7 §29 opt-in），活动期整屏归 gray_check 面板。
  * 换/加 debug/test 项：在 s_entries[] 补条目 + 在对应分组的 entries 数组补其下标。
@@ -40,7 +36,6 @@
 
 #include "app/scheduler/scheduler.h"
 #include "app/service/encoder_test/encoder_test.h"
-#include "app/service/gimbal/gimbal.h"
 #include "app/service/gray_check/gray_check.h"
 #include "app/service/line_follow/line_follow.h"
 #include "app/service/motion/motion.h"
@@ -214,53 +209,6 @@ static void profiledstraight_exit(void)
     Motion_Stop();  /* 退页：Chassis_Stop 确定性停车 → IDLE */
 }
 
-/* ---- GimbalTune 运行条目钩子（→ tuning GIMBAL_AIM profile，W8 §30）---------
- * 进页零出力（安全 cmd DB=10000）、VOFA 命令改 PD 参数看波形、退页确定性安全停。
- * 顺序约束（契约 §30）：SelectTopic 必须在 EnterProfile 之后——Enter 内 Gimbal_Stop
- * 会终止进行中的握手。握手/坐标超时 → STOPPED 后，上位机发 GO=1 重握手（不丢调参会话）。
- * PD 数学/死区/floor/步长/极性/轴程归 vision_aim，RPM 限幅归 emm42，清洗归 tuning_gimbal，
- * 本装配层零复做（§8.1/§8.2）。 */
-
-/* 调参会话占位选题号：按视觉组约定的「静态目标持续出坐标」任务号填写（现场可改此处）。 */
-#define GIMBALTUNE_TOPIC_MAIN 1u
-#define GIMBALTUNE_TOPIC_SUB  0u
-
-/* 云台调参条目配置：UNCALIBRATED 占位——上机按实物替换（尤其 center/sign/travel_limit）。
- * aim 四调参字段（kp/kd/deadband/max_step）进页即被 EnterProfile 安全 cmd 覆写，此处填
- * 同款安全值防「Init 到 Enter 之间」的空窗；调参定型后把 VOFA 终值回填到这四组字段。 */
-static const Gimbal_Config_T s_gt_cfg = {
-    .aim = {
-        .center_px          = { 320.0f, 240.0f },     /* UNCALIBRATED：视觉分辨率中心（x,y） */
-        .deadband_px        = { 10000.0f, 10000.0f }, /* 安全占位；终值=噪声测定后回填 */
-        .kp                 = { 0.0f, 0.0f },         /* 终值=VOFA 调参定型后回填 */
-        .kd                 = { 0.0f, 0.0f },
-        .max_step_pulse     = { 1, 1 },
-        .sign               = { 1, 1 },               /* UNCALIBRATED：极性首验 SOP 后定（docs） */
-        .travel_limit_pulse = { 800, 400 },           /* UNCALIBRATED：机械行程软限位（脉冲） */
-    },
-    .step_speed_rpm  = 30u,     /* 保守起步；emm42 限幅唯一所有者夹 ≤100 */
-    .coord_timeout_ms = 500u,   /* 坐标停顿安全停（调参场景放宽，容忍上位机短暂丢目标） */
-    .ack_timeout_ms  = 1000u,   /* 握手超时（视觉未就绪 → STOPPED，GO 重试） */
-};
-
-static void gimbaltune_enter(void)
-{
-    Gimbal_Init(&s_gt_cfg);       /* 配置 + 安全起点 IDLE（不发选题/不发移动/不 enable） */
-    (void)Tuning_EnterProfile(TUNING_PROFILE_GIMBAL_AIM);  /* 清表/排空 RX/安全 cmd/注册/停+应用 */
-    (void)Gimbal_SelectTopic(GIMBALTUNE_TOPIC_MAIN, GIMBALTUNE_TOPIC_SUB); /* 失败→GO 重试 */
-}
-
-static void gimbaltune_step(uint32_t now_ms)
-{
-    (void)now_ms;   /* tuning/gimbal 各自 Clock 门控 10ms（单一所有者），不用注入时刻 */
-    Tuning_Update();
-}
-
-static void gimbaltune_exit(void)
-{
-    Tuning_ExitProfile();   /* 退页：Gimbal_Stop（保持力矩安全态）+ 清 VOFA 表 */
-}
-
 /* ---- 运行条目表（scheduler 全局条目索引 = 本数组下标）----------------------- */
 
 /* GrayTest 的条目下标（self-draw 登记与 s_entries[] 同源对齐；插入条目时同步改此值）。 */
@@ -273,12 +221,11 @@ static const Scheduler_Entry_T s_entries[] = {
     { "GrayTest",    graytest_enter,  graytest_step,  graytest_exit },   /* idx 3 = APP_ENTRY_IDX_GRAYTEST */
     { "LineFollow",  linefollow_enter, linefollow_step, linefollow_exit }, /* idx 4 */
     { "ProfiledStraight", profiledstraight_enter, profiledstraight_step, profiledstraight_exit }, /* idx 5 */
-    { "GimbalTune",  gimbaltune_enter, gimbaltune_step, gimbaltune_exit }, /* idx 6 */
 };
 
 /* ---- 菜单分组表（DEBUG 运行分类的条目 = 上表下标）--------------------------- */
 
-static const uint8_t s_debug_entries[] = { 0u, 1u, 2u, 3u, 4u, 5u, 6u };  /* → SpeedTune / EncoderTest / MotorDir / GrayTest / LineFollow / ProfiledStraight / GimbalTune */
+static const uint8_t s_debug_entries[] = { 0u, 1u, 2u, 3u, 4u, 5u };  /* → SpeedTune / EncoderTest / MotorDir / GrayTest / LineFollow / ProfiledStraight */
 
 /* TUNE 参数组：循迹外环差速 PID 三增益（milli 口径）+ SAVE 动作项。
  * get/set 委派 param_tune（值/换算/持久化归它）；SAVE 的 action=ParamTune_Save（K3 即存 flash）。
