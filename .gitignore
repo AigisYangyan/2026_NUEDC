@@ -81,3 +81,5 @@ tests/host/test_alert
 tests/host/test_alert.exe
 tests/host/test_servo
 tests/host/test_servo.exe
+tests/host/test_link
+tests/host/test_link.exe

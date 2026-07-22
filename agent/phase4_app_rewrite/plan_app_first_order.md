@@ -3924,3 +3924,18 @@ void Link_GetTelemetry(Link_Telemetry_T *out);  /* alive/rx_frames/crc_err/hb_se
 | E02 | 范围审计 | git status/diff 对照 §35.3 | 无越界 |
 | E03 | 主机测试 | `rtk proxy make -C tests/host all` | ≥570 PASS / 0 FAIL（558 基线+≥12：组帧字节序+CRC、自同步分帧（脏前缀/分片到达）、CRC 错帧拒收+计数、最新帧信箱一次性消费+覆盖旧帧、超长 payload 拒发、心跳 200ms 节拍、活性 600ms 窗口翻转（收帧→alive、静默→dead）、端口缺席如实上报（Send false/port_absent=1/alive 恒 0）、LinkTest 遥测一致） |
 | E04 | 固件构建 | `rtk make -C Debug all` | exit 0、0 诊断、uart_wireless.o+wireless_uart.o+link.o 进链 |
+
+### 35.5 完成记录（2026-07-23，代码本提交）
+
+- TDD 红：test_link 在无实现旧态 undefined reference（结构红，同款先例）；实现后
+  12/12 一次全绿（组帧 TX 字节级 oracle 断言 + 自环回=杜邦短接的主机版）。
+- E01：link 禁止前缀 0 命中；uart_wireless include 面=自身头+wireless_uart.h。
+- E02：范围全在 §35.3（.ccsproject 会话前既存不纳入）。
+- E03 主机 **570 PASS 0 FAIL**＝558 基线+12。
+- E04 固件 exit 0、0 诊断；link.o+wireless_uart.o+uart_wireless.o 进 linkInfo。
+- arch-auditor：七核查点全过、无阻断/无重要；2 建议级：① 已采纳——补
+  `WirelessUart_GetRxOverflowCount`（占位恒 0，四端口先例同款），GetDiag 镜像，
+  「真端口接入接口不变」承诺成立；② 提交卫生（.ccsproject 排除，遵办）。
+- ESP32-C3 侧事实登记：ESP-NOW 组网归 ESP32-C3 固件（对 MCU 透明）；MCU 侧协议
+  §35.1 即 ESP32-C3 透传固件的对接规格——**ESP32-C3 端固件不在本仓库范围**，
+  需要时另立（登记，不预支）。

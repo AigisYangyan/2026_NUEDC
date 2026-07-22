@@ -25,6 +25,9 @@
  *                退页 Alert_Stop 确定性静默——不驱动电机）。
  * - ServoTest  = 舵机手动摆位（servo_check：进页自由态零脉冲，SERVO 参数组按钮给角，
  *                10ms 泵斜坡，退页 Servo_Disable×2 释放；限幅/斜坡归 driver/servo）。
+ * - LinkTest   = 无线链路诊断（link：VOFA tx×6（alive/rx/crc/hb/ovf/port_absent）、
+ *                10ms 泵 + 200ms 心跳；端口占位期 port_absent=1 如实显示；引脚定案后
+ *                TX-RX 杜邦自环回 → alive=1 即字节层验收）。
  * RUN_ACTIVE 期 OLED 统一 RUNNING 横幅由 menu 框架负责；例外：GrayTest 经
  * Menu_SetEntrySelfDraw 登记 self-draw（W7 §29 opt-in），活动期整屏归 gray_check 面板。
  * 换/加 debug/test 项：在 s_entries[] 补条目 + 在对应分组的 entries 数组补其下标。
@@ -46,6 +49,7 @@
 #include "app/service/gray_check/gray_check.h"
 #include "app/service/imu_check/imu_check.h"
 #include "app/service/line_follow/line_follow.h"
+#include "app/service/link/link.h"
 #include "app/service/motion/motion.h"
 #include "app/service/motor_check/motor_check.h"
 #include "app/service/param_tune/param_tune.h"
@@ -297,6 +301,26 @@ static void servotest_exit(void)
     ServoCheck_Stop();      /* 退页：Servo_Disable×2 确定性释放 */
 }
 
+/* ---- LinkTest 运行条目钩子（→ link 服务，now_ms 透传注入）-------------------
+ * 无线链路诊断：进页 Link_Init+注册 VOFA tx×6，10ms 泵（Poll+活性+200ms 心跳+发帧），
+ * 退页清表。端口占位期如实显示 port_absent=1；引脚定案后自环回杜邦即最快验收。 */
+
+static void linktest_enter(void)
+{
+    Link_Init();
+    Link_StartTelemetry();
+}
+
+static void linktest_step(uint32_t now_ms)
+{
+    Link_Update(now_ms);
+}
+
+static void linktest_exit(void)
+{
+    Link_StopTelemetry();
+}
+
 /* ---- 运行条目表（scheduler 全局条目索引 = 本数组下标）----------------------- */
 
 /* GrayTest 的条目下标（self-draw 登记与 s_entries[] 同源对齐；插入条目时同步改此值）。 */
@@ -312,11 +336,12 @@ static const Scheduler_Entry_T s_entries[] = {
     { "ImuTest",     imutest_enter,   imutest_step,   imutest_exit },     /* idx 6 */
     { "BeaconTest",  beacontest_enter, beacontest_step, beacontest_exit }, /* idx 7 */
     { "ServoTest",   servotest_enter,  servotest_step,  servotest_exit },  /* idx 8 */
+    { "LinkTest",    linktest_enter,   linktest_step,   linktest_exit },   /* idx 9 */
 };
 
 /* ---- 菜单分组表（DEBUG 运行分类的条目 = 上表下标）--------------------------- */
 
-static const uint8_t s_debug_entries[] = { 0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u };  /* → SpeedTune / EncoderTest / MotorDir / GrayTest / LineFollow / ProfiledStraight / ImuTest / BeaconTest / ServoTest */
+static const uint8_t s_debug_entries[] = { 0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 9u };  /* → SpeedTune / EncoderTest / MotorDir / GrayTest / LineFollow / ProfiledStraight / ImuTest / BeaconTest / ServoTest / LinkTest */
 
 /* TUNE 参数组：循迹外环差速 PID 三增益（milli 口径）+ SAVE 动作项。
  * get/set 委派 param_tune（值/换算/持久化归它）；SAVE 的 action=ParamTune_Save（K3 即存 flash）。

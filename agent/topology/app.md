@@ -363,6 +363,20 @@ class ServoCheck_API {
   note: 操作员暂存角(staged_deg[2], 默认90, valid+session_active)唯一所有者; 空转期改值不触driver, 进ServoTest施加已设路, 会话中立即透传; 限幅/斜坡/角->脉宽换算全归driver/servo, 不入flash
 }
 
+class Link_API {
+  <<app:service, NEW WL1 2026-07-23, 契约 §35, DEBUG entry idx9 "LinkTest">>
+  +Link_Init()
+  +Link_Update(now_ms)
+  +Link_IsAlive() bool
+  +Link_Send(data, len) bool
+  +Link_TakeLatest(buf, cap, len_out) bool
+  +Link_GetTelemetry(out)
+  +Link_StartTelemetry()
+  +Link_StopTelemetry()
+  note: 心跳节拍(200ms TX)与活性窗口(600ms 内收到任意有效帧=alive)唯一所有者; 10ms 自门控 Wireless_Poll->活性刷新->心跳节拍
+  note: 双停等安全政策刻意不在本服务——消费者(未来 T01/route)凭 Link_IsAlive 自行决策; VOFA tx x6(alive/rx/crc/hb/ovf/port_absent) 经 StartTelemetry/StopTelemetry 条目作用域开关
+}
+
 class SpeedLoop_API {
   <<app:task>>
   +SpeedLoop_Init()
@@ -473,6 +487,8 @@ class ImuUart_API { <<driver>> }
 class IMU_API { <<driver:imu, NEW consumer S06>> }
 class ParamStore_API { <<driver:param_store, NEW W5>> }
 class Beacon_API { <<driver:beacon, NEW B1 2026-07-23>> }
+class UartWireless_API { <<driver:uart_wireless, NEW WL1 2026-07-23>> }
+class WirelessUart_API { <<driver:board_uart, NEW WL1 2026-07-23, placeholder>> }
 class DL_HAL { <<external>> }
 
 System_API ..> Scheduler_API : g_eSysFlagManage = SYS_STA_INIT write only (V13 residual); SysRun/TaskStartSchedule loop no longer called since W2 2026-07-19
@@ -504,6 +520,7 @@ AppCompose_API ..> Tuning_API : entry hooks call Tuning_EnterProfile/Update/Exit
 AppCompose_API --> ImuCheck_API : ImuCheck_Start()/Update(now_ms)/Stop(), DEBUG entry idx6 "ImuTest" three hooks, W10 2026-07-23, replaces removed GimbalTune slot
 AppCompose_API --> Alert_API : Alert_Init()/Play(pattern)/Update(now_ms)/Stop(), DEBUG entry idx7 "BeaconTest" three hooks, B1 2026-07-23, 2s round-robin across 7 patterns, appends slot (s_entries grows 7->8)
 AppCompose_API --> ServoCheck_API : ServoCheck_Start()/Update(now_ms)/Stop(), DEBUG entry idx8 "ServoTest" three hooks, SV1 2026-07-23, appends slot (s_entries grows 8->9)
+AppCompose_API --> Link_API : Link_Init()+Link_StartTelemetry()/Link_Update(now_ms)/Link_StopTelemetry(), DEBUG entry idx9 "LinkTest" three hooks, WL1 2026-07-23, appends slot (s_entries grows 9->10)
 SchedulerEntry_API ..> AppCompose_API : Scheduler_Run invokes active entry's on_enter/on_step/on_exit fn ptrs each tick (opaque, registered by AppCompose)
 SchedulerEntry_API ..> MenuUI_API : Scheduler_Run invokes background_step = Menu_Tick each idle tick (fn ptr, registered by AppCompose)
 
@@ -561,6 +578,16 @@ Scheduler_API --> TaskGroups_API : dispatch active group
 %% Chassis_Update drive point nor a new Imu_Update/Gray_ReadDarkBitmap pump point (index V21/V23
 %% unaffected). Zero VOFA dependency (acceptance is by ear/eye, no telemetry table, unlike every
 %% other DEBUG entry). The single-active-entry invariant holds across eight entries.
+%% WL1 (2026-07-23, §35): s_entries[] grows to 10 — new LinkTest entry appends idx9
+%% (s_debug_entries[]={0,1,2,3,4,5,6,7,8,9}), backed by the new app/service/link Service
+%% (Driver = new driver/uart_wireless over placeholder driver/board_uart/wireless_uart).
+%% linktest_enter/step/exit dispatch Link_Init()+Link_StartTelemetry()/Link_Update(now_ms)/
+%% Link_StopTelemetry(). LinkTest does not drive Chassis_Update/Encoder_Update/
+%% Gray_ReadDarkBitmap/Imu_Update (link has zero chassis.h/motor.h/Pid/Encoder/Gray/IMU
+%% dependency) — no interaction with any existing second-pump-point precedent (index V21/V23
+%% unaffected). Port placeholder (pin H6 undecided) makes port_absent=1 the honest steady state
+%% until pin finalization; VOFA tx x6 mirrors this rather than hiding it. The single-active-entry
+%% invariant holds across ten entries.
 RunRegistry_API --> SpeedLoop_API : lifecycle
 RunRegistry_API --> GrayTest_API : lifecycle
 RunRegistry_API --> UartTest_API : lifecycle
@@ -837,6 +864,28 @@ ImuCheck_API --> VofaDriver_API : vofa_clear_profile/vofa_register_float x3/vofa
 Alert_API --> Beacon_API : SetBuzzer/SetLed, Service->Driver, sole pin-level apply point per tick
 ServoCheck_API --> Servo_API : Servo_Init()/SetTargetDeg(id,deg)/Update(now_ms)/Disable(id)x2, Service->Driver, sole owner of staged operator angle (default 90, valid flag); limits/ramp/pulse conversion stay in driver
 
+%% Link_API / UartWireless_API / WirelessUart_API (WL1, landed 2026-07-23, contract §35) —
+%% wireless link service: link.c sole-owns heartbeat cadence (200ms TX) and alive window
+%% (600ms, refreshed by any valid frame — user or peer heartbeat); dual-stop safety policy
+%% deliberately NOT here — consumers (future T01/route) decide via Link_IsAlive, this service
+%% only supplies the link fact (prediction doc P3's "heartbeat loss -> dual stop" fact-half).
+%% uart_wireless.c (Driver, new) sole-owns frame codec: 0xA5 0x5A + len(<=32) + type(0x01
+%% user/0x02 heartbeat) + payload + CRC16-MODBUS(LE), self-sync framing state machine, latest-
+%% frame mailbox (one-shot consume, newest overwrites oldest); no time axis / no cadence / no
+%% alive judgment here (Q2/Q7 layering precedent, same split as uart_vision vs gimbal). Port
+%% wireless_uart.c is a placeholder (pin H6 undecided) — Init/Read/Write/GetRxOverflowCount
+%% return false/0/false/0, no board.syscfg instance, no Runtime IRQ/DMA dispatch yet; interface
+%% contract frozen so pin finalization only swaps wireless_uart.c internals. AppCompose_API
+%% wires tenth DEBUG-group scheduler entry "LinkTest" (idx9): on_enter Link_Init + Link_
+%% StartTelemetry (VOFA tx x6 registration), on_step Link_Update(now_ms) (10ms self-gated Poll
+%% -> alive refresh -> 200ms heartbeat -> tx if telemetry on), on_exit Link_StopTelemetry (clear
+%% VOFA table). Does not touch Chassis_Update/Encoder_Update/Gray_ReadDarkBitmap/Imu_Update —
+%% no interaction with the single-active-entry invariant's existing second-pump-point precedents
+%% (index V21/V23), purely additive tenth entry.
+Link_API --> UartWireless_API : Wireless_Init()/Poll()/SendUser/SendHeartbeat/TakeLatestUser/RxFrameCount/GetDiag, Service->Driver, sole owner of heartbeat cadence + alive window (codec stays in driver)
+Link_API --> VofaDriver_API : vofa_clear_profile/vofa_register_int x6/vofa_run, tx-only telemetry (alive/rx_frames/crc_errors/hb_sent/rx_overflows/port_absent), scoped by Link_StartTelemetry/StopTelemetry
+UartWireless_API --> WirelessUart_API : task-context drain and Write, Driver-Driver same layer controlled (driver.md detail); WirelessUart_API has no DL_HAL edge yet (placeholder, no syscfg instance)
+
 %% ParamTune_API / ParamStore_API (W5, landed 2026-07-19) — dynamic tuning framework: new
 %% TUNE menu group (app_compose.c s_groups[], sibling of DEBUG) button-adjusts the line_follow
 %% outer PID gains and persists them to on-chip flash. Model A: param_tune holds NO gain copy —
@@ -896,8 +945,8 @@ flowchart TD
   SysInit --> ServiceInit[Hmi_Init + Chassis_Init + Tuning_Init]
   SysInit --> AppCompose[AppCompose_Install, W2 SYS02]
   SysInit --> BoardIRQ[Board_EnableInterrupts]
-  AppCompose --> SchedulerInit[Scheduler_Init s_entries=SpeedTune,EncoderTest,MotorDir,GrayTest,LineFollow,ProfiledStraight,ImuTest,BeaconTest,ServoTest x9, background_step=Menu_Tick, W9 dropped GimbalTune/W10 added ImuTest at idx6/B1 added BeaconTest at idx7/SV1 added ServoTest at idx8]
-  AppCompose --> MenuSetupCall[Menu_Setup s_groups=DEBUG+TUNE+DRIVE+SERVO x4, DEBUG entries idx0..8, TUNE params=LFKp,LFKi,LFKd,SAVE x4, DRIVE params=Dist,Cruise,Start,Accel,Decel,SAVE x6, SERVO params=S1deg,S2deg x2 no SAVE row]
+  AppCompose --> SchedulerInit[Scheduler_Init s_entries=SpeedTune,EncoderTest,MotorDir,GrayTest,LineFollow,ProfiledStraight,ImuTest,BeaconTest,ServoTest,LinkTest x10, background_step=Menu_Tick, W9 dropped GimbalTune/W10 added ImuTest at idx6/B1 added BeaconTest at idx7/SV1 added ServoTest at idx8/WL1 added LinkTest at idx9]
+  AppCompose --> MenuSetupCall[Menu_Setup s_groups=DEBUG+TUNE+DRIVE+SERVO x4, DEBUG entries idx0..9, TUNE params=LFKp,LFKi,LFKd,SAVE x4, DRIVE params=Dist,Cruise,Start,Accel,Decel,SAVE x6, SERVO params=S1deg,S2deg x2 no SAVE row, LinkTest tx-only diag no param row]
   AppCompose --> MenuSelfDrawCall[Menu_SetEntrySelfDraw APP_ENTRY_IDX_GRAYTEST=3, W7 GrayTest opt-in, menu zero-draws while active]
   AppCompose --> ParamTuneInitCall[ParamTune_Init, W5: read param_store schema_ver 2 or default -> LineFollow_SetGains + Motion_SetProfileParams; also re-invoked by LineFollow on_enter W6 and ProfiledStraight on_enter MS02, three call sites]
   Main --> MainLoop[while 1: Scheduler_Run Clock_NowMs]
@@ -911,6 +960,7 @@ flowchart TD
   MainLoop -->|ImuTest entered, W10 §32, idx6 slot vacated by W9 GimbalTune removal| ImuTestStep[on_enter ImuCheck_Start register VOFA tx x8; on_step -> ImuCheck_Update now_ms -> Imu_Update 2nd pump point + snapshot/diag mirror + drift stat + vofa_run; on_exit ImuCheck_Stop clear VOFA table]
   MainLoop -->|BeaconTest entered, B1 §33, idx7 new slot| BeaconTestStep[on_enter Alert_Init all-off; on_step -> 2s round-robin Alert_Play across 7 patterns + Alert_Update now_ms -> Beacon_SetBuzzer/SetLed; on_exit Alert_Stop deterministic silence, zero VOFA]
   MainLoop -->|ServoTest entered, SV1 §34, idx8 new slot| ServoTestStep[on_enter ServoCheck_Start -> Servo_Init zero-pulse free state, apply staged angle per axis if valid; on_step -> ServoCheck_Update now_ms -> Servo_Update 10ms-gated ramp, sole HW write point; on_exit ServoCheck_Stop -> Servo_Disable x2 deterministic release]
+  MainLoop -->|LinkTest entered, WL1 §35, idx9 new slot| LinkTestStep[on_enter Link_Init + Link_StartTelemetry register VOFA tx x6; on_step -> Link_Update now_ms -> 10ms-gated Wireless_Poll + alive window refresh + 200ms heartbeat TX + vofa_run if telemetry on; on_exit Link_StopTelemetry clear VOFA table; port placeholder keeps port_absent=1 honest until pin H6 finalized]
   MainLoop -->|SERVO group, K3 on S1/S2 deg row, SV1| ServoEditStep[MenuParam_Handle -> ServoCheck_Get/SetS1Deg or Get/SetS2Deg -> staged angle only; idle: no driver touch; session active: immediate passthrough to Servo_SetTargetDeg, clamp stays in driver]
   MainLoop -->|TUNE group, K3 on Kp/Ki/Kd row, W5| TuneEditStep[MenuParam_Handle -> ParamTune_Get/Set*_milli -> LineFollow_Get/SetGains, no menu-side scale/copy]
   MainLoop -->|TUNE group, K3 on SAVE row, W5| TuneSaveStep[MenuParam_Handle action -> ParamTune_Save -> ParamStore_Save, flash write]

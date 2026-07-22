@@ -100,6 +100,28 @@ class ImuUart_API {
   +ImuUart_GetRxOverflowCount()
 }
 
+class WirelessUart_API {
+  <<driver:board_uart, NEW WL1 2026-07-23, 契约 §35, placeholder>>
+  +WirelessUart_Init() bool
+  +WirelessUart_Read(buf, cap) uint32_t
+  +WirelessUart_Write(data, len) bool
+  +WirelessUart_GetRxOverflowCount() uint32_t
+  note: 占位实现——ESP32-C3 引脚未定案（H6 待确认），Init 恒 false/Read 恒 0/Write 恒 false/GetRxOverflowCount 恒 0；无 board.syscfg 实例、无 Runtime IRQ/DMA 分派（全仓 Grep "Wireless" 命中 0）；定案后本 .h 接口不变，仅 .c 换成真实 syscfg UART 实例包装（vofa_uart/vision_uart 同款），上层 uart_wireless/link 零改动
+}
+
+class UartWireless_API {
+  <<driver:uart_wireless, NEW WL1 2026-07-23, 契约 §35>>
+  +Wireless_Init()
+  +Wireless_Poll()
+  +Wireless_SendUser(data, len) bool
+  +Wireless_SendHeartbeat() bool
+  +Wireless_TakeLatestUser(buf, cap, len_out) bool
+  +Wireless_RxFrameCount() uint32_t
+  +Wireless_GetDiag(out)
+  note: 无线帧编解码唯一所有者——0xA5 0x5A + len(≤32) + type(0x01 用户/0x02 心跳) + payload + CRC16-MODBUS(小端) 自同步分帧状态机；最新用户帧信箱一次性消费（后到覆盖先到）；诊断 frame_count/crc_error_count/rx_overflows(镜像端口)/port_absent
+  note: 无时间轴、无心跳节拍、无活性判定（归 app/service/link，Q2/Q7 分层先例）；CRC16-MODBUS 是本层对本字节流的私有校验实现，与 uart_vision 算法同款但各校验各的流，非第二数据变换所有者
+}
+
 class Motor_API {
   <<driver:motor>>
   +Motor_Init()
@@ -254,6 +276,7 @@ OLED_API --> Clock_API : time
 OLED_API --> DL_HAL : I2C_AUX exclusive
 VisionUart_API --> DL_HAL : UART_VISION RX TX DMA
 UartVision_API --> VisionUart_API : task-context drain and TryWrite, Driver-Driver same layer controlled
+UartWireless_API --> WirelessUart_API : task-context drain and Write, Driver-Driver same layer controlled, WL1 2026-07-23; WirelessUart_API has no DL_HAL/Runtime edge yet (placeholder, no syscfg instance)
 VofaUart_API --> DL_HAL : UART_HOST_LINK = UART5 PA1/PA0 230400 RX DMA TX DMA
 StepmotorUart_API --> DL_HAL : UART_STEPPER_BUS = UART7 PB15/PB16 256000 RX DMA TX DMA
 ImuUart_API --> DL_HAL : UART_IMU = UART3 PA25/PA26 230400 IRQ RX polling TX
