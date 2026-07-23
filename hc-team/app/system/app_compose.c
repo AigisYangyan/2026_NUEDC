@@ -34,6 +34,9 @@
  * - TurnTest   = 定角转标定（motion：进页 Init→ParamTune_Init 重推持久增益→
  *                StartTurn(+TurnDeg)，退页 Motion_Stop；标定环=HEAD 组改增益→
  *                进页转一把→BACK→再改再进；需 IMU 与底盘增益已调）。
+ * - UartDiag   = 串口链路字节层诊断（uart_check：VOFA tx×6（vofaRx/vofaTx/vision/
+ *                step/imu/wl 溢出计数）、10ms 泵只读镜像；计数累计型跨页保留——
+ *                任何"丢帧悬案"排障第一步，见 docs/通信数据包与缓冲区方案.md §5）。
  * RUN_ACTIVE 期 OLED 统一 RUNNING 横幅由 menu 框架负责；例外：GrayTest 经
  * Menu_SetEntrySelfDraw 登记 self-draw（W7 §29 opt-in），活动期整屏归 gray_check 面板。
  * 换/加 debug/test 项：在 s_entries[] 补条目 + 在对应分组的 entries 数组补其下标。
@@ -61,6 +64,7 @@
 #include "app/service/param_tune/param_tune.h"
 #include "app/service/servo_check/servo_check.h"
 #include "app/service/tuning/tuning.h"
+#include "app/service/uart_check/uart_check.h"
 #include "app/service/vision/vision.h"
 #include "app/ui/menu/menu.h"
 
@@ -401,6 +405,26 @@ static void turntest_exit(void)
     Motion_Stop();  /* 退页：Chassis_Stop 确定性停车 → IDLE */
 }
 
+/* ---- UartDiag 运行条目钩子（→ uart_check 服务，now_ms 透传注入）-------------
+ * 串口链路字节层诊断（UDIAG §39）：五链路溢出计数一页可查——"丢帧悬案"三步排障的
+ * 第一步（docs/通信数据包与缓冲区方案.md §1/§5）。只读镜像，零硬件副作用；
+ * 计数是 Driver 累计型，跨进退页保留（调参跑完再进来看，证据还在）。 */
+
+static void uartdiag_enter(void)
+{
+    UartCheck_Start();      /* 注册 VOFA tx×6（vofaRx/vofaTx/vision/step/imu/wl 溢出） */
+}
+
+static void uartdiag_step(uint32_t now_ms)
+{
+    UartCheck_Update(now_ms);   /* 10ms 自门控：读六计数 → 镜像 → 发帧 */
+}
+
+static void uartdiag_exit(void)
+{
+    UartCheck_Stop();       /* 退页：清 VOFA 表（计数留在 Driver） */
+}
+
 /* ---- 运行条目表（scheduler 全局条目索引 = 本数组下标）----------------------- */
 
 /* GrayTest 的条目下标（self-draw 登记与 s_entries[] 同源对齐；插入条目时同步改此值）。 */
@@ -419,11 +443,12 @@ static const Scheduler_Entry_T s_entries[] = {
     { "LinkTest",    linktest_enter,   linktest_step,   linktest_exit },   /* idx 9 */
     { "VisionLink",  visionlink_enter, visionlink_step, visionlink_exit }, /* idx 10 */
     { "TurnTest",    turntest_enter,   turntest_step,   turntest_exit },   /* idx 11 */
+    { "UartDiag",    uartdiag_enter,   uartdiag_step,   uartdiag_exit },   /* idx 12 */
 };
 
 /* ---- 菜单分组表（DEBUG 运行分类的条目 = 上表下标）--------------------------- */
 
-static const uint8_t s_debug_entries[] = { 0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 9u, 10u, 11u };  /* → SpeedTune / EncoderTest / MotorDir / GrayTest / LineFollow / ProfiledStraight / ImuTest / BeaconTest / ServoTest / LinkTest / VisionLink / TurnTest */
+static const uint8_t s_debug_entries[] = { 0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 9u, 10u, 11u, 12u };  /* → SpeedTune / EncoderTest / MotorDir / GrayTest / LineFollow / ProfiledStraight / ImuTest / BeaconTest / ServoTest / LinkTest / VisionLink / TurnTest / UartDiag */
 
 /* TUNE 参数组：循迹外环差速 PID 三增益（milli 口径）+ SAVE 动作项。
  * get/set 委派 param_tune（值/换算/持久化归它）；SAVE 的 action=ParamTune_Save（K3 即存 flash）。

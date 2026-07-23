@@ -33,6 +33,7 @@ ORDERED_OBJS += \
 "./hc-team/app/service/route/route.o" \
 "./hc-team/app/service/servo_check/servo_check.o" \
 "./hc-team/app/service/tuning/tuning.o" \
+"./hc-team/app/service/uart_check/uart_check.o" \
 "./hc-team/app/service/vision/vision.o" \
 "./hc-team/app/service/tuning/tuning_chassis.o" \
 "./hc-team/app/service/tuning/tuning_gimbal.o" \
@@ -118,6 +119,7 @@ RMDIR := RMDIR /S/Q
 -include hc-team/app/service/route/subdir_vars.mk
 -include hc-team/app/service/servo_check/subdir_vars.mk
 -include hc-team/app/service/tuning/subdir_vars.mk
+-include hc-team/app/service/uart_check/subdir_vars.mk
 -include hc-team/app/service/vision/subdir_vars.mk
 -include hc-team/app/system/subdir_vars.mk
 -include hc-team/app/tasks/gray_test/subdir_vars.mk
@@ -173,6 +175,7 @@ RMDIR := RMDIR /S/Q
 -include hc-team/app/service/route/subdir_rules.mk
 -include hc-team/app/service/servo_check/subdir_rules.mk
 -include hc-team/app/service/tuning/subdir_rules.mk
+-include hc-team/app/service/uart_check/subdir_rules.mk
 -include hc-team/app/service/vision/subdir_rules.mk
 -include hc-team/app/system/subdir_rules.mk
 -include hc-team/app/tasks/gray_test/subdir_rules.mk

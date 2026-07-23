@@ -4262,3 +4262,17 @@ forbidden：全部 driver/**（只读现成 API 不改）、其余一切。
 | E02 | 范围审计 | git status/diff 对照 §39.1 | 无越界 |
 | E03 | 主机测试 | `rtk proxy make -C tests/host all` | ≥E03(§38)+5（六计数镜像同源同序、进页注册/退页清表、未 Start 时 Update 无副作用、NULL 安全、计数跨 Stop/Start 不清零） |
 | E04 | 固件构建 | `rtk make -C Debug all` | exit 0、0 诊断、uart_check.o 进链、app_compose 条目 13 项 |
+
+### 39.3 完成记录（2026-07-23，代码本提交）
+
+- TDD 红：test_uart_check 结构红（uart_check.h 不存在，编译失败）；实现后 5/6，
+  1 行 REJECTED——`test_counters_survive_sessions` 绝对值断言假设 FIFO 不被排空，
+  实际 `vofa_run` 排空 RX 解析命令是职责内行为；改为确定性断言（跨会话 ≥+512 且
+  与 getter 同源）后 6/6 绿。**测试算术错、实现无缺陷**（书面拒收记录，闭环纪律）。
+- E01：uart_check include 面=五端口头+uart_vofa.h+stdbool（Service→Driver 合法）。
+- E02：范围全在 §39.1（Debug/makefile 三处 + 新目录 subdir_vars/rules 六列表齐）。
+- E03 主机 **615 PASS 0 FAIL**＝609（§38 后基线）+6。
+- E04 固件 exit 0、0 诊断；uart_check.o 重编并经 linkInfo.xml 确证进链（3 引用）；
+  UartDiag=idx12、DEBUG 组 13 条目。
+- 交付：手册 §6.7b UartDiag（丢帧三步排障第一步）；「VOFA 丢帧难以查询」字节层
+  半边关闭（帧层半边=§38 seq/gap 计数，两任务合拢）。

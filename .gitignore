@@ -85,3 +85,5 @@ tests/host/test_link
 tests/host/test_link.exe
 tests/host/test_vision
 tests/host/test_vision.exe
+tests/host/test_uart_check
+tests/host/test_uart_check.exe
