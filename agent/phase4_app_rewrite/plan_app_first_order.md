@@ -4213,6 +4213,23 @@ ev_fail, hb_sent, rx_ovf, port_absent（手册 §6 诊断页同步改）。
 | E03 | 主机测试 | `rtk proxy make -C tests/host all` | ≥609 PASS / 0 FAIL（595 基线+≥14：seq 单调入帧、gap 累计、ur dup 排除、EVENT 首发+ACK 清 pending、重传同 seq 字节级一致、放弃后 ev_fail 计数、dup EVENT 重 ACK 不重投、事件队列满丢弃计数、未知 type 拒收计数、心跳被成功发帧抑制、40ms×8 重试节拍与放弃、TakeState/TakeEvent 语义、遥测 10 通道一致、CRC 断裂拒收回归） |
 | E04 | 固件构建 | `rtk make -C Debug all` | exit 0、0 诊断、uart_wireless.o+link.o 进链 |
 
+### 38.6 完成记录（2026-07-23，代码本提交）
+
+- TDD 红：test_link v2 重写（26 用例=12 适配+14 新增）在旧实现结构红（v2 符号/
+  Diag 字段全缺，exit 2）；实现后 26/26 一次全绿。
+- E01：v1 符号 `SendUser|TakeLatestUser|Link_Send\b|Link_TakeLatest` 全仓 0 命中；
+  link include 面=uart_wireless.h+uart_vofa.h 不扩；uart_wireless include 面=
+  自身头+wireless_uart.h。
+- E02：范围全在 §38.4（fake_wireless_port.c 未需改动；.ccsproject 会话前既存不纳入）。
+- E03 主机 **609 PASS 0 FAIL**＝595 基线+14。
+- E04 固件 exit 0、0 诊断；uart_wireless.o+link.o+app_compose.o 重编并经
+  linkInfo.xml 确证进链。
+- 交付：`docs/通信数据包与缓冲区方案.md`（三层丢失可查模型+缓冲区范式六要素+容量
+  公式表+五因素 A–E 量级账+现场排障速查）；手册 §6.7 LinkTest 通道表 v2（tx×10）；
+  wireless_uart.h 真端口规格头注（照抄 vofa_uart，RX/TX 512B）。
+- 关键账：事件最坏判定 320ms<600ms 活性窗；一拍梯队全发 92B≈8ms<10ms 泵周期；
+  五路满线速 ISR 理论 8% CPU@80MHz（实际 <1%）——主频非瓶颈，拒绝查表 CRC 复杂化。
+
 ## 39. UDIAG 契约（uart_check 服务 + UartDiag 条目：全端口字节层丢失一页可查）——冻结
 
 - **task_id**: UDIAG-uart-counters

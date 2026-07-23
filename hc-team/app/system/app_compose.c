@@ -25,7 +25,7 @@
  *                退页 Alert_Stop 确定性静默——不驱动电机）。
  * - ServoTest  = 舵机手动摆位（servo_check：进页自由态零脉冲，SERVO 参数组按钮给角，
  *                10ms 泵斜坡，退页 Servo_Disable×2 释放；限幅/斜坡归 driver/servo）。
- * - LinkTest   = 无线链路诊断（link：VOFA tx×6（alive/rx/crc/hb/ovf/port_absent）、
+ * - LinkTest   = 无线链路诊断（link：VOFA tx×10（alive/rx/crc/gap/retx/dlvd/fail/hb/ovf/absent）、
  *                10ms 泵 + 200ms 心跳；端口占位期 port_absent=1 如实显示；引脚定案后
  *                TX-RX 杜邦自环回 → alive=1 即字节层验收）。
  * - VisionLink = 视觉链路诊断（vision：进页发占位选题握手（500ms 自动重发直至回显
@@ -309,7 +309,8 @@ static void servotest_exit(void)
 }
 
 /* ---- LinkTest 运行条目钩子（→ link 服务，now_ms 透传注入）-------------------
- * 无线链路诊断：进页 Link_Init+注册 VOFA tx×6，10ms 泵（Poll+活性+200ms 心跳+发帧），
+ * 无线链路诊断：进页 Link_Init+注册 VOFA tx×10（alive/rx/crc/gap/retx/dlvd/fail/
+ * hb/ovf/absent，WL2 协议 v2），10ms 泵（Poll+活性+事件重试+200ms 心跳+发帧），
  * 退页清表。端口占位期如实显示 port_absent=1；引脚定案后自环回杜邦即最快验收。 */
 
 static void linktest_enter(void)
