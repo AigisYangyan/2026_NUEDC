@@ -4119,3 +4119,129 @@ forbidden：`middleware/pid/**`、`Debug/makefile`（无新 .o）、其余一切
 - **步长精调**（按键无连发=一步一按，按「量程/步长≈10~25 下」定）：LF 三增益与
   HEAD H 三增益 10→2（量程 5~50 milli，原步长会跳过半数可用值）；DRIVE
   Accel/Decel 10→50、Cruise 10→20（量程 200~800/150~500）；其余不动。
+
+## 38. WL2 契约（无线数据包协议 v2：序号/去重/事件必达 + link 重试节拍 + 通信方案文档）——冻结
+
+- **task_id**: WL2-reliable-packet
+- **裁定背景（2026-07-23 用户）**：应对无线通信需求 + VOFA 调参丢帧「难以被查询」——
+  要求数据包方案（校验/筛选/排除/挑选/梯队）尽量每帧不丢，并给出 TX/RX 通用缓冲区
+  方案（systick/中断表/时序/主频/协议五因素逐项过账）。
+- **电赛四问**：验收动作=空地(0.15)/双车(0.10) 的指令必达与「心跳断→双停」事实半边
+  （P3）；协同形态发挥分，但链路可靠层是其唯一底座（登记过的速建路径本次兑现）；
+  标定入口=LinkTest 计数器——重试参数为编译期常量（丢包率不是现场旋钮，无 TUNE 需求）。
+- **对 §35.1 的显式修订**：帧格式加 1 字节 seq、type 扩 0x03/0x04。对端硬件尚不存在
+  （ESP32-C3 引脚未定案、对端车固件未立项），零兼容负担——v1 API
+  （SendUser/TakeLatestUser/Link_Send/Link_TakeLatest）全仓零外部调用者（Grep 已证），
+  同步删除替换，无双轨。
+- **核心裁定（通信方案的工程语义）**：
+  1. **「每帧不丢」物理上只能靠端到端重传，不能靠加大缓冲**——ESP-NOW 空中跳的丢包
+     对 UART 字节层不可见。故分**两级投递语义**：不可靠流（STATE 0x01 + HEARTBEAT
+     0x02，共享一个 TX seq 计数器→接收侧 gap/dup 计数=**丢包率随时可查**，信箱最新
+     胜出）；可靠流（EVENT 0x03，stop-and-wait：单在途 pending 槽 + ACK 0x04 + 同 seq
+     重传 + 收端去重，**必达或明确失败可查**）。
+  2. **零时间轴分层不破**（§35 Q2/Q7 先例）：codec（uart_wireless）管 *what*——
+     帧/seq/去重/挑选/ACK 即收即回/pending 槽与全部帧级计数；link 管 *when*——
+     重试节拍 40ms(4 tick)×上限 8 次→放弃、心跳 200ms、活性 600ms。
+  3. **梯队（TX 优先序）**：ACK（Poll 解析内即回）＞ EVENT 重发 ＞ STATE ＞
+     HEARTBEAT；任何成功发帧重置心跳计时（对端活性窗口已被刷新，重复心跳是浪费）。
+  4. **缓冲区通用方案=范式而非共享模块**：字节环+ISR 只搬运+溢出计数+软件 TX 环+DMA
+     kick 已被 T-VTXQ1 证明（28 用例）；四现役端口已测绿**不重构**（手术纪律）；
+     wireless 真端口实现规格（RX/TX 各 512B 环、容量公式 `baud/10×2×服务周期×2`）
+     写进 wireless_uart.h 头注，定引脚后照抄 vofa_uart；帧级可靠性在协议层不在字节层。
+     全案文档化：`docs/通信数据包与缓冲区方案.md`（五因素 A–E 逐项量级账）。
+
+### 38.1 协议 v2（对称双向）
+
+`0xA5 0x5A | len(1B=payload长) | type(1B) | seq(1B) | payload(≤32B) | CRC16-MODBUS(2B 小端)`
+CRC 范围 = len+type+seq+payload。type：`0x01`=STATE（不可靠，最新胜出）、`0x02`=心跳
+（空载，与 STATE 共 seq）、`0x03`=EVENT（可靠必达）、`0x04`=ACK（seq=被确认的事件
+seq，空载，不计 gap、不再 ACK）。
+- **筛选**：双头猎取 + len≤32 + type 白名单（未知 type CRC 通过也拒收→unknown_type_count）；
+- **排除**：不可靠流 seq==last→dup 丢弃计数；EVENT seq==上次已投递 seq→重发 ACK 但
+  不重复投递（对端 ACK 丢失场景）；
+- **挑选**：STATE 信箱后到覆盖先到；EVENT 队列深 4 FIFO 全收（满→ev_rx_drop_count++，
+  事件为低频指令，深 4=重试窗口内全部可能在途量）；
+- **校验**：CRC16-MODBUS 不变；gap 账：不可靠流 `(uint8_t)(seq-last-1)` 累计。
+
+### 38.2 公共接口（v1 对应面同步删除）
+
+```c
+/* driver/uart_wireless（codec，零时间轴）：v1 SendUser/TakeLatestUser 删除 */
+bool Wireless_SendState(const uint8_t *data, uint8_t len);   /* 0x01, ur_seq++ */
+bool Wireless_SendHeartbeat(void);                           /* 0x02, ur_seq++ */
+bool Wireless_SendEvent(const uint8_t *data, uint8_t len);   /* 0x03 存 pending 槽+首发; 在途→false */
+bool Wireless_ResendEvent(void);                             /* 同 seq 重发; 无 pending→false */
+void Wireless_AbandonEvent(void);                            /* 放弃 pending, ev_fail_count++ */
+bool Wireless_EventPending(void);                            /* ACK 到达即自动清 */
+bool Wireless_TakeLatestState(uint8_t *buf, uint8_t cap, uint8_t *len_out);
+bool Wireless_TakeEvent(uint8_t *buf, uint8_t cap, uint8_t *len_out);  /* 队列 FIFO */
+void Wireless_GetDiag(Wireless_Diag_T *out);                 /* 扩至 §38.3 全字段 */
+
+/* app/service/link：Link_Send/Link_TakeLatest 删除 */
+bool Link_SendState(const uint8_t *data, uint8_t len);
+bool Link_TakeState(uint8_t *buf, uint8_t cap, uint8_t *len_out);
+bool Link_SendEvent(const uint8_t *data, uint8_t len);       /* 在途→false（单在途） */
+bool Link_EventBusy(void);
+bool Link_TakeEvent(uint8_t *buf, uint8_t cap, uint8_t *len_out);
+/* Link_Init/Update/IsAlive/GetTelemetry/Start(Stop)Telemetry 面不变，语义扩 */
+```
+
+### 38.3 Diag v2 与 LinkTest 遥测
+
+Wireless_Diag_T 扩为：frame_count / crc_error_count / unknown_type_count / ur_gap_count /
+ur_dup_count / ev_rx_drop_count / ev_dup_count / retx_count / delivered_count /
+ev_fail_count / tx_fail_count（端口 Write 拒绝累计）/ rx_overflows / port_absent。
+LinkTest 遥测 tx×6→**tx×10**：alive, rx_frames, crc_err, ur_gap, retx, delivered,
+ev_fail, hb_sent, rx_ovf, port_absent（手册 §6 诊断页同步改）。
+
+### 38.4 allowed_files
+
+`hc-team/driver/uart_wireless/{uart_wireless.h,uart_wireless.c}`、
+`hc-team/driver/board_uart/wireless_uart.h`（仅头注真端口缓冲规格，实现仍占位不动）、
+`hc-team/app/service/link/{link.h,link.c}`、`hc-team/app/system/app_compose.c`（LinkTest
+注释）、`tests/host/{test_link.c,fake_wireless_port.c}`、
+`docs/通信数据包与缓冲区方案.md`（新）、`docs/OLED菜单操作手册.md`（LinkTest 通道表）、
+本计划状态回写。forbidden：`board.syscfg`、`vofa_uart.*`、vision/stepmotor/imu 端口、
+`wireless_uart.c`、其余一切。
+
+### 38.5 证据行（4 行，恰 1 条固件构建行）
+
+| 行 | 名称 | 命令 | 预期 |
+|---|---|---|---|
+| E01 | 依赖纯净 | link include 面不扩（uart_wireless.h+uart_vofa.h）；uart_wireless include 面=自身头+wireless_uart.h+std；v1 符号 `SendUser\|TakeLatestUser\|Link_Send(\b\|[^SE])\|Link_TakeLatest` 全仓 0 命中 | 如式 |
+| E02 | 范围审计 | git status/diff 对照 §38.4 | 无越界 |
+| E03 | 主机测试 | `rtk proxy make -C tests/host all` | ≥609 PASS / 0 FAIL（595 基线+≥14：seq 单调入帧、gap 累计、ur dup 排除、EVENT 首发+ACK 清 pending、重传同 seq 字节级一致、放弃后 ev_fail 计数、dup EVENT 重 ACK 不重投、事件队列满丢弃计数、未知 type 拒收计数、心跳被成功发帧抑制、40ms×8 重试节拍与放弃、TakeState/TakeEvent 语义、遥测 10 通道一致、CRC 断裂拒收回归） |
+| E04 | 固件构建 | `rtk make -C Debug all` | exit 0、0 诊断、uart_wireless.o+link.o 进链 |
+
+## 39. UDIAG 契约（uart_check 服务 + UartDiag 条目：全端口字节层丢失一页可查）——冻结
+
+- **task_id**: UDIAG-uart-counters
+- **goal**：VOFA 调参「丢帧难以被查询」的字节层半边直接关闭：五条串口链路的溢出计数
+  （丢字节=丢帧的字节层母因）集中一页，任何一轮调参跑完进页即知有没有丢、丢在哪条链。
+  帧层半边由 §38 的 seq/gap 计数关闭；VOFA 帧层可视化技术（各条目自愿注册计数通道，
+  锯齿断点=丢帧）登记入方案文档不强制。
+- **能力辩护（§3.4）**：「板子能报每条串口链路丢没丢字节」——只读镜像现成 Driver
+  计数器，零第二数据变换（imu_check 先例）；计数皆累计型，跨页保留证据。
+- **通道（tx×6，注册序=ch 序）**：vofa_rx_ovf / vofa_tx_ovf / vision_rx_ovf /
+  step_rx_ovf / imu_rx_ovf / wl_rx_ovf。imu 直读 ImuUart_GetRxOverflowCount
+  （board_uart 端口层），不经 driver/imu 的 Imu_Diag——同源计数只读双读者合法，
+  不新增泵点（无 Imu_Update 调用，非 V23 情形）。
+- **接线**：`app/service/uart_check/{uart_check.h,uart_check.c}`（Start/Update/Stop，
+  imu_check 同款三段），app_compose UartDiag 条目 **idx 12** + DEBUG 组收编。
+
+### 39.1 allowed_files
+
+`hc-team/app/service/uart_check/{uart_check.h,uart_check.c}`（新）、
+`hc-team/app/system/app_compose.c`、`tests/host/{test_uart_check.c,Makefile}`、
+Debug 构建元数据（makefile/subdir_vars.mk 等六列表，新 .c 假绿陷阱）、
+`docs/OLED菜单操作手册.md`（诊断页补 UartDiag）、本计划状态回写。
+forbidden：全部 driver/**（只读现成 API 不改）、其余一切。
+
+### 39.2 证据行（4 行，恰 1 条固件构建行）
+
+| 行 | 名称 | 命令 | 预期 |
+|---|---|---|---|
+| E01 | 依赖纯净 | uart_check include 面=五端口头+uart_vofa.h+std（Service→Driver 合法）；arch-scan 空输出 | 如式 |
+| E02 | 范围审计 | git status/diff 对照 §39.1 | 无越界 |
+| E03 | 主机测试 | `rtk proxy make -C tests/host all` | ≥E03(§38)+5（六计数镜像同源同序、进页注册/退页清表、未 Start 时 Update 无副作用、NULL 安全、计数跨 Stop/Start 不清零） |
+| E04 | 固件构建 | `rtk make -C Debug all` | exit 0、0 诊断、uart_check.o 进链、app_compose 条目 13 项 |
