@@ -47,10 +47,12 @@ extern "C" {
 #define TUNE_STEP_ACCEL_MILLI  10
 #define TUNE_STEP_DECEL_MILLI  10
 #define TUNE_STEP_DIST_MM      50
-/* CHAS 组：底盘速度环增益（milli，双轮同值应用）；HEAD 组：航向调参 + 转弯测试角。 */
-#define TUNE_STEP_CKP_MILLI 10
-#define TUNE_STEP_CKI_MILLI 10
-#define TUNE_STEP_CKD_MILLI 10
+/* CHAS 组：底盘速度环增益（milli，双轮同值应用）。量纲=PWM/(m/s)，真实值百位量级
+ * （milli 屏显 ≈ 1e5），步长按此定 10.0/次——原占位 0.01/次按不动（量级账修正）。 */
+#define TUNE_STEP_CKP_MILLI 10000
+#define TUNE_STEP_CKI_MILLI 10000
+#define TUNE_STEP_CKD_MILLI 1000
+/* HEAD 组：航向调参 + 转弯测试角。 */
 #define TUNE_STEP_HKP_MILLI 10
 #define TUNE_STEP_HKI_MILLI 10
 #define TUNE_STEP_HKD_MILLI 10
