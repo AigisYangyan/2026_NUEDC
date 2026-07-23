@@ -77,6 +77,9 @@ typedef struct {
     float hold_diff_limit_mps; /* 纠偏差速对称限幅 = 该 PID out_limit（限幅唯一所有者 = 此 cfg） */
     /* 定角转（比例控制 deg→m/s）。 */
     float turn_kp;
+    /* §8.1 TURN 看门狗（PT3v §37.5，profiled 同款骨架，0=禁用）：运行拍数上限——
+       防 IMU 断线航向冻结/近容差物理失速两个无限差速场景，超限→Chassis_Stop+DONE。 */
+    uint32_t turn_timeout_ticks;
     /* 到位判据。 */
     float straight_tol_mm;     /* 直行到位容差（>0） */
     float turn_tol_deg;        /* 转角到位容差（>0） */
@@ -177,6 +180,17 @@ void Motion_SetProfileParams(float cruise_mps, float start_mps,
  */
 void Motion_GetProfileParams(float *cruise_mps, float *start_mps,
                              float *accel_mps2, float *decel_mps2);
+
+/**
+ * @brief  运行时设置航向调参（PT3v §37：航向保持三增益 + 定角转 kp；供板载按钮调参）。
+ * @note   写入 `s_cfg` 四字段 **并经 Pid_SetGains 同步在线航向 PID**（§37.5 修订 2：
+ *         `Start*` 只 Pid_Reset 不重灌 cfg，故此处必须双写）——**全部即时生效**。
+ *         out_limit 仍唯一归 Motion_Init 的 cfg（限幅所有者不变）。
+ */
+void Motion_SetHeadingTuning(float hold_kp, float hold_ki, float hold_kd, float turn_kp);
+
+/** @brief 读回当前航向调参（与 SetHeadingTuning 对称）。任一 NULL → 无副作用返回。 */
+void Motion_GetHeadingTuning(float *hold_kp, float *hold_ki, float *hold_kd, float *turn_kp);
 
 #ifdef __cplusplus
 }

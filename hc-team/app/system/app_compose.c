@@ -31,6 +31,9 @@
  * - VisionLink = 视觉链路诊断（vision：进页发占位选题握手（500ms 自动重发直至回显
  *                一致）、VOFA tx×8（x/y/coord_seq/st0/st1/st_seq/confirmed/retries）；
  *                PC 串口工具杜邦打流即可验收，兼帧率/CRC 压力测试）。
+ * - TurnTest   = 定角转标定（motion：进页 Init→ParamTune_Init 重推持久增益→
+ *                StartTurn(+TurnDeg)，退页 Motion_Stop；标定环=HEAD 组改增益→
+ *                进页转一把→BACK→再改再进；需 IMU 与底盘增益已调）。
  * RUN_ACTIVE 期 OLED 统一 RUNNING 横幅由 menu 框架负责；例外：GrayTest 经
  * Menu_SetEntrySelfDraw 登记 self-draw（W7 §29 opt-in），活动期整屏归 gray_check 面板。
  * 换/加 debug/test 项：在 s_entries[] 补条目 + 在对应分组的 entries 数组补其下标。
@@ -350,6 +353,53 @@ static void visionlink_exit(void)
     Vision_StopTelemetry();
 }
 
+/* ---- TurnTest 运行条目钩子（→ motion 定角转，PT3v §37）----------------------
+ * 进页原地转 TurnDeg 度（HEAD 组按钮调 turn_kp/hold 增益并 SAVE 持久化），退页停。
+ * on_enter 接线序（V28 同款）：Motion_Init 归零 → ParamTune_Init 重推持久增益
+ * （turn_kp 活读即时生效、hold 增益本序在 StartTurn 前故亦生效）→ StartTurn。 */
+
+/* 定角转条目配置：保守 UNCALIBRATED 占位——上车按实测替换（尤其 heading_sign）。 */
+static const Motion_Config_T s_tt_cfg = {
+    .mm_per_pulse        = 0.1f,    /* UNCALIBRATED（转弯用航向判据，此值仅剖面链用） */
+    .heading_sign        = 1.0f,    /* UNCALIBRATED：IMU 极性首验后定（错则转反向） */
+    .straight_speed_mps  = 0.20f,
+    .profile_cruise_mps  = 0.20f,   /* 进页被 ParamTune_Init 覆盖 */
+    .profile_start_mps   = 0.08f,
+    .profile_accel_mps2  = 0.30f,
+    .profile_decel_mps2  = 0.30f,
+    .turn_speed_mps      = 0.20f,   /* 原地转差速上限（保守） */
+    .arc_speed_mps       = 0.20f,
+    .track_width_mm      = 100.0f,  /* UNCALIBRATED：轮距实测（仅 ARC 用） */
+    .hold_kp             = 0.0f,    /* 进页被 ParamTune_Init 覆盖 */
+    .hold_ki             = 0.0f,
+    .hold_kd             = 0.0f,
+    .hold_diff_limit_mps = 0.15f,
+    .turn_kp             = 0.0f,    /* 进页被 ParamTune_Init 覆盖（默认 0=不动，先调 HEAD 组） */
+    .straight_tol_mm     = 5.0f,
+    .turn_tol_deg        = 2.0f,
+    .profile_timeout_ticks = 1500u, /* 剖面链看门狗（本条目不走剖面，占位一致） */
+    .profile_stall_ticks   = 80u,
+    .turn_timeout_ticks    = 1000u, /* §8.1 TURN 看门狗：~10s 上限（IMU 断线/近容差失速兜底） */
+};
+
+static void turntest_enter(void)
+{
+    Motion_Init(&s_tt_cfg);   /* 重置 + odometry/航向 PID Init → IDLE，不发电机命令 */
+    ParamTune_Init();         /* 重推持久增益（chassis/LF/剖面/heading 全量）+ TurnDeg */
+    (void)Motion_StartTurn((float)ParamTune_GetTurnDeg());  /* turn_kp=0 → 转不动=安全默认 */
+}
+
+static void turntest_step(uint32_t now_ms)
+{
+    (void)now_ms;   /* motion 自持节奏（Imu 排空 + 航向判据 + 末尾 Chassis_Update 门控） */
+    Motion_Update();
+}
+
+static void turntest_exit(void)
+{
+    Motion_Stop();  /* 退页：Chassis_Stop 确定性停车 → IDLE */
+}
+
 /* ---- 运行条目表（scheduler 全局条目索引 = 本数组下标）----------------------- */
 
 /* GrayTest 的条目下标（self-draw 登记与 s_entries[] 同源对齐；插入条目时同步改此值）。 */
@@ -367,11 +417,12 @@ static const Scheduler_Entry_T s_entries[] = {
     { "ServoTest",   servotest_enter,  servotest_step,  servotest_exit },  /* idx 8 */
     { "LinkTest",    linktest_enter,   linktest_step,   linktest_exit },   /* idx 9 */
     { "VisionLink",  visionlink_enter, visionlink_step, visionlink_exit }, /* idx 10 */
+    { "TurnTest",    turntest_enter,   turntest_step,   turntest_exit },   /* idx 11 */
 };
 
 /* ---- 菜单分组表（DEBUG 运行分类的条目 = 上表下标）--------------------------- */
 
-static const uint8_t s_debug_entries[] = { 0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 9u, 10u };  /* → SpeedTune / EncoderTest / MotorDir / GrayTest / LineFollow / ProfiledStraight / ImuTest / BeaconTest / ServoTest / LinkTest / VisionLink */
+static const uint8_t s_debug_entries[] = { 0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 9u, 10u, 11u };  /* → SpeedTune / EncoderTest / MotorDir / GrayTest / LineFollow / ProfiledStraight / ImuTest / BeaconTest / ServoTest / LinkTest / VisionLink / TurnTest */
 
 /* TUNE 参数组：循迹外环差速 PID 三增益（milli 口径）+ SAVE 动作项。
  * get/set 委派 param_tune（值/换算/持久化归它）；SAVE 的 action=ParamTune_Save（K3 即存 flash）。
@@ -403,6 +454,25 @@ static const Menu_Param_T s_servo_params[] = {
     { "S2 deg", ServoCheck_GetS2Deg, ServoCheck_SetS2Deg, 5, NULL },
 };
 
+/* CHAS 参数组：底盘速度环增益（milli，双轮同值应用，委派 param_tune→chassis）。
+ * 工作流：SpeedTune(VOFA) 调出终值 → CHAS 组录入 → SAVE，此后每次上电即用（PT3v）。 */
+static const Menu_Param_T s_chas_params[] = {
+    { "C Kp", ParamTune_GetCKp_milli, ParamTune_SetCKp_milli, TUNE_STEP_CKP_MILLI, NULL },
+    { "C Ki", ParamTune_GetCKi_milli, ParamTune_SetCKi_milli, TUNE_STEP_CKI_MILLI, NULL },
+    { "C Kd", ParamTune_GetCKd_milli, ParamTune_SetCKd_milli, TUNE_STEP_CKD_MILLI, NULL },
+    { "SAVE", NULL,                   NULL,                   0,                   ParamTune_Save },
+};
+
+/* HEAD 参数组：航向保持三增益 + 定角转 kp + 转弯测试角（TurnTest 标定环用）。 */
+static const Menu_Param_T s_head_params[] = {
+    { "H Kp",  ParamTune_GetHKp_milli,  ParamTune_SetHKp_milli,  TUNE_STEP_HKP_MILLI,  NULL },
+    { "H Ki",  ParamTune_GetHKi_milli,  ParamTune_SetHKi_milli,  TUNE_STEP_HKI_MILLI,  NULL },
+    { "H Kd",  ParamTune_GetHKd_milli,  ParamTune_SetHKd_milli,  TUNE_STEP_HKD_MILLI,  NULL },
+    { "T Kp",  ParamTune_GetHTKp_milli, ParamTune_SetHTKp_milli, TUNE_STEP_HTKP_MILLI, NULL },
+    { "Ang",   ParamTune_GetTurnDeg,    ParamTune_SetTurnDeg,    TUNE_STEP_TURN_DEG,   NULL },
+    { "SAVE",  NULL,                    NULL,                    0,                    ParamTune_Save },
+};
+
 static const Menu_Group_T s_groups[] = {
     { "DEBUG", MENU_GROUP_RUN, s_debug_entries,
       (uint8_t)(sizeof(s_debug_entries) / sizeof(s_debug_entries[0])),
@@ -413,6 +483,12 @@ static const Menu_Group_T s_groups[] = {
     { "DRIVE", MENU_GROUP_PARAM, NULL, 0u,
       s_drive_params,
       (uint8_t)(sizeof(s_drive_params) / sizeof(s_drive_params[0])) },
+    { "CHAS", MENU_GROUP_PARAM, NULL, 0u,
+      s_chas_params,
+      (uint8_t)(sizeof(s_chas_params) / sizeof(s_chas_params[0])) },
+    { "HEAD", MENU_GROUP_PARAM, NULL, 0u,
+      s_head_params,
+      (uint8_t)(sizeof(s_head_params) / sizeof(s_head_params[0])) },
     { "SERVO", MENU_GROUP_PARAM, NULL, 0u,
       s_servo_params,
       (uint8_t)(sizeof(s_servo_params) / sizeof(s_servo_params[0])) },

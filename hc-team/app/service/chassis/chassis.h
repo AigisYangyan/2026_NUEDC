@@ -48,6 +48,12 @@ void Chassis_Init(void);
 void Chassis_SetSpeedGains(Chassis_Side side, float kp, float ki, float kd);
 
 /**
+ * @brief 读回当前速度环增益（唯一所有者 Pid cfg 的对称读口，PT3v §37——供持久化序列化）。
+ * @param side 轮侧；越界或任一出参 NULL 时无副作用直接返回。
+ */
+void Chassis_GetSpeedGains(Chassis_Side side, float *kp, float *ki, float *kd);
+
+/**
  * @brief  设置左右轮目标速度。
  * @param  left_mps/right_mps  目标轮速（m/s），符号 = 前进为正。
  * @note   不做目标限幅：无实测最大轮速依据，输出由 PID out_limit 界定

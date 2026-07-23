@@ -27,7 +27,7 @@ extern "C" {
 #endif
 
 /** 单条记录 payload 上限（字节）。header(8)+payload 必须 ≤ 端口扇区容量。 */
-#define PARAM_STORE_MAX_PAYLOAD 48u
+#define PARAM_STORE_MAX_PAYLOAD 96u    /* PT3v §37.4：48→96（v3 blob 65B；端口容量 1024B 背书） */
 
 /**
  * @brief 读回持久 payload。

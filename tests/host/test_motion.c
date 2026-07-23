@@ -78,6 +78,7 @@ static Motion_Config_T default_cfg(void)
     cfg.profile_decel_mps2 = 0.5f;
     cfg.profile_timeout_ticks = 0u;   /* 默认禁用看门狗：既有 profiled 用例不受影响 */
     cfg.profile_stall_ticks = 0u;     /* 默认禁用堵转看门狗 */
+    cfg.turn_timeout_ticks = 0u;      /* 默认禁用 TURN 看门狗（§37.5）：既有 turn 用例不受影响 */
     cfg.turn_speed_mps = 0.30f;
     cfg.arc_speed_mps = 0.30f;
     cfg.track_width_mm = 100.0f;   /* R=200 → half=50：inner=0.225、outer=0.375（断言直观） */
@@ -738,6 +739,71 @@ static int test_get_profile_params_null_safe(void)
     return 0;
 }
 
+/* PT3v §37.5：TURN 看门狗——IMU 冻结（不推航向）err 恒定 → 拍数超限切停+DONE。 */
+static int test_turn_watchdog_stops_frozen_heading(void)
+{
+    Motion_Config_T cfg = default_cfg();
+    int i;
+
+    setup();
+    cfg.turn_timeout_ticks = 5u;
+    Motion_Init(&cfg);                  /* 重置到带看门狗的配置（Init 可重入） */
+
+    TEST_ASSERT_TRUE(Motion_StartTurn(90.0f));
+    push_yaw(0.0f);
+    for (i = 0; i < 10; i++) {          /* 航向冻结在 0：err 恒 90，永不到位 */
+        tick();
+    }
+    TEST_ASSERT_TRUE(Motion_IsDone());
+    TEST_ASSERT_TRUE(FakeMotorHw_IsBrakeActive(MOTOR_LEFT));
+    TEST_ASSERT_TRUE(FakeMotorHw_IsBrakeActive(MOTOR_RIGHT));
+    printf("PASS: test_turn_watchdog_stops_frozen_heading\n");
+    return 0;
+}
+
+/* PT3v §37.5：hold 增益 Set 即达在线航向 PID（Pid_SetGains 双写）——直行纠偏输出随变。 */
+static int test_heading_tuning_reaches_live_pid(void)
+{
+    Chassis_Telemetry_T ct;
+    float corr_small, corr_big;
+
+    setup();
+    Motion_SetHeadingTuning(0.001f, 0.0f, 0.0f, 0.02f);
+    TEST_ASSERT_TRUE(Motion_StartStraight(500.0f, true));   /* 航向保持开 */
+    push_yaw(0.0f);  tick();
+    push_yaw(10.0f); tick();            /* 偏航 10° → 纠偏差速 = kp·(-10) */
+    Chassis_GetTelemetry(&ct);
+    corr_small = ct.target_mps[CHASSIS_SIDE_RIGHT] - ct.target_mps[CHASSIS_SIDE_LEFT];
+
+    Motion_SetHeadingTuning(0.01f, 0.0f, 0.0f, 0.02f);      /* 增益 ×10，运行中在线改 */
+    push_yaw(10.0f); tick();
+    Chassis_GetTelemetry(&ct);
+    corr_big = ct.target_mps[CHASSIS_SIDE_RIGHT] - ct.target_mps[CHASSIS_SIDE_LEFT];
+    TEST_ASSERT_TRUE(fabsf(corr_big) > (2.0f * fabsf(corr_small)));  /* 输出确实变大 */
+    Motion_Stop();
+    printf("PASS: test_heading_tuning_reaches_live_pid\n");
+    return 0;
+}
+
+/* PT3v §37：航向调参 Set/Get 往返（写 s_cfg 四字段，同一所有者额外写路径）。 */
+static int test_heading_tuning_set_get_roundtrip(void)
+{
+    float hkp = -1.0f, hki = -1.0f, hkd = -1.0f, htkp = -1.0f;
+
+    setup();
+    Motion_SetHeadingTuning(1.25f, 0.05f, 0.4f, 0.03f);
+    Motion_GetHeadingTuning(&hkp, &hki, &hkd, &htkp);
+    TEST_ASSERT_NEAR(hkp, 1.25f, 1e-6f);
+    TEST_ASSERT_NEAR(hki, 0.05f, 1e-6f);
+    TEST_ASSERT_NEAR(hkd, 0.4f, 1e-6f);
+    TEST_ASSERT_NEAR(htkp, 0.03f, 1e-6f);
+    Motion_GetHeadingTuning(NULL, NULL, NULL, NULL);    /* 不崩、无副作用 */
+    Motion_GetHeadingTuning(&hkp, NULL, NULL, NULL);
+    TEST_ASSERT_NEAR(hkp, 1.25f, 1e-6f);                /* 任一 NULL → 未被写 */
+    printf("PASS: test_heading_tuning_set_get_roundtrip\n");
+    return 0;
+}
+
 /* ---- 圆弧原语（S06b，计划表 §19）---------------------------------------- */
 
 /* StartArc 参数校验：R≤0 / arc_deg=0 / R<track/2 拒绝并保持前态；合法→ARC。 */
@@ -990,6 +1056,9 @@ int main(void)
     failures += test_profiled_stall_stops_fast();
     failures += test_profiled_stall_no_false_trigger_when_moving();
     failures += test_get_profile_params_null_safe();
+    failures += test_turn_watchdog_stops_frozen_heading();
+    failures += test_heading_tuning_reaches_live_pid();
+    failures += test_heading_tuning_set_get_roundtrip();
     failures += test_start_arc_rejects_invalid();
     failures += test_arc_feedforward_ratio_ccw();
     failures += test_arc_feedforward_ratio_cw();

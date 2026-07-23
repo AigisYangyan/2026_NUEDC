@@ -4088,3 +4088,20 @@ forbidden：`middleware/pid/**`、`Debug/makefile`（无新 .o）、其余一切
    （~10s）；test_motion `default_cfg` 补 0 初始化 + 新增超时用例。
 4. **[建议] param_tune.h 两处 schema_ver 2 陈旧注释改 3。**
    allowed_files 相应扩：`middleware/pid` 仍 forbidden（只调用现成 API 不改它）。
+
+### 37.6 完成记录（2026-07-23，代码本提交）
+
+- E01：param_tune include 新增恰 chassis.h（Service 同层受控）；arch-scan 空输出。
+- E02：范围=§37.2+修订1（param_store.h 一行）+修订2（motion 看门狗/PID 双写）；
+  .ccsproject 会话前既存不纳入。
+- E03 主机 **594 PASS 0 FAIL**＝584 基线+10（param_tune 6 + chassis 1 + motion 3——
+  含修订 2 的 TURN 看门狗冻结航向切停、hold 增益在线 PID 即达两用例）。
+- E04 固件 exit 0、0 诊断；**param_store.o 强制删后重编**（LastWriteTime 今日 12:26，
+  96 上限进链）——阻断项处置成立；四 app .o 重编进链。
+- arch-auditor 三发现全部处置：① 陈旧 .o 假绿→强制重编+E04 重取+memory 登记
+  （.d_raw/.d 断裂=只改 .h 必手动重编 includer）；② hold 增益断链→SetHeadingTuning
+  内 Pid_SetGains 双写（即时生效，out_limit 所有者不变）；③ TURN 无看门狗→
+  turn_timeout_ticks（0=禁用，s_tt_cfg=1000≈10s），覆盖 IMU 冻结/近容差失速；
+  建议级 schema 注释 v2→3 已改。
+- 交付语义：上车流程=SpeedTune(VOFA) 调出底盘增益→CHAS 组录入→SAVE；TurnTest
+  标定环=HEAD 组改→进页转一把→BACK→再改；此后每次上电 ParamTune_Init 全量重推。

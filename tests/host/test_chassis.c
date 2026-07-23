@@ -306,6 +306,25 @@ static int test_sampling_failure_timeout_stops(void)
     return 0;
 }
 
+/* PT3v §37：GetSpeedGains 镜像 SetSpeedGains（唯一所有者 Pid cfg 的对称读口）。 */
+static int test_get_speed_gains_mirrors_setter(void)
+{
+    float kp = -1.0f, ki = -1.0f, kd = -1.0f;
+
+    setup();
+    Chassis_SetSpeedGains(CHASSIS_SIDE_LEFT, 2.5f, 0.3f, 0.05f);
+    Chassis_SetSpeedGains(CHASSIS_SIDE_RIGHT, 1.5f, 0.2f, 0.01f);
+    Chassis_GetSpeedGains(CHASSIS_SIDE_LEFT, &kp, &ki, &kd);
+    TEST_ASSERT_TRUE(kp == 2.5f && ki == 0.3f && kd == 0.05f);
+    Chassis_GetSpeedGains(CHASSIS_SIDE_RIGHT, &kp, &ki, &kd);
+    TEST_ASSERT_TRUE(kp == 1.5f && ki == 0.2f && kd == 0.01f);
+    Chassis_GetSpeedGains(CHASSIS_SIDE_COUNT, &kp, &ki, &kd);   /* 越界：无副作用 */
+    TEST_ASSERT_TRUE(kp == 1.5f);
+    Chassis_GetSpeedGains(CHASSIS_SIDE_LEFT, (float *)0, &ki, &kd); /* NULL：无副作用不崩 */
+    printf("PASS: test_get_speed_gains_mirrors_setter\n");
+    return 0;
+}
+
 int main(void)
 {
     int failures = 0;
@@ -322,6 +341,7 @@ int main(void)
     failures += test_clock_wrap_still_updates();
     failures += test_target_reflected_in_telemetry();
     failures += test_sampling_failure_timeout_stops();
+    failures += test_get_speed_gains_mirrors_setter();
 
     if (failures != 0) {
         printf("%d chassis test(s) failed.\n", failures);

@@ -68,6 +68,7 @@ static float   s_arc_prev_y_mm;
 static uint32_t s_profiled_ticks;
 static float    s_profiled_last_dist_mm;
 static uint32_t s_profiled_stall_ticks;
+static uint32_t s_turn_ticks;           /* TURN 看门狗拍数（§37.5，StartTurn 复位） */
 
 #define MOTION_STALL_EPS_MM 0.5f   /* 单拍进展低于此视为「无进展」（容里程量化/噪声） */
 
@@ -186,6 +187,7 @@ bool Motion_StartTurn(float relative_deg)
     s_ref_heading_deg = s_pose.heading_deg;
     s_target = relative_deg;
     s_progress = 0.0f;
+    s_turn_ticks = 0u;      /* §8.1 TURN 看门狗计数复位（§37.5） */
     s_state = MOTION_TURN;
     return true;
 }
@@ -317,8 +319,17 @@ static void motion_step_turn(void)
     float cmd;
 
     s_progress = rel;
+    s_turn_ticks++;
 
     if (fabsf(err) <= s_cfg.turn_tol_deg) {
+        Chassis_Stop();
+        s_state = MOTION_DONE;
+        return;
+    }
+
+    /* §8.1 TURN 看门狗（§37.5，profiled 同款骨架，0=禁用）：拍数超限→切停。
+     * 覆盖两个无限差速场景：IMU 断线航向冻结（err 恒定）、近容差物理失速。 */
+    if ((s_cfg.turn_timeout_ticks > 0u) && (s_turn_ticks >= s_cfg.turn_timeout_ticks)) {
         Chassis_Stop();
         s_state = MOTION_DONE;
         return;
@@ -483,4 +494,26 @@ void Motion_GetProfileParams(float *cruise_mps, float *start_mps,
     *start_mps = s_cfg.profile_start_mps;
     *accel_mps2 = s_cfg.profile_accel_mps2;
     *decel_mps2 = s_cfg.profile_decel_mps2;
+}
+
+void Motion_SetHeadingTuning(float hold_kp, float hold_ki, float hold_kd, float turn_kp)
+{
+    /* 额外写路径（同一所有者 s_cfg）：turn_kp 每拍活读即时生效；hold 三增益须同步
+     * 在线 PID（§37.5 修订 2：Start* 只 Pid_Reset 不重灌 cfg）——双写后全部即时生效。 */
+    s_cfg.hold_kp = hold_kp;
+    s_cfg.hold_ki = hold_ki;
+    s_cfg.hold_kd = hold_kd;
+    s_cfg.turn_kp = turn_kp;
+    Pid_SetGains(&s_hold_pid, hold_kp, hold_ki, hold_kd);
+}
+
+void Motion_GetHeadingTuning(float *hold_kp, float *hold_ki, float *hold_kd, float *turn_kp)
+{
+    if ((hold_kp == NULL) || (hold_ki == NULL) || (hold_kd == NULL) || (turn_kp == NULL)) {
+        return;   /* 同 GetProfileParams 口径 */
+    }
+    *hold_kp = s_cfg.hold_kp;
+    *hold_ki = s_cfg.hold_ki;
+    *hold_kd = s_cfg.hold_kd;
+    *turn_kp = s_cfg.turn_kp;
 }

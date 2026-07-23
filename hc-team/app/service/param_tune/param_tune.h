@@ -7,7 +7,7 @@
  * - 就地读/改这些值（int32 口径，即时生效，供板载按钮菜单调用）；
  * - 一次性把当前全部值存入片内 flash（掉电保存）。
  *
- * 隐藏：用了哪些 Driver/Service、blob 序列化布局（schema_ver 2）、默认/步长常量、int32↔float 定点换算细节。
+ * 隐藏：用了哪些 Driver/Service、blob 序列化布局（schema_ver 3）、默认/步长常量、int32↔float 定点换算细节。
  *
  * 分层与所有权（AGENTS.md §4/§8.2）：
  * - **已应用增益唯一属 line_follow**（Set/GetGains）、**已应用剖面参数唯一属 motion**
@@ -47,8 +47,17 @@ extern "C" {
 #define TUNE_STEP_ACCEL_MILLI  10
 #define TUNE_STEP_DECEL_MILLI  10
 #define TUNE_STEP_DIST_MM      50
+/* CHAS 组：底盘速度环增益（milli，双轮同值应用）；HEAD 组：航向调参 + 转弯测试角。 */
+#define TUNE_STEP_CKP_MILLI 10
+#define TUNE_STEP_CKI_MILLI 10
+#define TUNE_STEP_CKD_MILLI 10
+#define TUNE_STEP_HKP_MILLI 10
+#define TUNE_STEP_HKI_MILLI 10
+#define TUNE_STEP_HKD_MILLI 10
+#define TUNE_STEP_HTKP_MILLI 5
+#define TUNE_STEP_TURN_DEG  15
 
-/** 开机载入：flash 有效记录(schema_ver 2)→应用 LF 增益+剖面参数+距离；否则全默认→应用。装配时调用一次。 */
+/** 开机载入：flash 有效记录(schema_ver 3)→应用 LF/底盘/航向增益+剖面参数+距离+转角；否则全默认→应用。装配时调用一次。 */
 void ParamTune_Init(void);
 
 /** 读回当前循迹外环增益（milli 口径 = LineFollow 实值 ×1000）。 */
@@ -77,7 +86,29 @@ void ParamTune_SetDecel_milli(int32_t v);
 int32_t ParamTune_GetDist_mm(void);
 void    ParamTune_SetDist_mm(int32_t v);
 
-/** 把当前 LF 增益 + 剖面参数 + 距离序列化(schema_ver 2)存入片内 flash（掉电保存）。菜单 SAVE 项 K3 触发。 */
+/* ---- PT3v §37：底盘速度环增益（委派 chassis，双轮同值应用；读回取左轮）------ */
+int32_t ParamTune_GetCKp_milli(void);
+int32_t ParamTune_GetCKi_milli(void);
+int32_t ParamTune_GetCKd_milli(void);
+void    ParamTune_SetCKp_milli(int32_t v);
+void    ParamTune_SetCKi_milli(int32_t v);
+void    ParamTune_SetCKd_milli(int32_t v);
+
+/* ---- PT3v §37：motion 航向调参（委派 motion；turn_kp/hold 均即时生效——§37.5 双写）*/
+int32_t ParamTune_GetHKp_milli(void);
+int32_t ParamTune_GetHKi_milli(void);
+int32_t ParamTune_GetHKd_milli(void);
+int32_t ParamTune_GetHTKp_milli(void);
+void    ParamTune_SetHKp_milli(int32_t v);
+void    ParamTune_SetHKi_milli(int32_t v);
+void    ParamTune_SetHKd_milli(int32_t v);
+void    ParamTune_SetHTKp_milli(int32_t v);
+
+/** 转弯测试角（度直读，默认 90）。本服务自持（测试设定量，dist_mm 先例）。 */
+int32_t ParamTune_GetTurnDeg(void);
+void    ParamTune_SetTurnDeg(int32_t v);
+
+/** 把当前全部调参值序列化(schema_ver 3)存入片内 flash（掉电保存）。菜单 SAVE 项 K3 触发。 */
 void ParamTune_Save(void);
 
 #ifdef __cplusplus

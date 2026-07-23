@@ -172,10 +172,12 @@ class Chassis_API {
   <<app:service>>
   +Chassis_Init()
   +Chassis_SetSpeedGains(Chassis_Side, kp, ki, kd)
+  +Chassis_GetSpeedGains(Chassis_Side, kp*, ki*, kd*)
   +Chassis_SetTargetMps(left_mps, right_mps)
   +Chassis_Update()
   +Chassis_Stop()
   +Chassis_GetTelemetry(Chassis_Telemetry_T*)
+  note: PT3v §37（2026-07-23）新增 Chassis_GetSpeedGains — SetSpeedGains 的对称读口，读回 s_pid[side].cfg 实值，供 param_tune 持久化/显示读回，非新所有者
 }
 
 class LineFollow_API {
@@ -245,12 +247,16 @@ class Motion_API {
   +Motion_StartArc(radius_mm, arc_deg) bool
   +Motion_SetProfileParams(cruise_mps, start_mps, accel_mps2, decel_mps2)
   +Motion_GetProfileParams(cruise_mps*, start_mps*, accel_mps2*, decel_mps2*)
+  +Motion_SetHeadingTuning(hold_kp, hold_ki, hold_kd, turn_kp)
+  +Motion_GetHeadingTuning(hold_kp*, hold_ki*, hold_kd*, turn_kp*)
   +Motion_Update()
   +Motion_Stop()
   +Motion_GetState() Motion_State
   +Motion_IsDone() bool
   +Motion_GetTelemetry(Motion_Telemetry_T*)
   note: profile_timeout_ticks cfg field (f333333, §8.1 runaway watchdog) — encoder-derailment safety stop, sole owner motion, 0=disabled
+  note: PT3v §37（2026-07-23）新增 turn_timeout_ticks cfg field（同款 §8.1 骨架，0=禁用）— TURN 状态拍数看门狗，覆盖 IMU 断线航向冻结（err 恒定）与近容差物理失速两个无限差速场景，超限 Chassis_Stop+DONE；StartTurn 复位 s_turn_ticks 计数，sole owner motion
+  note: PT3v §37（2026-07-23）新增 Motion_SetHeadingTuning/GetHeadingTuning — 写 s_cfg 四字段（hold_kp/ki/kd + turn_kp）并经 Pid_SetGains 同步在线航向 PID（§37.5 修订 2：Start* 只 Pid_Reset 不重灌 cfg，故此处双写）——全部即时生效；out_limit 仍唯一归 Motion_Init 的 cfg，限幅所有者不变
 }
 
 class Route_API {
@@ -310,7 +316,7 @@ class GrayCheck_API {
 }
 
 class ParamTune_API {
-  <<app:service, NEW W5, +MS02 2026-07-20 scope widened to DRIVE group, TUNE+DRIVE menu groups, Model A no gain/profile copy>>
+  <<app:service, NEW W5, +MS02 2026-07-20 scope widened to DRIVE group, +PT3v 2026-07-23 §37 scope widened to CHAS+HEAD groups, TUNE+DRIVE+CHAS+HEAD menu groups, Model A no gain/profile copy>>
   +ParamTune_Init()
   +ParamTune_GetKp_milli() int32_t
   +ParamTune_GetKi_milli() int32_t
@@ -328,8 +334,25 @@ class ParamTune_API {
   +ParamTune_SetDecel_milli(v)
   +ParamTune_GetDist_mm() int32_t
   +ParamTune_SetDist_mm(v)
+  +ParamTune_GetCKp_milli() int32_t
+  +ParamTune_GetCKi_milli() int32_t
+  +ParamTune_GetCKd_milli() int32_t
+  +ParamTune_SetCKp_milli(v)
+  +ParamTune_SetCKi_milli(v)
+  +ParamTune_SetCKd_milli(v)
+  +ParamTune_GetHKp_milli() int32_t
+  +ParamTune_GetHKi_milli() int32_t
+  +ParamTune_GetHKd_milli() int32_t
+  +ParamTune_GetHTKp_milli() int32_t
+  +ParamTune_SetHKp_milli(v)
+  +ParamTune_SetHKi_milli(v)
+  +ParamTune_SetHKd_milli(v)
+  +ParamTune_SetHTKp_milli(v)
+  +ParamTune_GetTurnDeg() int32_t
+  +ParamTune_SetTurnDeg(v)
   +ParamTune_Save()
-  note: sole owner of persistence orchestration + int32 milli<->float x1000 scale (no gain/profile copy, get/set delegate LineFollow_Get/SetGains or Motion_Get/SetProfileParams); MS02: sole self-held owner of test distance s_dist_mm (no Service home for it); blob schema_ver 2 (33B)
+  note: sole owner of persistence orchestration + int32 milli<->float x1000 scale (no gain/profile copy, get/set delegate LineFollow_Get/SetGains or Motion_Get/SetProfileParams); MS02: sole self-held owner of test distance s_dist_mm (no Service home for it)
+  note: PT3v §37（2026-07-23）scope widened again — CKp/CKi/CKd delegate Chassis_Get/SetSpeedGains（双轮同值应用，读回取左轮）；HKp/HKi/HKd/HTKp delegate Motion_Get/SetHeadingTuning；TurnDeg 本模块自持（s_turn_deg，同 dist_mm 先例，无 Service 家）；blob schema_ver 3（65B）= v2 33B + 底盘三增益[33..44] + 航向四参[45..60] + turn_deg[61..64]；旧 v1(13B)/v2(33B) 记录长度不符→拒绝→一次性全默认
 }
 
 class ImuCheck_API {
@@ -538,6 +561,7 @@ AppCompose_API --> Alert_API : Alert_Init()/Play(pattern)/Update(now_ms)/Stop(),
 AppCompose_API --> ServoCheck_API : ServoCheck_Start()/Update(now_ms)/Stop(), DEBUG entry idx8 "ServoTest" three hooks, SV1 2026-07-23, appends slot (s_entries grows 8->9)
 AppCompose_API --> Link_API : Link_Init()+Link_StartTelemetry()/Link_Update(now_ms)/Link_StopTelemetry(), DEBUG entry idx9 "LinkTest" three hooks, WL1 2026-07-23, appends slot (s_entries grows 9->10)
 AppCompose_API --> Vision_API : Vision_Init()+Vision_StartTelemetry()+Vision_SelectTopic(main,sub)/Vision_Update(now_ms)/Vision_StopTelemetry(), DEBUG entry idx10 "VisionLink" three hooks, V1 2026-07-23, appends slot (s_entries grows 10->11)
+AppCompose_API --> Motion_API : Motion_Init(&s_tt_cfg)/ParamTune_Init()/StartTurn(ParamTune_GetTurnDeg())/Update()/Stop(), DEBUG entry idx11 "TurnTest" three hooks, PT3v §37 2026-07-23, appends slot (s_entries grows 11->12); calibration loop for HEAD group (turn_kp=0 default is a safe no-motion default until tuned)
 SchedulerEntry_API ..> AppCompose_API : Scheduler_Run invokes active entry's on_enter/on_step/on_exit fn ptrs each tick (opaque, registered by AppCompose)
 SchedulerEntry_API ..> MenuUI_API : Scheduler_Run invokes background_step = Menu_Tick each idle tick (fn ptr, registered by AppCompose)
 
@@ -605,6 +629,16 @@ Scheduler_API --> TaskGroups_API : dispatch active group
 %% unaffected). Port placeholder (pin H6 undecided) makes port_absent=1 the honest steady state
 %% until pin finalization; VOFA tx x6 mirrors this rather than hiding it. The single-active-entry
 %% invariant holds across ten entries.
+%% PT3v (2026-07-23, §37) — s_entries[] grows to 12 (V1's VisionLink already took it to 11, see
+%% the AppCompose_API->Vision_API edge above) — new TurnTest entry appends idx11. on_enter order:
+%% Motion_Init(&s_tt_cfg) (reset to IDLE, zero heading/turn gains) -> ParamTune_Init() (fourth
+%% call site, re-pushes persisted chassis/heading gains + turn_deg) -> Motion_StartTurn(TurnDeg)
+%% (turn_kp defaults 0 -> no motion until HEAD group tuned, safe default). TurnTest DOES drive
+%% Chassis_Update via motion's existing third module-level drive point (S06-established, MS01/
+%% MS02/S06b confirmed same point) — does not add a fourth (index V21 lineage). Single-active-
+%% entry invariant keeps TurnTest (idx11) mutually exclusive with ProfiledStraight (idx5) and
+%% every other entry; the twelve-entry table is the calibration loop for the new CHAS/HEAD menu
+%% groups (change gain in HEAD -> BACK -> enter TurnTest -> observe -> repeat).
 RunRegistry_API --> SpeedLoop_API : lifecycle
 RunRegistry_API --> GrayTest_API : lifecycle
 RunRegistry_API --> UartTest_API : lifecycle
@@ -771,7 +805,7 @@ Hmi_API --> Clock_API : 5ms self-gate, unsigned-subtract elapsed
 Motion_API --> Encoder_API : GetSnapshot read-only, never calls Encoder_Update
 Motion_API --> IMU_API : Imu_Update sole owner during active period + Imu_GetSnapshot
 Motion_API --> Odometry_API : Init passthrough cfg + one-shot total_pulses delta consume + GetPose, first real caller S06
-Motion_API --> PID_API : straight/arc heading-correction outer loop (shared instance), Pid_UpdatePositional, out_limit = hold_diff_limit_mps sole owner
+Motion_API --> PID_API : straight/arc heading-correction outer loop (shared instance), Pid_UpdatePositional, out_limit = hold_diff_limit_mps sole owner; PT3v §37 Motion_SetHeadingTuning also calls Pid_SetGains on this same instance for instant-effect runtime tuning (double-write with s_cfg, not a new PID instance)
 Motion_API --> MoveProfile_API : MS01 2026-07-20, motion_step_profiled_straight feeds dist_done_mm(Euclidean from Pose, motion's existing owner)+target_mm -> longitudinal feedforward base_mps, no longitudinal PID, first and only caller
 Motion_API --> Chassis_API : same-layer controlled, SetTargetMps + cascaded Update (STRAIGHT/TURN/ARC/PROFILED_STRAIGHT, S06b/MS01 reuse same drive mechanism) + Stop (DONE/Stop)
 
@@ -938,14 +972,28 @@ Vision_API --> VofaDriver_API : vofa_clear_profile/vofa_register_float x2 + vofa
 %% (param_tune) — Model A single-owner claim (index V17/new note). Menu wiring is opaque fn
 %% ptrs (Menu_Param_T get/set/action), same pattern as AppCompose_API<->Tuning_API above —
 %% menu.c core untouched, action dispatch lives in menu_param.c's PARAM_LIST branch.
+%% PT3v (2026-07-23, §37, +修订1/2) — param_tune scope widened a third time: new CHAS menu
+%% group (chassis speed-loop gains, dual-wheel same-value apply, delegate Chassis_Get/Set
+%% SpeedGains, new Chassis_GetSpeedGains symmetric read port) and new HEAD menu group (motion
+%% heading-hold three gains + turn_kp + turn_deg test angle, delegate Motion_Get/Set
+%% HeadingTuning; turn_deg self-held in param_tune, no Service home, same pattern as dist_mm).
+%% Motion_SetHeadingTuning double-writes s_cfg AND Pid_SetGains on the live heading PID (§37.5
+%% revision 2: Start* only Pid_Reset's, does not re-load cfg, so the double-write is required
+%% for instant effect). New TURN watchdog cfg field turn_timeout_ticks (0=disabled, same §8.1
+%% skeleton as profile_timeout_ticks) guards two unbounded-differential scenarios in motion_step_
+%% turn: IMU dropout (frozen heading error) and near-tolerance physical stall. New DEBUG entry
+%% "TurnTest" (idx11) is the calibration loop for the HEAD group. Blob grows schema_ver 2 (33B)
+%% -> 3 (65B); PARAM_STORE_MAX_PAYLOAD raised 48->96 (§37.4, port sector capacity 1024B backs
+%% the margin). Model A single-owner claim holds — param_tune still stores zero gain copies.
 ParamTune_API --> LineFollow_API : LineFollow_GetGains (display real applied value) + LineFollow_SetGains (instant apply), same-layer controlled, sole writer of line_follow gains
-ParamTune_API --> Motion_API : MS02 2026-07-20, same-layer controlled — ParamTune_Get/SetCruise/Start/Accel/Decel_milli delegate Motion_Get/SetProfileParams (int32 milli<->float scale sole owner stays param_tune, applied value sole owner stays motion s_cfg.profile_*, not a new owner)
-ParamTune_API --> ParamStore_API : ParamStore_Read (boot load) / ParamStore_Save (SAVE action), 33B blob = schema_ver(2) + kp/ki/kd milli LE + profile cruise/start/accel/decel milli LE + dist_mm LE (MS02 2026-07-20, schema_ver 1 13B legacy record now rejected by length check -> falls back to all-defaults, one-time)
+ParamTune_API --> Motion_API : MS02 2026-07-20, same-layer controlled — ParamTune_Get/SetCruise/Start/Accel/Decel_milli delegate Motion_Get/SetProfileParams (int32 milli<->float scale sole owner stays param_tune, applied value sole owner stays motion s_cfg.profile_*, not a new owner); PT3v §37 2026-07-23 adds ParamTune_Get/SetHKp/HKi/HKd/HTKp_milli delegating Motion_Get/SetHeadingTuning (same split, sole owner stays motion s_cfg.hold_*/turn_kp, Motion side double-writes Pid_SetGains for instant effect, not a new owner)
+ParamTune_API --> Chassis_API : PT3v §37 2026-07-23, same-layer controlled — ParamTune_Get/SetCKp/CKi/CKd_milli delegate Chassis_Get/SetSpeedGains (dual-wheel same-value apply on set, read back from left side on get; int32 milli<->float scale sole owner stays param_tune, applied gain sole owner stays chassis s_pid[side].cfg, not a new owner)
+ParamTune_API --> ParamStore_API : ParamStore_Read (boot load) / ParamStore_Save (SAVE action), 65B blob = schema_ver(3) + kp/ki/kd milli LE + profile cruise/start/accel/decel milli LE + dist_mm LE + chassis ckp/cki/ckd milli LE + heading hkp/hki/hkd/htkp milli LE + turn_deg LE (PT3v §37 2026-07-23, schema_ver 3; schema_ver 1 13B / schema_ver 2 33B legacy records now rejected by length check -> falls back to all-defaults, one-time)
 ParamStore_API --> DL_HAL : DL_FlashCTL erase/program/read via param_store_hw.c, last 1KB sector 0x0007FC00
-AppCompose_API --> ParamTune_API : ParamTune_Init(), three call sites (AppCompose_Install boot load, W5; LineFollow entry idx4 on_enter re-push after Init zeroes gains, W6; ProfiledStraight entry idx5 on_enter re-push after Motion_Init resets profile params to s_ms_cfg placeholder, MS02), loads persisted gains/profile-params/dist or defaults and applies to line_follow + motion
-AppCompose_API ..> ParamTune_API : TUNE + DRIVE group Menu_Param_T get/set/action fn ptrs (opaque, invoked later by MenuParam_API)
+AppCompose_API --> ParamTune_API : ParamTune_Init(), four call sites (AppCompose_Install boot load, W5; LineFollow entry idx4 on_enter re-push after Init zeroes gains, W6; ProfiledStraight entry idx5 on_enter re-push after Motion_Init resets profile params to s_ms_cfg placeholder, MS02; TurnTest entry idx11 on_enter re-push after Motion_Init resets heading/turn params to s_tt_cfg placeholder, PT3v §37), loads persisted gains/profile-params/dist/chassis-gains/heading-gains/turn_deg or defaults and applies to line_follow + motion + chassis
+AppCompose_API ..> ParamTune_API : TUNE + DRIVE + CHAS + HEAD group Menu_Param_T get/set/action fn ptrs (opaque, invoked later by MenuParam_API, CHAS+HEAD added PT3v §37)
 AppCompose_API ..> ServoCheck_API : SERVO group Menu_Param_T get/set fn ptrs (S1/S2 deg, opaque, invoked later by MenuParam_API), no action row (not persisted)
-MenuParam_API ..> AppCompose_API : PARAM_LIST/PARAM_EDIT invokes registered TUNE/DRIVE get/set/action fn ptrs each op (fn ptr, registered by AppCompose)
+MenuParam_API ..> AppCompose_API : PARAM_LIST/PARAM_EDIT invokes registered TUNE/DRIVE/CHAS/HEAD get/set/action fn ptrs each op (fn ptr, registered by AppCompose)
 
 %% AppCompose_API / Motion_API / ParamTune_API (MS02, landed 2026-07-20, §28) — Motion_API's
 %% "zero external callers" status (recorded at MS01 landing) is resolved: new DEBUG-group
@@ -985,10 +1033,10 @@ flowchart TD
   SysInit --> ServiceInit[Hmi_Init + Chassis_Init + Tuning_Init]
   SysInit --> AppCompose[AppCompose_Install, W2 SYS02]
   SysInit --> BoardIRQ[Board_EnableInterrupts]
-  AppCompose --> SchedulerInit[Scheduler_Init s_entries=SpeedTune,EncoderTest,MotorDir,GrayTest,LineFollow,ProfiledStraight,ImuTest,BeaconTest,ServoTest,LinkTest,VisionLink x11, background_step=Menu_Tick, W9 dropped GimbalTune/W10 added ImuTest at idx6/B1 added BeaconTest at idx7/SV1 added ServoTest at idx8/WL1 added LinkTest at idx9/V1 added VisionLink at idx10]
-  AppCompose --> MenuSetupCall[Menu_Setup s_groups=DEBUG+TUNE+DRIVE+SERVO x4, DEBUG entries idx0..10, TUNE params=LFKp,LFKi,LFKd,SAVE x4, DRIVE params=Dist,Cruise,Start,Accel,Decel,SAVE x6, SERVO params=S1deg,S2deg x2 no SAVE row, LinkTest/VisionLink tx-only diag no param row]
+  AppCompose --> SchedulerInit[Scheduler_Init s_entries=SpeedTune,EncoderTest,MotorDir,GrayTest,LineFollow,ProfiledStraight,ImuTest,BeaconTest,ServoTest,LinkTest,VisionLink,TurnTest x12, background_step=Menu_Tick, W9 dropped GimbalTune/W10 added ImuTest at idx6/B1 added BeaconTest at idx7/SV1 added ServoTest at idx8/WL1 added LinkTest at idx9/V1 added VisionLink at idx10/PT3v added TurnTest at idx11]
+  AppCompose --> MenuSetupCall[Menu_Setup s_groups=DEBUG+TUNE+DRIVE+CHAS+HEAD+SERVO x6, DEBUG entries idx0..11, TUNE params=LFKp,LFKi,LFKd,SAVE x4, DRIVE params=Dist,Cruise,Start,Accel,Decel,SAVE x6, CHAS params=CKp,CKi,CKd,SAVE x4, HEAD params=HKp,HKi,HKd,TKp,Ang,SAVE x6, SERVO params=S1deg,S2deg x2 no SAVE row, LinkTest/VisionLink tx-only diag no param row, PT3v §37 adds CHAS+HEAD groups]
   AppCompose --> MenuSelfDrawCall[Menu_SetEntrySelfDraw APP_ENTRY_IDX_GRAYTEST=3, W7 GrayTest opt-in, menu zero-draws while active]
-  AppCompose --> ParamTuneInitCall[ParamTune_Init, W5: read param_store schema_ver 2 or default -> LineFollow_SetGains + Motion_SetProfileParams; also re-invoked by LineFollow on_enter W6 and ProfiledStraight on_enter MS02, three call sites]
+  AppCompose --> ParamTuneInitCall[ParamTune_Init, W5: read param_store schema_ver 3 or default -> LineFollow_SetGains + Motion_SetProfileParams + Chassis_SetSpeedGains + Motion_SetHeadingTuning; also re-invoked by LineFollow on_enter W6, ProfiledStraight on_enter MS02, and TurnTest on_enter PT3v §37, four call sites]
   Main --> MainLoop[while 1: Scheduler_Run Clock_NowMs]
   MainLoop -->|idle, no entry active| MenuTickPump[background_step -> Menu_Tick, HMI only]
   MainLoop -->|SpeedTune entered| SpeedTuneStep[on_step -> Tuning_Update -> cascaded Chassis_Update]
@@ -1002,11 +1050,16 @@ flowchart TD
   MainLoop -->|ServoTest entered, SV1 §34, idx8 new slot| ServoTestStep[on_enter ServoCheck_Start -> Servo_Init zero-pulse free state, apply staged angle per axis if valid; on_step -> ServoCheck_Update now_ms -> Servo_Update 10ms-gated ramp, sole HW write point; on_exit ServoCheck_Stop -> Servo_Disable x2 deterministic release]
   MainLoop -->|LinkTest entered, WL1 §35, idx9 new slot| LinkTestStep[on_enter Link_Init + Link_StartTelemetry register VOFA tx x6; on_step -> Link_Update now_ms -> 10ms-gated Wireless_Poll + alive window refresh + 200ms heartbeat TX + vofa_run if telemetry on; on_exit Link_StopTelemetry clear VOFA table; port placeholder keeps port_absent=1 honest until pin H6 finalized]
   MainLoop -->|VisionLink entered, V1 §36, idx10 new slot| VisionLinkStep[on_enter Vision_Init + Vision_StartTelemetry register VOFA tx x8 + Vision_SelectTopic placeholder topic; on_step -> Vision_Update now_ms -> 10ms-gated UartVision_Poll + ack-seq-baseline confirm tracking + 500ms retry + vofa_run if telemetry on; on_exit Vision_StopTelemetry clear VOFA table]
+  MainLoop -->|TurnTest entered, PT3v §37, idx11 new slot| TurnTestStep[on_enter Motion_Init s_tt_cfg then ParamTune_Init reapply chassis/heading gains+turn_deg then StartTurn TurnDeg; on_step -> Motion_Update -> TURN watchdog check turn_timeout_ticks -> cascaded Chassis_Update; on_exit Motion_Stop]
   MainLoop -->|SERVO group, K3 on S1/S2 deg row, SV1| ServoEditStep[MenuParam_Handle -> ServoCheck_Get/SetS1Deg or Get/SetS2Deg -> staged angle only; idle: no driver touch; session active: immediate passthrough to Servo_SetTargetDeg, clamp stays in driver]
   MainLoop -->|TUNE group, K3 on Kp/Ki/Kd row, W5| TuneEditStep[MenuParam_Handle -> ParamTune_Get/Set*_milli -> LineFollow_Get/SetGains, no menu-side scale/copy]
   MainLoop -->|TUNE group, K3 on SAVE row, W5| TuneSaveStep[MenuParam_Handle action -> ParamTune_Save -> ParamStore_Save, flash write]
   MainLoop -->|DRIVE group, K3 on Dist/Cruise/Start/Accel/Decel row, MS02| DriveEditStep[MenuParam_Handle -> ParamTune_Get/SetDist_mm self-held or ParamTune_Get/SetCruise/Start/Accel/Decel_milli -> Motion_Get/SetProfileParams, no menu-side scale/copy]
-  MainLoop -->|DRIVE group, K3 on SAVE row, MS02| DriveSaveStep[MenuParam_Handle action -> ParamTune_Save -> ParamStore_Save, same 33B blob as TUNE SAVE]
+  MainLoop -->|DRIVE group, K3 on SAVE row, MS02| DriveSaveStep[MenuParam_Handle action -> ParamTune_Save -> ParamStore_Save, same blob as TUNE SAVE]
+  MainLoop -->|CHAS group, K3 on Kp/Ki/Kd row, PT3v §37| ChasEditStep[MenuParam_Handle -> ParamTune_Get/SetCKp/CKi/CKd_milli -> Chassis_Get/SetSpeedGains dual-wheel same-value apply, no menu-side scale/copy]
+  MainLoop -->|CHAS group, K3 on SAVE row, PT3v §37| ChasSaveStep[MenuParam_Handle action -> ParamTune_Save -> ParamStore_Save, same 65B blob as TUNE/DRIVE SAVE]
+  MainLoop -->|HEAD group, K3 on Kp/Ki/Kd/TKp/Ang row, PT3v §37| HeadEditStep[MenuParam_Handle -> ParamTune_Get/SetHKp/HKi/HKd/HTKp_milli -> Motion_Get/SetHeadingTuning instant-effect double-write, or ParamTune_Get/SetTurnDeg self-held, no menu-side scale/copy]
+  MainLoop -->|HEAD group, K3 on SAVE row, PT3v §37| HeadSaveStep[MenuParam_Handle action -> ParamTune_Save -> ParamStore_Save, same 65B blob as TUNE/DRIVE/CHAS SAVE]
 
   SysTick[SysTick Handler] -->|1 ms| TickMs[s_tick_ms++]
   MainLoop -->|query elapsed| TickMs

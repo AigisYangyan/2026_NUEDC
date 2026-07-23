@@ -54,6 +54,17 @@ void Chassis_Init(void)
     s_period_base_ms = Clock_NowMs();
 }
 
+void Chassis_GetSpeedGains(Chassis_Side side, float *kp, float *ki, float *kd)
+{
+    if ((side >= CHASSIS_SIDE_COUNT) || (kp == (void *)0) || (ki == (void *)0)
+        || (kd == (void *)0)) {
+        return;
+    }
+    *kp = s_pid[side].cfg.kp;
+    *ki = s_pid[side].cfg.ki;
+    *kd = s_pid[side].cfg.kd;
+}
+
 void Chassis_SetSpeedGains(Chassis_Side side, float kp, float ki, float kd)
 {
     if (side >= CHASSIS_SIDE_COUNT) {

@@ -251,13 +251,14 @@ class PID_API {
 }
 
 class ParamStore_API {
-  <<driver:param_store, NEW W5>>
-  +PARAM_STORE_MAX_PAYLOAD = 48
+  <<driver:param_store, NEW W5, PT3v §37.4 payload cap raised>>
+  +PARAM_STORE_MAX_PAYLOAD = 96
   +ParamStore_Read(buf, len) bool
   +ParamStore_Save(const buf, len) bool
   note: payload-agnostic — magic+format-version+len+CRC16 framing only; caller (param_tune) self-holds payload semantic version as first byte
   note: erase-before-write, read-back verify; no retry / no wear-leveling (single sector, SAVE is rare, simplicity-first)
   note: internal param_store_port.h seam (仿 gray_port.h) + param_store_hw.c (sole DL_FlashCTL touch point, last 1KB sector 0x0007FC00) not shown as separate node — port pattern identical to Gray_API/GrayPort_API
+  note: PT3v §37.4（2026-07-23）MAX_PAYLOAD 48→96 — param_tune blob schema_ver 3 grows to 65B (chassis/heading gains + turn_deg), still well under port sector capacity (1024B, backed at contract level); param_store itself stays payload-agnostic, no new owner
 }
 
 Clock_API --> DL_HAL : SysTick
