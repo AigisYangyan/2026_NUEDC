@@ -4059,3 +4059,13 @@ forbidden：`middleware/pid/**`、`Debug/makefile`（无新 .o）、其余一切
 | E02 | 范围审计 | git status/diff 对照 §37.2 | 无越界 |
 | E03 | 主机测试 | `rtk proxy make -C tests/host all` | ≥592 PASS / 0 FAIL（584 基线+≥8：chassis getter 镜像 setter、motion heading 往返、v3 全量往返（含新 8 字段）、Set 即达拥有者（Chassis/Motion 读回）、TurnDeg 自持、旧 v2 blob 失效退默认、SAVE→Init 恢复、保号往返） |
 | E04 | 固件构建 | `rtk make -C Debug all` | exit 0、0 诊断（零新 .o，四 .o 重编进链） |
+
+### 37.4 契约修订 1（2026-07-23，施工中发现——先于修复代码显式提交）
+
+- **发现**：v3 payload 65B 超 `PARAM_STORE_MAX_PAYLOAD 48`，`ParamStore_Save` 拒存
+  （四个 Save→Init 恢复用例红，恰证测试网有效）。
+- **裁定**：48 是 PT1 期的防呆上限而非硬件约束——端口容量真/假一致 1024B
+  （`PARAM_STORE_SECTOR_SIZE`/`FAKE_PARAM_STORE_CAP`），header 8B，96+8 ≪ 1024。
+- **修订**：allowed_files 增 `hc-team/driver/param_store/param_store.h`
+  （仅 `PARAM_STORE_MAX_PAYLOAD 48→96` 一行，静态缓冲 +144B RAM）；
+  E03 断言不变（红的四用例转绿即证）。
