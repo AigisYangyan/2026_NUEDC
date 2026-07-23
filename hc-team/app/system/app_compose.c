@@ -36,7 +36,7 @@
  *                进页转一把→BACK→再改再进；需 IMU 与底盘增益已调）。
  * - UartDiag   = 串口链路字节层诊断（uart_check：VOFA tx×6（vofaRx/vofaTx/vision/
  *                step/imu/wl 溢出计数）、10ms 泵只读镜像；计数累计型跨页保留——
- *                任何"丢帧悬案"排障第一步，见 docs/通信数据包与缓冲区方案.md §5）。
+ *                任何"丢帧悬案"排障第一步，见 docs/Final/通信数据包与缓冲区方案.md §5）。
  * RUN_ACTIVE 期 OLED 统一 RUNNING 横幅由 menu 框架负责；例外：GrayTest 经
  * Menu_SetEntrySelfDraw 登记 self-draw（W7 §29 opt-in），活动期整屏归 gray_check 面板。
  * 换/加 debug/test 项：在 s_entries[] 补条目 + 在对应分组的 entries 数组补其下标。
@@ -407,7 +407,7 @@ static void turntest_exit(void)
 
 /* ---- UartDiag 运行条目钩子（→ uart_check 服务，now_ms 透传注入）-------------
  * 串口链路字节层诊断（UDIAG §39）：五链路溢出计数一页可查——"丢帧悬案"三步排障的
- * 第一步（docs/通信数据包与缓冲区方案.md §1/§5）。只读镜像，零硬件副作用；
+ * 第一步（docs/Final/通信数据包与缓冲区方案.md §1/§5）。只读镜像，零硬件副作用；
  * 计数是 Driver 累计型，跨进退页保留（调参跑完再进来看，证据还在）。 */
 
 static void uartdiag_enter(void)

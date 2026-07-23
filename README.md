@@ -111,5 +111,5 @@ T-VTXQ1 VOFA 软件 TX 队列（忙时入队而非丢帧）。
 - `AGENTS.md` — 架构唯一权威（§1–§15，含依赖矩阵、数据流、风险登记、检查清单）
 - `agent/api_architecture_topology.md` — 当前拓扑 · 风险登记 · 更新日志
 - `agent/phase4_app_rewrite/plan_app_first_order.md` — 当前阶段严格计划表（逐项状态）
-- `docs/` — 硬件与协议指南：`通信协议.md`、`VOFA_PROTOCOL.md`、`X42S云台步进上位机配置指南.md`、
-  `12路灰度传感器配置指南.md`、`IMU陀螺仪配置指南.md`、`视觉通信协议_主控确认版_v1.md`
+- `docs/Final/` — **当前方案必读文档**（操作手册/调参手册/协议/验收清单，读取顺序见其 `README.md`）；
+  `docs/` 根目录其余为 AI 预测数据层、历年题目库与历史存档

@@ -159,7 +159,7 @@ GPIO4.associatedPins[0].internalResistor = "PULL_DOWN";
 GPIO4.associatedPins[0].pin.$assign      = "PB22";
 
 /* 蜂鸣器（B1 §33）：硬件组引脚表 2026-07 定案 PB18（标注「重复占用」兼扩展 Pin13，
- * 冲突确认见 docs/硬件对接确认清单.md H4）。输出、初值低=静音；有源蜂鸣器假设。 */
+ * 冲突确认见 docs/Final/硬件对接确认清单.md H4）。输出、初值低=静音；有源蜂鸣器假设。 */
 GPIO5.port                          = "PORTB";
 GPIO5.$name                         = "GPIO_BEACON";
 GPIO5.associatedPins[0].$name       = "BUZZER";

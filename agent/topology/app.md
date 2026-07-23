@@ -663,7 +663,7 @@ Scheduler_API --> TaskGroups_API : dispatch active group
 %% dependency, it reads board_uart port counters directly) — no interaction with the
 %% single-active-entry invariant's existing second-pump-point precedents (index V21/V23). The
 %% single-active-entry invariant holds across thirteen entries; UartDiag is a read-only byte-layer
-%% companion to LinkTest/VisionLink's frame-layer diagnostics (docs/通信数据包与缓冲区方案.md §1
+%% companion to LinkTest/VisionLink's frame-layer diagnostics (docs/Final/通信数据包与缓冲区方案.md §1
 %% three-layer loss model, layer 1 exit).
 RunRegistry_API --> SpeedLoop_API : lifecycle
 RunRegistry_API --> GrayTest_API : lifecycle
@@ -977,7 +977,7 @@ ServoCheck_API --> Servo_API : Servo_Init()/SetTargetDeg(id,deg)/Update(now_ms)/
 %% NOT the peer's dedup state across sessions — a fresh session's first event can be silently
 %% deduped as a stale-seq repeat, producing a false "delivered" read on the sender side. Open until
 %% the peer side is designed (reseed handshake vs epoch byte, two options, undecided) — see index
-%% §6 new V-entry and docs/通信数据包与缓冲区方案.md §3.
+%% §6 new V-entry and docs/Final/通信数据包与缓冲区方案.md §3.
 Link_API --> UartWireless_API : Wireless_Init()/Poll()/SendState/SendHeartbeat/SendEvent/ResendEvent/AbandonEvent/EventPending/TakeLatestState/TakeEvent/RxFrameCount/GetDiag, Service->Driver, sole owner of heartbeat cadence + alive window + event retry cadence (codec stays in driver)
 Link_API --> VofaDriver_API : vofa_clear_profile/vofa_register_int x10/vofa_run, tx-only telemetry (alive/rx_frames/crc_errors/ur_gap/retx/delivered/ev_fail/hb_sent/rx_overflows/port_absent), scoped by Link_StartTelemetry/StopTelemetry
 UartWireless_API --> WirelessUart_API : task-context drain and Write, Driver-Driver same layer controlled (driver.md detail); WirelessUart_API has no DL_HAL edge yet (placeholder, no syscfg instance)
