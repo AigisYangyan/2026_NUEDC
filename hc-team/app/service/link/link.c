@@ -10,7 +10,8 @@
 #define LINK_UPDATE_PERIOD_MS   10u
 #define LINK_HEARTBEAT_MS       200u
 #define LINK_ALIVE_WINDOW_MS    600u
-/* 事件重传节拍：4 tick=40ms/次、上限 8 次 → 最坏 320ms 内定胜负，仍在活性窗口内。
+/* 事件重传节拍：4 tick=40ms/次、上限 8 次（末次重发最迟 320ms 发出，放弃判定在
+ * 第 9 拍=360ms）→ 最坏 360ms 内定胜负，仍在 600ms 活性窗口内。
  * 编译期常量：丢包率不是现场旋钮，无 TUNE 需求（契约 §38 电赛四问）。 */
 #define LINK_EVENT_RETRY_TICKS  4u
 #define LINK_EVENT_MAX_RETRY    8u

@@ -4227,8 +4227,16 @@ ev_fail, hb_sent, rx_ovf, port_absent（手册 §6 诊断页同步改）。
 - 交付：`docs/通信数据包与缓冲区方案.md`（三层丢失可查模型+缓冲区范式六要素+容量
   公式表+五因素 A–E 量级账+现场排障速查）；手册 §6.7 LinkTest 通道表 v2（tx×10）；
   wireless_uart.h 真端口规格头注（照抄 vofa_uart，RX/TX 512B）。
-- 关键账：事件最坏判定 320ms<600ms 活性窗；一拍梯队全发 92B≈8ms<10ms 泵周期；
-  五路满线速 ISR 理论 8% CPU@80MHz（实际 <1%）——主频非瓶颈，拒绝查表 CRC 复杂化。
+- 关键账：事件最坏判定 360ms<600ms 活性窗（末次重发 320ms 发出、放弃判定第 9 拍
+  ——arch-auditor 建议级修正）；一拍梯队全发 92B≈8ms<10ms 泵周期；五路满线速 ISR
+  理论 8% CPU@80MHz（实际 <1%）——主频非瓶颈，拒绝查表 CRC 复杂化。
+- arch-auditor 重要级发现处置（登记不改码）：**跨会话去重残留**——发端 Wireless_Init
+  把 ev seq 复位 0，收端 s_ev_rx_last_seq 不随之复位；上一会话恰发 N 个事件且
+  N mod 256==1 时，新会话首事件被对端判 dup 静默不投递、发端假计 delivered（ur 流
+  同理最多 254 虚假 gap+一帧误 dup，自愈）。对端固件未立项（§38 契约），登记入
+  方案文档 §3 已知限制并约束对端实现；修法二选一在对端立项时定案：
+  ① link 在活性 false→true 边沿调 codec 新钩子 ReseedRxAccounts（清两 seeded 位）；
+  ② 协议加 epoch/HELLO 帧型（不重启场景亦airtight）。
 
 ## 39. UDIAG 契约（uart_check 服务 + UartDiag 条目：全端口字节层丢失一页可查）——冻结
 
