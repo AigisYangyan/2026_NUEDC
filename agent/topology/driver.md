@@ -103,25 +103,34 @@ class ImuUart_API {
 }
 
 class WirelessUart_API {
-  <<driver:board_uart, NEW WL1 2026-07-23, 契约 §35, placeholder>>
+  <<driver:board_uart, WL1 2026-07-23→WL2 2026-07-23 契约 §38, placeholder impl>>
   +WirelessUart_Init() bool
   +WirelessUart_Read(buf, cap) uint32_t
   +WirelessUart_Write(data, len) bool
   +WirelessUart_GetRxOverflowCount() uint32_t
-  note: 占位实现——ESP32-C3 引脚未定案（H6 待确认），Init 恒 false/Read 恒 0/Write 恒 false/GetRxOverflowCount 恒 0；无 board.syscfg 实例、无 Runtime IRQ/DMA 分派（全仓 Grep "Wireless" 命中 0）；定案后本 .h 接口不变，仅 .c 换成真实 syscfg UART 实例包装（vofa_uart/vision_uart 同款），上层 uart_wireless/link 零改动
+  note: 占位实现不变——ESP32-C3 引脚未定案（H6 待确认），Init 恒 false/Read 恒 0/Write 恒 false/GetRxOverflowCount 恒 0；无 board.syscfg 实例、无 Runtime IRQ/DMA 分派（全仓 Grep "Wireless" 命中 0）
+  note: WL2 契约 §38 新增「真端口实现规格」头注（照抄 vofa_uart.c 全套，勿自创）——RX 私有字节环 512B(容量公式 baud/10×2×服务周期×安全系数2)+ISR 只搬运；TX 软件字节环 512B+DMA kick 链(TryWrite 持锁 kick/IsrTxDone 清 busy 续段)；帧级可靠性(seq/ACK/重传)全在 uart_wireless 协议层，端口层零协议知识；定案后本 .h 接口不变，仅 .c 换实现，上层 uart_wireless/link 零改动
 }
 
 class UartWireless_API {
-  <<driver:uart_wireless, NEW WL1 2026-07-23, 契约 §35>>
+  <<driver:uart_wireless, WL1 2026-07-23→WL2 2026-07-23 契约 §38（对 §35 显式修订，加 seq）>>
   +Wireless_Init()
   +Wireless_Poll()
-  +Wireless_SendUser(data, len) bool
+  +Wireless_SendState(data, len) bool
   +Wireless_SendHeartbeat() bool
-  +Wireless_TakeLatestUser(buf, cap, len_out) bool
+  +Wireless_SendEvent(data, len) bool
+  +Wireless_ResendEvent() bool
+  +Wireless_AbandonEvent()
+  +Wireless_EventPending() bool
+  +Wireless_TakeLatestState(buf, cap, len_out) bool
+  +Wireless_TakeEvent(buf, cap, len_out) bool
   +Wireless_RxFrameCount() uint32_t
   +Wireless_GetDiag(out)
-  note: 无线帧编解码唯一所有者——0xA5 0x5A + len(≤32) + type(0x01 用户/0x02 心跳) + payload + CRC16-MODBUS(小端) 自同步分帧状态机；最新用户帧信箱一次性消费（后到覆盖先到）；诊断 frame_count/crc_error_count/rx_overflows(镜像端口)/port_absent
-  note: 无时间轴、无心跳节拍、无活性判定（归 app/service/link，Q2/Q7 分层先例）；CRC16-MODBUS 是本层对本字节流的私有校验实现，与 uart_vision 算法同款但各校验各的流，非第二数据变换所有者
+  note: WL2 帧格式：0xA5 0x5A + len(≤32) + type(1B) + seq(1B，新增) + payload + CRC16-MODBUS(小端，覆盖 len+type+seq+payload) 自同步分帧状态机。type：0x01 STATE + 0x02 心跳共用一个 TX seq（不可靠流，接收侧按 seq 记 gap/dup，不重传）；0x03 EVENT + 0x04 ACK 用独立 TX seq（可靠流，stop-and-wait 单在途 pending 槽 + 同 seq 重传 + 收端去重 + 深 4 队列全收，队列满不 ACK）
+  note: 双投递语义唯一所有者——最新状态帧一次性消费（后到覆盖先到，TakeLatestState）；对端事件 FIFO 出队（TakeEvent，全收不丢）；ACK 即收即回是本层唯一主动 TX（Poll 内反应式发出，仍无时间轴）
+  note: Diag 扩至 13 字段：frame/crc_error/unknown_type/ur_gap/ur_dup/ev_rx_drop/ev_dup/retx/delivered/ev_fail/tx_fail/rx_overflows/port_absent
+  note: 无时间轴、无心跳/重试节拍、无活性判定（归 app/service/link，Q2/Q7 分层先例）；CRC16-MODBUS 是本层对本字节流的私有校验实现，与 uart_vision 算法同款但各校验各的流，非第二数据变换所有者
+  note: 删除 API（WL1→WL2 破坏性变更）：Wireless_SendUser、Wireless_TakeLatestUser——语义拆分为 SendState/TakeLatestState（沿用同一 TX seq 计数器）
 }
 
 class Motor_API {

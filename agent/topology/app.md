@@ -387,17 +387,22 @@ class ServoCheck_API {
 }
 
 class Link_API {
-  <<app:service, NEW WL1 2026-07-23, 契约 §35, DEBUG entry idx9 "LinkTest">>
+  <<app:service, WL1 2026-07-23→WL2 2026-07-23 契约 §38, DEBUG entry idx9 "LinkTest">>
   +Link_Init()
   +Link_Update(now_ms)
   +Link_IsAlive() bool
-  +Link_Send(data, len) bool
-  +Link_TakeLatest(buf, cap, len_out) bool
+  +Link_SendState(data, len) bool
+  +Link_TakeState(buf, cap, len_out) bool
+  +Link_SendEvent(data, len) bool
+  +Link_EventBusy() bool
+  +Link_TakeEvent(buf, cap, len_out) bool
   +Link_GetTelemetry(out)
   +Link_StartTelemetry()
   +Link_StopTelemetry()
-  note: 心跳节拍(200ms TX)与活性窗口(600ms 内收到任意有效帧=alive)唯一所有者; 10ms 自门控 Wireless_Poll->活性刷新->心跳节拍
-  note: 双停等安全政策刻意不在本服务——消费者(未来 T01/route)凭 Link_IsAlive 自行决策; VOFA tx x6(alive/rx/crc/hb/ovf/port_absent) 经 StartTelemetry/StopTelemetry 条目作用域开关
+  note: 心跳节拍(200ms TX)与活性窗口(600ms 内收到任意有效帧=alive)唯一所有者; 10ms 自门控 Poll->活性刷新->事件重试节拍(40ms/4tick x8次上限,第9拍/360ms放弃)->心跳(周期内已有成功数据TX则抑制本拍心跳,梯队=ACK[codec内]>事件重发>状态>心跳)
+  note: 双投递语义消费侧唯一所有者——SendState/TakeState 走不可靠最新胜出，SendEvent/EventBusy/TakeEvent 走可靠 stop-and-wait(单在途，false 后经 delivered/ev_fail 遥测字段分辨结局)
+  note: 双停等安全政策刻意不在本服务——消费者(未来 T01/route)凭 Link_IsAlive 自行决策; VOFA tx x10(alive/rx/crc/gap/retx/dlvd/fail/hb/ovf/absent) 经 StartTelemetry/StopTelemetry 条目作用域开关
+  note: 删除 API（WL1→WL2 破坏性变更）：Link_Send、Link_TakeLatest——语义拆分为 SendState/TakeState（状态）与 SendEvent/EventBusy/TakeEvent（事件）
 }
 
 class Vision_API {
@@ -414,6 +419,16 @@ class Vision_API {
   +Vision_StopTelemetry()
   note: 握手重发节拍(500ms)与确认状态(topic_pending/confirmed, 换题重置)唯一所有者; 只认发起后 ack_seq 变化(基线防陈旧回显); 坐标/状态零第二处理, 原样透传 UartVision
   note: 选题握手编排从已封存不可达的 app/service/gimbal 重建(零步进内容, 无双消费, arch-auditor 已核实结构性不可达); VOFA tx x8(x/y/coord_seq/st0/st1/st_seq/confirmed/retries) 经 StartTelemetry/StopTelemetry 条目作用域开关
+}
+
+class UartCheck_API {
+  <<app:service, NEW UDIAG 2026-07-23, 契约 §39, DEBUG entry idx12 "UartDiag">>
+  +UartCheck_Start()
+  +UartCheck_Update(now_ms)
+  +UartCheck_Stop()
+  +UartCheck_GetTelemetry(UartCheck_Telemetry_T*)
+  note: 五端口字节层溢出计数只读镜像唯一所有者（vofa rx/tx、vision rx、step rx、imu rx、wireless rx）；零第二数据变换，各计数仍由对应 board_uart 端口自持；10ms 自门控 读六计数->镜像->vofa_run；VOFA tx x6
+  note: 与 imu_check 对 ImuUart_GetRxOverflowCount 同源只读双读者并存先例一致——imu 计数直读端口层，不经 driver/imu 的 Imu_Diag；本服务对五端口一视同仁，同一读者模式扩展，非新泵点
 }
 
 class SpeedLoop_API {
@@ -562,6 +577,7 @@ AppCompose_API --> ServoCheck_API : ServoCheck_Start()/Update(now_ms)/Stop(), DE
 AppCompose_API --> Link_API : Link_Init()+Link_StartTelemetry()/Link_Update(now_ms)/Link_StopTelemetry(), DEBUG entry idx9 "LinkTest" three hooks, WL1 2026-07-23, appends slot (s_entries grows 9->10)
 AppCompose_API --> Vision_API : Vision_Init()+Vision_StartTelemetry()+Vision_SelectTopic(main,sub)/Vision_Update(now_ms)/Vision_StopTelemetry(), DEBUG entry idx10 "VisionLink" three hooks, V1 2026-07-23, appends slot (s_entries grows 10->11)
 AppCompose_API --> Motion_API : Motion_Init(&s_tt_cfg)/ParamTune_Init()/StartTurn(ParamTune_GetTurnDeg())/Update()/Stop(), DEBUG entry idx11 "TurnTest" three hooks, PT3v §37 2026-07-23, appends slot (s_entries grows 11->12); calibration loop for HEAD group (turn_kp=0 default is a safe no-motion default until tuned)
+AppCompose_API --> UartCheck_API : UartCheck_Start()/Update(now_ms)/Stop(), DEBUG entry idx12 "UartDiag" three hooks, UDIAG 2026-07-23 §39, appends slot (s_entries grows 12->13)
 SchedulerEntry_API ..> AppCompose_API : Scheduler_Run invokes active entry's on_enter/on_step/on_exit fn ptrs each tick (opaque, registered by AppCompose)
 SchedulerEntry_API ..> MenuUI_API : Scheduler_Run invokes background_step = Menu_Tick each idle tick (fn ptr, registered by AppCompose)
 
@@ -639,6 +655,16 @@ Scheduler_API --> TaskGroups_API : dispatch active group
 %% entry invariant keeps TurnTest (idx11) mutually exclusive with ProfiledStraight (idx5) and
 %% every other entry; the twelve-entry table is the calibration loop for the new CHAS/HEAD menu
 %% groups (change gain in HEAD -> BACK -> enter TurnTest -> observe -> repeat).
+%% UDIAG (2026-07-23, §39) — s_entries[] grows to 13 — new UartDiag entry appends idx12, backed
+%% by the new app/service/uart_check Service (Driver = five pre-existing board_uart ports, no new
+%% driver module). uartdiag_enter/step/exit dispatch UartCheck_Start()/Update(now_ms)/Stop().
+%% UartDiag does not drive Chassis_Update/Encoder_Update/Gray_ReadDarkBitmap/Imu_Update/
+%% Wireless_Poll (uart_check has zero chassis.h/motor.h/Pid/Encoder/Gray/IMU/uart_wireless
+%% dependency, it reads board_uart port counters directly) — no interaction with the
+%% single-active-entry invariant's existing second-pump-point precedents (index V21/V23). The
+%% single-active-entry invariant holds across thirteen entries; UartDiag is a read-only byte-layer
+%% companion to LinkTest/VisionLink's frame-layer diagnostics (docs/通信数据包与缓冲区方案.md §1
+%% three-layer loss model, layer 1 exit).
 RunRegistry_API --> SpeedLoop_API : lifecycle
 RunRegistry_API --> GrayTest_API : lifecycle
 RunRegistry_API --> UartTest_API : lifecycle
@@ -933,8 +959,27 @@ ServoCheck_API --> Servo_API : Servo_Init()/SetTargetDeg(id,deg)/Update(now_ms)/
 %% VOFA table). Does not touch Chassis_Update/Encoder_Update/Gray_ReadDarkBitmap/Imu_Update —
 %% no interaction with the single-active-entry invariant's existing second-pump-point precedents
 %% (index V21/V23), purely additive tenth entry.
-Link_API --> UartWireless_API : Wireless_Init()/Poll()/SendUser/SendHeartbeat/TakeLatestUser/RxFrameCount/GetDiag, Service->Driver, sole owner of heartbeat cadence + alive window (codec stays in driver)
-Link_API --> VofaDriver_API : vofa_clear_profile/vofa_register_int x6/vofa_run, tx-only telemetry (alive/rx_frames/crc_errors/hb_sent/rx_overflows/port_absent), scoped by Link_StartTelemetry/StopTelemetry
+%% WL2 (2026-07-23, §38, explicit revision of §35) — protocol v2 adds a seq byte (CRC-covered)
+%% and splits delivery into two semantics: unreliable (STATE 0x01 + heartbeat 0x02 share one TX
+%% seq, latest-wins mailbox, receiver tracks gap/dup — measurable loss, no retry) and reliable
+%% (EVENT 0x03 + ACK 0x04, independent TX seq, stop-and-wait single in-flight pending slot + same-seq
+%% retransmit + receiver dedup + depth-4 FIFO queue, full queue withholds ACK rather than drop-then-
+%% falsely-confirm). link.c now owns retry cadence (40ms/4-tick x8 attempts -> give up at the 9th
+%% tick/360ms) atop the existing 200ms heartbeat + 600ms alive window; TX tiering: ACK (inside codec
+%% Poll) > event retransmit > state > heartbeat, with heartbeat suppressed on any tick that already
+%% sent successful data (bandwidth thrift, peer aliveness already refreshed). API breaking change:
+%% Wireless_SendUser/TakeLatestUser and Link_Send/TakeLatest are REMOVED; replaced by
+%% SendState/TakeLatestState (unreliable) and SendEvent/ResendEvent/AbandonEvent/EventPending/
+%% TakeEvent (reliable) at the driver layer, SendState/TakeState/SendEvent/EventBusy/TakeEvent at
+%% the service layer. Diag grows 6->13 fields (adds unknown_type/ur_gap/ur_dup/ev_rx_drop/ev_dup/
+%% retx/delivered/ev_fail/tx_fail, renames rx_overflows unchanged); LinkTest telemetry grows tx x6
+%% -> x10. Known risk (arch-auditor a1b72bc, §38.6): Wireless_Init resets the TX seq counter but
+%% NOT the peer's dedup state across sessions — a fresh session's first event can be silently
+%% deduped as a stale-seq repeat, producing a false "delivered" read on the sender side. Open until
+%% the peer side is designed (reseed handshake vs epoch byte, two options, undecided) — see index
+%% §6 new V-entry and docs/通信数据包与缓冲区方案.md §3.
+Link_API --> UartWireless_API : Wireless_Init()/Poll()/SendState/SendHeartbeat/SendEvent/ResendEvent/AbandonEvent/EventPending/TakeLatestState/TakeEvent/RxFrameCount/GetDiag, Service->Driver, sole owner of heartbeat cadence + alive window + event retry cadence (codec stays in driver)
+Link_API --> VofaDriver_API : vofa_clear_profile/vofa_register_int x10/vofa_run, tx-only telemetry (alive/rx_frames/crc_errors/ur_gap/retx/delivered/ev_fail/hb_sent/rx_overflows/port_absent), scoped by Link_StartTelemetry/StopTelemetry
 UartWireless_API --> WirelessUart_API : task-context drain and Write, Driver-Driver same layer controlled (driver.md detail); WirelessUart_API has no DL_HAL edge yet (placeholder, no syscfg instance)
 
 %% Vision_API / UartVision_API (V1, landed 2026-07-23, contract §36) — vehicle-side vision
@@ -959,6 +1004,27 @@ UartWireless_API --> WirelessUart_API : task-context drain and Write, Driver-Dri
 %% precedents (index V21/V23), purely additive eleventh entry.
 Vision_API --> UartVision_API : Init/Poll/GetLatestCoord+CoordSeq/GetLatestStatus+StatusSeq/SendTopic/GetTopicAck+TopicAckSeq, Service->Driver, sole owner of 500ms retry cadence + confirmed state, zero second transform on coord/status
 Vision_API --> VofaDriver_API : vofa_clear_profile/vofa_register_float x2 + vofa_register_int x6/vofa_run, tx-only telemetry (x/y/coord_seq/st0/st1/st_seq/confirmed/retries), scoped by Vision_StartTelemetry/StopTelemetry
+
+%% UartCheck_API (UDIAG, landed 2026-07-23, contract §39) — byte-layer link diagnostic: five
+%% board_uart ports' RX overflow counters + VOFA port's TX overflow counter, read-only mirror,
+%% zero second data transform (each counter's sole owner stays its own board_uart port .c, same
+%% precedent as ImuCheck_API directly reading ImuUart_GetRxOverflowCount rather than going through
+%% driver/imu's Imu_Diag — §8.2 same-source dual-reader exception, not a new pump point). No cmd,
+%% no motor, no protocol-layer (uart_vision/uart_wireless/uart_vofa codec) involvement — this
+%% Service reads straight past those codecs to the underlying port counters. AppCompose_API wires
+%% thirteenth DEBUG-group scheduler entry "UartDiag" (idx12): on_enter UartCheck_Start (VOFA tx x6
+%% registration: vofaRx/vofaTx/vision/step/imu/wl), on_step UartCheck_Update(now_ms) (10ms
+%% self-gated read six counters -> mirror -> vofa_run), on_exit UartCheck_Stop (clear VOFA table,
+%% counters themselves are Driver-owned cumulative and NOT reset). Does not touch Chassis_Update/
+%% Encoder_Update/Gray_ReadDarkBitmap/Imu_Update/Wireless_Poll — no interaction with the
+%% single-active-entry invariant's existing second-pump-point precedents (index V21/V23), purely
+%% additive thirteenth entry.
+UartCheck_API --> VofaUart_API : VofaUart_GetRxOverflowCount()/GetTxOverflowCount(), Service->Driver direct port read, same-source read-only mirror (no second owner)
+UartCheck_API --> VisionUart_API : VisionUart_GetRxOverflowCount(), Service->Driver direct port read, bypasses UartVision_API codec layer (byte-layer diagnostic, not frame-layer)
+UartCheck_API --> StepmotorUart_API : StepmotorUart_GetRxOverflowCount(), Service->Driver direct port read
+UartCheck_API --> ImuUart_API : ImuUart_GetRxOverflowCount(), Service->Driver direct port read, same-source dual-reader as ImuCheck_API precedent (§8.2)
+UartCheck_API --> WirelessUart_API : WirelessUart_GetRxOverflowCount(), Service->Driver direct port read, bypasses UartWireless_API codec layer (placeholder port, honest 0 until pin H6 finalized)
+UartCheck_API --> VofaDriver_API : vofa_clear_profile/vofa_register_int x6/vofa_run, tx-only telemetry (vofaRx/vofaTx/vision/step/imu/wl), scoped by UartCheck_Start/Stop
 
 %% ParamTune_API / ParamStore_API (W5, landed 2026-07-19) — dynamic tuning framework: new
 %% TUNE menu group (app_compose.c s_groups[], sibling of DEBUG) button-adjusts the line_follow
@@ -1033,8 +1099,8 @@ flowchart TD
   SysInit --> ServiceInit[Hmi_Init + Chassis_Init + Tuning_Init]
   SysInit --> AppCompose[AppCompose_Install, W2 SYS02]
   SysInit --> BoardIRQ[Board_EnableInterrupts]
-  AppCompose --> SchedulerInit[Scheduler_Init s_entries=SpeedTune,EncoderTest,MotorDir,GrayTest,LineFollow,ProfiledStraight,ImuTest,BeaconTest,ServoTest,LinkTest,VisionLink,TurnTest x12, background_step=Menu_Tick, W9 dropped GimbalTune/W10 added ImuTest at idx6/B1 added BeaconTest at idx7/SV1 added ServoTest at idx8/WL1 added LinkTest at idx9/V1 added VisionLink at idx10/PT3v added TurnTest at idx11]
-  AppCompose --> MenuSetupCall[Menu_Setup s_groups=DEBUG+TUNE+DRIVE+CHAS+HEAD+SERVO x6, DEBUG entries idx0..11, TUNE params=LFKp,LFKi,LFKd,SAVE x4, DRIVE params=Dist,Cruise,Start,Accel,Decel,SAVE x6, CHAS params=CKp,CKi,CKd,SAVE x4, HEAD params=HKp,HKi,HKd,TKp,Ang,SAVE x6, SERVO params=S1deg,S2deg x2 no SAVE row, LinkTest/VisionLink tx-only diag no param row, PT3v §37 adds CHAS+HEAD groups]
+  AppCompose --> SchedulerInit[Scheduler_Init s_entries=SpeedTune,EncoderTest,MotorDir,GrayTest,LineFollow,ProfiledStraight,ImuTest,BeaconTest,ServoTest,LinkTest,VisionLink,TurnTest,UartDiag x13, background_step=Menu_Tick, W9 dropped GimbalTune/W10 added ImuTest at idx6/B1 added BeaconTest at idx7/SV1 added ServoTest at idx8/WL1 added LinkTest at idx9/V1 added VisionLink at idx10/PT3v added TurnTest at idx11/UDIAG added UartDiag at idx12]
+  AppCompose --> MenuSetupCall[Menu_Setup s_groups=DEBUG+TUNE+DRIVE+CHAS+HEAD+SERVO x6, DEBUG entries idx0..12, TUNE params=LFKp,LFKi,LFKd,SAVE x4, DRIVE params=Dist,Cruise,Start,Accel,Decel,SAVE x6, CHAS params=CKp,CKi,CKd,SAVE x4, HEAD params=HKp,HKi,HKd,TKp,Ang,SAVE x6, SERVO params=S1deg,S2deg x2 no SAVE row, LinkTest/VisionLink/UartDiag tx-only diag no param row, PT3v §37 adds CHAS+HEAD groups]
   AppCompose --> MenuSelfDrawCall[Menu_SetEntrySelfDraw APP_ENTRY_IDX_GRAYTEST=3, W7 GrayTest opt-in, menu zero-draws while active]
   AppCompose --> ParamTuneInitCall[ParamTune_Init, W5: read param_store schema_ver 3 or default -> LineFollow_SetGains + Motion_SetProfileParams + Chassis_SetSpeedGains + Motion_SetHeadingTuning; also re-invoked by LineFollow on_enter W6, ProfiledStraight on_enter MS02, and TurnTest on_enter PT3v §37, four call sites]
   Main --> MainLoop[while 1: Scheduler_Run Clock_NowMs]
@@ -1048,9 +1114,10 @@ flowchart TD
   MainLoop -->|ImuTest entered, W10 §32, idx6 slot vacated by W9 GimbalTune removal| ImuTestStep[on_enter ImuCheck_Start register VOFA tx x8; on_step -> ImuCheck_Update now_ms -> Imu_Update 2nd pump point + snapshot/diag mirror + drift stat + vofa_run; on_exit ImuCheck_Stop clear VOFA table]
   MainLoop -->|BeaconTest entered, B1 §33, idx7 new slot| BeaconTestStep[on_enter Alert_Init all-off; on_step -> 2s round-robin Alert_Play across 7 patterns + Alert_Update now_ms -> Beacon_SetBuzzer/SetLed; on_exit Alert_Stop deterministic silence, zero VOFA]
   MainLoop -->|ServoTest entered, SV1 §34, idx8 new slot| ServoTestStep[on_enter ServoCheck_Start -> Servo_Init zero-pulse free state, apply staged angle per axis if valid; on_step -> ServoCheck_Update now_ms -> Servo_Update 10ms-gated ramp, sole HW write point; on_exit ServoCheck_Stop -> Servo_Disable x2 deterministic release]
-  MainLoop -->|LinkTest entered, WL1 §35, idx9 new slot| LinkTestStep[on_enter Link_Init + Link_StartTelemetry register VOFA tx x6; on_step -> Link_Update now_ms -> 10ms-gated Wireless_Poll + alive window refresh + 200ms heartbeat TX + vofa_run if telemetry on; on_exit Link_StopTelemetry clear VOFA table; port placeholder keeps port_absent=1 honest until pin H6 finalized]
+  MainLoop -->|LinkTest entered, WL1 §35→WL2 §38, idx9 new slot| LinkTestStep[on_enter Link_Init + Link_StartTelemetry register VOFA tx x10; on_step -> Link_Update now_ms -> 10ms-gated Wireless_Poll + alive window refresh + event retry cadence 40ms x8 attempts then give up at 360ms + 200ms heartbeat TX suppressed if data already sent this tick + vofa_run if telemetry on; on_exit Link_StopTelemetry clear VOFA table; port placeholder keeps port_absent=1 honest until pin H6 finalized]
   MainLoop -->|VisionLink entered, V1 §36, idx10 new slot| VisionLinkStep[on_enter Vision_Init + Vision_StartTelemetry register VOFA tx x8 + Vision_SelectTopic placeholder topic; on_step -> Vision_Update now_ms -> 10ms-gated UartVision_Poll + ack-seq-baseline confirm tracking + 500ms retry + vofa_run if telemetry on; on_exit Vision_StopTelemetry clear VOFA table]
   MainLoop -->|TurnTest entered, PT3v §37, idx11 new slot| TurnTestStep[on_enter Motion_Init s_tt_cfg then ParamTune_Init reapply chassis/heading gains+turn_deg then StartTurn TurnDeg; on_step -> Motion_Update -> TURN watchdog check turn_timeout_ticks -> cascaded Chassis_Update; on_exit Motion_Stop]
+  MainLoop -->|UartDiag entered, UDIAG §39, idx12 new slot| UartDiagStep[on_enter UartCheck_Start register VOFA tx x6 vofaRx/vofaTx/vision/step/imu/wl; on_step -> UartCheck_Update now_ms -> 10ms-gated read five port RX overflow counts + VOFA TX overflow count -> mirror -> vofa_run; on_exit UartCheck_Stop clear VOFA table, counters stay Driver-owned cumulative]
   MainLoop -->|SERVO group, K3 on S1/S2 deg row, SV1| ServoEditStep[MenuParam_Handle -> ServoCheck_Get/SetS1Deg or Get/SetS2Deg -> staged angle only; idle: no driver touch; session active: immediate passthrough to Servo_SetTargetDeg, clamp stays in driver]
   MainLoop -->|TUNE group, K3 on Kp/Ki/Kd row, W5| TuneEditStep[MenuParam_Handle -> ParamTune_Get/Set*_milli -> LineFollow_Get/SetGains, no menu-side scale/copy]
   MainLoop -->|TUNE group, K3 on SAVE row, W5| TuneSaveStep[MenuParam_Handle action -> ParamTune_Save -> ParamStore_Save, flash write]
