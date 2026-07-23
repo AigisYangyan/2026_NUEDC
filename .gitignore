@@ -87,3 +87,6 @@ tests/host/test_vision
 tests/host/test_vision.exe
 tests/host/test_uart_check
 tests/host/test_uart_check.exe
+tests/host/test_emm42
+tests/host/test_emm42.exe
+docs/电赛题目/_tmp/
