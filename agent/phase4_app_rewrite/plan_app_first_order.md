@@ -4105,3 +4105,17 @@ forbidden：`middleware/pid/**`、`Debug/makefile`（无新 .o）、其余一切
   建议级 schema 注释 v2→3 已改。
 - 交付语义：上车流程=SpeedTune(VOFA) 调出底盘增益→CHAS 组录入→SAVE；TurnTest
   标定环=HEAD 组改→进页转一把→BACK→再改；此后每次上电 ParamTune_Init 全量重推。
+
+### 37.7 追加微修（2026-07-23，用户步长审计问答引出）
+
+- **CHAS 步长量级修正**（已提交 4beae8e）：底盘增益真实量级=PWM/(m/s) 百位数
+  （milli 屏显 1e5），原占位步长 10（0.01/次）两万次按不到起手值——改
+  CKp/CKi=10000（10.0/次）、CKd=1000。
+- **负增益 UI 可达性封堵**（本次）：菜单 `set(get()±step)` 无下界，K2 可把增益按成
+  负数并直通 PID——**速度环负 Kp=正反馈飞车**（§8.1 相邻隐患）。裁定：param_tune
+  是 UI 值域/milli 换算唯一所有者，10 个增益 setter（LF3/CHAS3/HEAD4）加
+  「v<0→0」输入域清洗（非输出限幅，PID out_limit 所有权不动）；Dist/Ang 保留符号
+  （Ang 负=反向转，合法语义；Dist≤0 由 motion 拒绝）。测试补负值夹 0 用例。
+- **步长精调**（按键无连发=一步一按，按「量程/步长≈10~25 下」定）：LF 三增益与
+  HEAD H 三增益 10→2（量程 5~50 milli，原步长会跳过半数可用值）；DRIVE
+  Accel/Decel 10→50、Cruise 10→20（量程 200~800/150~500）；其余不动。

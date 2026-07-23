@@ -104,21 +104,21 @@ static int test_unsaved_set_not_persisted(void)
     return 0;
 }
 
-/* milli↔float scale 往返无损（正/负）：设 milli 读回同 milli。 */
+/* milli↔float scale 往返无损（正域）+ 负值落 0（§37.7 改约：负增益=第二方向开关，禁）。 */
 static int test_scale_roundtrip_signed(void)
 {
     float kp, ki, kd;
 
     FakeParamStorePort_Reset();
     ParamTune_SetKp_milli(2500);          /* 2.500 */
-    ParamTune_SetKi_milli(-50);           /* -0.050 */
+    ParamTune_SetKi_milli(-50);           /* 负值 → 清洗落 0（原契约允许负，§37.7 改约） */
     ParamTune_SetKd_milli(1);             /* 0.001 最小分辨率 */
     TEST_ASSERT_TRUE(ParamTune_GetKp_milli() == 2500);
-    TEST_ASSERT_TRUE(ParamTune_GetKi_milli() == -50);
+    TEST_ASSERT_TRUE(ParamTune_GetKi_milli() == 0);
     TEST_ASSERT_TRUE(ParamTune_GetKd_milli() == 1);
 
     LineFollow_GetGains(&kp, &ki, &kd);
-    TEST_ASSERT_TRUE(fabsf(ki - (-0.050f)) < 1e-4f);
+    TEST_ASSERT_TRUE(fabsf(ki - 0.0f) < 1e-4f);
     printf("PASS: test_scale_roundtrip_signed\n");
     return 0;
 }
@@ -332,6 +332,23 @@ static int test_old_v2_blob_ignored_uses_defaults(void)
     return 0;
 }
 
+/* §37.7：负增益从任何入口（UI setter / flash 恢复路径共用 apply）一律落 0。 */
+static int test_negative_gain_clamped_to_zero(void)
+{
+    FakeParamStorePort_Reset();
+    ParamTune_Init();
+    ParamTune_SetKp_milli(-5);            /* LF 直通 setter 路 */
+    TEST_ASSERT_TRUE(ParamTune_GetKp_milli() == 0);
+    ParamTune_SetCKp_milli(-100000);      /* chassis apply 路（负 Kp=正反馈飞车，重点封） */
+    TEST_ASSERT_TRUE(ParamTune_GetCKp_milli() == 0);
+    ParamTune_SetHTKp_milli(-1);          /* heading apply 路 */
+    TEST_ASSERT_TRUE(ParamTune_GetHTKp_milli() == 0);
+    ParamTune_SetTurnDeg(-90);            /* Ang 保留符号（反向转是合法语义） */
+    TEST_ASSERT_TRUE(ParamTune_GetTurnDeg() == -90);
+    printf("PASS: test_negative_gain_clamped_to_zero\n");
+    return 0;
+}
+
 /* PT3v：单设一项保持其余（chassis/heading 组内独立性）。 */
 static int test_new_set_one_preserves_others(void)
 {
@@ -369,6 +386,7 @@ int main(void)
     failures += test_turn_deg_selfheld_default();
     failures += test_v3_save_restores_new_fields();
     failures += test_old_v2_blob_ignored_uses_defaults();
+    failures += test_negative_gain_clamped_to_zero();
     failures += test_new_set_one_preserves_others();
 
     if (failures != 0) {

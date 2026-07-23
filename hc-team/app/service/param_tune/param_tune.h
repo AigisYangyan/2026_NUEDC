@@ -37,25 +37,26 @@
 extern "C" {
 #endif
 
-/* 每次 UP/DOWN 的调整步长（milli 口径占位常量，现场按实际效果再定）。 */
-#define TUNE_STEP_KP_MILLI 10
-#define TUNE_STEP_KI_MILLI 10
-#define TUNE_STEP_KD_MILLI 10
+/* 每次 UP/DOWN 的调整步长（milli 口径；按键无连发=一步一按，按「量程/步长≈10~25 下」
+ * 定，§37.7 步长审计）。LF 增益量程 5~50 milli → 步长 2（原 10 会跳过半数可用值）。 */
+#define TUNE_STEP_KP_MILLI 2
+#define TUNE_STEP_KI_MILLI 2
+#define TUNE_STEP_KD_MILLI 2
 /* DRIVE 组：motion 剖面参数（milli 口径 = 实值 ×1000）+ 测试距离（mm 直读）。 */
-#define TUNE_STEP_CRUISE_MILLI 10
+#define TUNE_STEP_CRUISE_MILLI 20
 #define TUNE_STEP_START_MILLI  10
-#define TUNE_STEP_ACCEL_MILLI  10
-#define TUNE_STEP_DECEL_MILLI  10
+#define TUNE_STEP_ACCEL_MILLI  50
+#define TUNE_STEP_DECEL_MILLI  50
 #define TUNE_STEP_DIST_MM      50
 /* CHAS 组：底盘速度环增益（milli，双轮同值应用）。量纲=PWM/(m/s)，真实值百位量级
  * （milli 屏显 ≈ 1e5），步长按此定 10.0/次——原占位 0.01/次按不动（量级账修正）。 */
 #define TUNE_STEP_CKP_MILLI 10000
 #define TUNE_STEP_CKI_MILLI 10000
 #define TUNE_STEP_CKD_MILLI 1000
-/* HEAD 组：航向调参 + 转弯测试角。 */
-#define TUNE_STEP_HKP_MILLI 10
-#define TUNE_STEP_HKI_MILLI 10
-#define TUNE_STEP_HKD_MILLI 10
+/* HEAD 组：航向调参（H 增益与 LF 同量级 → 步长 2）+ 转弯测试角（负值=反向转，合法）。 */
+#define TUNE_STEP_HKP_MILLI 2
+#define TUNE_STEP_HKI_MILLI 2
+#define TUNE_STEP_HKD_MILLI 2
 #define TUNE_STEP_HTKP_MILLI 5
 #define TUNE_STEP_TURN_DEG  15
 

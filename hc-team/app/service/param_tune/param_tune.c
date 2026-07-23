@@ -76,10 +76,20 @@ static int32_t get_i32(const uint8_t *p)
     return (int32_t)u;
 }
 
+/* 增益输入域清洗（§37.7）：负增益无合法用途（速度环负 Kp=正反馈飞车），UI 按键
+ * `set(get()±step)` 无下界可达负值，flash 旧记录亦可能带负——统一在应用出口落 0。
+ * 这是输入域清洗非输出限幅（PID out_limit 所有权不动）。 */
+static int32_t gain_floor0(int32_t v)
+{
+    return (v < 0) ? 0 : v;
+}
+
 /* 以三个 milli 增益应用到 line_follow（唯一应用出口）。 */
 static void apply_gains_milli(int32_t kp_m, int32_t ki_m, int32_t kd_m)
 {
-    LineFollow_SetGains(milli_to_float(kp_m), milli_to_float(ki_m), milli_to_float(kd_m));
+    LineFollow_SetGains(milli_to_float(gain_floor0(kp_m)),
+                        milli_to_float(gain_floor0(ki_m)),
+                        milli_to_float(gain_floor0(kd_m)));
 }
 
 /* 以四个 milli 剖面参数应用到 motion（唯一应用出口）。 */
@@ -89,20 +99,24 @@ static void apply_profile_milli(int32_t cruise_m, int32_t start_m, int32_t accel
                             milli_to_float(accel_m), milli_to_float(decel_m));
 }
 
-/* 底盘速度环增益：双轮同值应用（唯一应用出口）。 */
+/* 底盘速度环增益：双轮同值应用（唯一应用出口，负值落 0——§37.7）。 */
 static void apply_chassis_milli(int32_t kp_m, int32_t ki_m, int32_t kd_m)
 {
-    Chassis_SetSpeedGains(CHASSIS_SIDE_LEFT, milli_to_float(kp_m),
-                          milli_to_float(ki_m), milli_to_float(kd_m));
-    Chassis_SetSpeedGains(CHASSIS_SIDE_RIGHT, milli_to_float(kp_m),
-                          milli_to_float(ki_m), milli_to_float(kd_m));
+    float kp = milli_to_float(gain_floor0(kp_m));
+    float ki = milli_to_float(gain_floor0(ki_m));
+    float kd = milli_to_float(gain_floor0(kd_m));
+
+    Chassis_SetSpeedGains(CHASSIS_SIDE_LEFT, kp, ki, kd);
+    Chassis_SetSpeedGains(CHASSIS_SIDE_RIGHT, kp, ki, kd);
 }
 
-/* 航向调参应用到 motion（唯一应用出口）。 */
+/* 航向调参应用到 motion（唯一应用出口，负值落 0——§37.7）。 */
 static void apply_heading_milli(int32_t hkp_m, int32_t hki_m, int32_t hkd_m, int32_t htkp_m)
 {
-    Motion_SetHeadingTuning(milli_to_float(hkp_m), milli_to_float(hki_m),
-                            milli_to_float(hkd_m), milli_to_float(htkp_m));
+    Motion_SetHeadingTuning(milli_to_float(gain_floor0(hkp_m)),
+                            milli_to_float(gain_floor0(hki_m)),
+                            milli_to_float(gain_floor0(hkd_m)),
+                            milli_to_float(gain_floor0(htkp_m)));
 }
 
 void ParamTune_Init(void)
@@ -157,21 +171,21 @@ void ParamTune_SetKp_milli(int32_t v)
 {
     float kp, ki, kd;
     LineFollow_GetGains(&kp, &ki, &kd);
-    LineFollow_SetGains(milli_to_float(v), ki, kd);
+    LineFollow_SetGains(milli_to_float(gain_floor0(v)), ki, kd);
 }
 
 void ParamTune_SetKi_milli(int32_t v)
 {
     float kp, ki, kd;
     LineFollow_GetGains(&kp, &ki, &kd);
-    LineFollow_SetGains(kp, milli_to_float(v), kd);
+    LineFollow_SetGains(kp, milli_to_float(gain_floor0(v)), kd);
 }
 
 void ParamTune_SetKd_milli(int32_t v)
 {
     float kp, ki, kd;
     LineFollow_GetGains(&kp, &ki, &kd);
-    LineFollow_SetGains(kp, ki, milli_to_float(v));
+    LineFollow_SetGains(kp, ki, milli_to_float(gain_floor0(v)));
 }
 
 /* ---- motion 剖面参数（委派 motion）--------------------------------------- */
