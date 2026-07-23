@@ -4069,3 +4069,22 @@ forbidden：`middleware/pid/**`、`Debug/makefile`（无新 .o）、其余一切
 - **修订**：allowed_files 增 `hc-team/driver/param_store/param_store.h`
   （仅 `PARAM_STORE_MAX_PAYLOAD 48→96` 一行，静态缓冲 +144B RAM）；
   E03 断言不变（红的四用例转绿即证）。
+
+### 37.5 契约修订 2（2026-07-23，arch-auditor 1 阻断+2 重要处置——先于修复代码显式提交）
+
+1. **[阻断] 陈旧 .o 假绿**：`subdir_rules.mk` 写依赖到 `.d_raw` 而 `Debug/makefile`
+   只 `-include` `.d`——**头文件依赖跟踪整体断裂**，只改 .h 不触发重编。本轮
+   param_store.o 仍是 48 上限的 07-19 产物进链，真机 SAVE 会静默失效。处置：
+   强制删该 .o 重编后重取 E04；**登记长期构建风险：任何只改 .h 的修订必须手动
+   强制重编其 includer**（与「Debug 假绿陷阱」同族，写入 memory）。
+2. **[重要] hold 增益断链**：`Pid_Init` 只在 `Motion_Init` 灌 cfg，`Start*` 只
+   `Pid_Reset`（保留旧 cfg）——持久化 H 增益永远到不了 `s_hold_pid`。修订：
+   `Motion_SetHeadingTuning` 内追加 `Pid_SetGains(&s_hold_pid, …)`（pid.h 现成
+   在线更新 API），**语义升级为即时生效**；out_limit 仍归 Init cfg（单一所有者不破）；
+   motion.h 头注同步改写。
+3. **[重要] TURN 无看门狗**：`Motion_Config_T` 增 `turn_timeout_ticks`（0=禁用，
+   profiled 同款骨架）——`motion_step_turn` 拍数超限 → `Chassis_Stop`+DONE，
+   覆盖 IMU 断线航向冻结/近容差物理失速两个真实无限差速场景；`s_tt_cfg` 设 1000
+   （~10s）；test_motion `default_cfg` 补 0 初始化 + 新增超时用例。
+4. **[建议] param_tune.h 两处 schema_ver 2 陈旧注释改 3。**
+   allowed_files 相应扩：`middleware/pid` 仍 forbidden（只调用现成 API 不改它）。
